@@ -3,9 +3,22 @@
 
 2023-04-03... (`#D2030`...) 1a5c451c...
 
+## New features
+
+- bgproc: support opts `kill9-timeout=TIMEOUT` `#D2034` xxxxxxxx
+
 ## Fixes
 
-- util (`conditional-sync`): fix bugs when `pid=PID` is specified (contributed by bkerin) `#D2031` xxxxxxxx
+- util (`conditional-sync`): fix bugs when `pid=PID` is specified (contributed by bkerin) `#D2031` 09f5cec2 `#D2034` 09f5cec2
+- bgproc: return status of bgproc process `#D2036` xxxxxxxx
+
+## Contrib
+
+- fix(histdb): show error message only when bgproc crashed `#D2036` xxxxxxxx
+
+## Internal changes
+
+- refactor: move files `{keymap/ => lib/keymap.}*` xxxxxxxx
 
 <!---------------------------------------------------------------------------->
 # ble-0.4.0-devel3
@@ -745,7 +758,7 @@
 - decode: use `BRE` instead of `ERE` for `POSIX sed` (reported by dylankb) `#D1283` 2184739
 - decode: fix strange behaviors after `fzf` (convert <kbd>DEL</kbd> to <kbd>C-?</kbd>) `#D1281` 744c8e8
 - edit: work around Bash rebinding on `TERM` change `#D1287` ac7ab55 7a99bf3
-- term: work around terminfo/termcap entry collisions in `tput` (reported by killermoehre) `#D1289` f8c54ef 
+- term: work around terminfo/termcap entry collisions in `tput` (reported by killermoehre) `#D1289` f8c54ef
 - complete: clear menu on discard-line (reported by animecyc) `#D1290` fb794b3 `#D1315` 99880ef
 - vi (vi-command/nth-column): fix a bug in arithmetic expansion (reported by andychu) `#D1292` da6cc47
 - complete: fix a bug that insert-word does not for with ambiguous candidates `#D1295` 2f9a000
@@ -2419,7 +2432,7 @@
     * ble-syntax/completion-context: 一部の補完文脈を file から argument に変更。
   * complete.sh: complete -p 設定に基づく補完。
     * ble-complete/source/argument: 追加
-    
+
 ## 2015-11-22
 * ble-syntax.sh: bash 文法関連の関数名整理。
   * ble-decode.sh (ble-bind): error message に . を追加。古いコメントを削除。
