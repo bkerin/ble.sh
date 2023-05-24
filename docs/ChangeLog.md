@@ -5,20 +5,33 @@
 
 ## New features
 
-- bgproc: support opts `kill9-timeout=TIMEOUT` `#D2034` xxxxxxxx
+- bgproc: support opts `kill9-timeout=TIMEOUT` `#D2034` 3ab41652
+- progcomp(cd): change display name and support mandb desc (requested by EmilySeville7cfg) `#D2039` 74402098
+- cmdspec: add completion options for builtins (motivated by EmilySeville7cfg) `#D2040` 9bd24691
+- syntax: support bash-5.3 function subst `${ list; }` `#2045` xxxxxxxx
 
 ## Fixes
 
 - util (`conditional-sync`): fix bugs when `pid=PID` is specified (contributed by bkerin) `#D2031` 09f5cec2 `#D2034` 09f5cec2
-- bgproc: return status of bgproc process `#D2036` xxxxxxxx
+- bgproc: return status of bgproc process `#D2036` 887d92dd
+- mandb: replace TAB with 4 spaces before removing control characters (reported by EmilySeville7cfg) `#D2038` 313cfb25
+- menu(desc): fix a bug that prefix is not shown with menu-filter `#D2039` e92b78d6
+- progcomp: make option unique after applying mandb description `#D2042` 308ceeed
+- util (`ble/util/idle`): fix an infinite loop `#D2043` 5f4c0afd
+- main: fix `--inputrc=TYPE` not applied on startup `#D2044` 1b15b851 0adce7c9
+
+## Compatibility
+
+- main: check `nawk` version explicitly `#D2037` 0ff7bca1
+- mandb: inject in bash-completion-2.12 interfaces `#D2041` dabc8553
 
 ## Contrib
 
-- fix(histdb): show error message only when bgproc crashed `#D2036` xxxxxxxx
+- fix(histdb): show error message only when bgproc crashed `#D2036` 887d92dd
 
 ## Internal changes
 
-- refactor: move files `{keymap/ => lib/keymap.}*` xxxxxxxx
+- refactor: move files `{keymap/ => lib/keymap.}*` f4c973b8
 
 <!---------------------------------------------------------------------------->
 # ble-0.4.0-devel3

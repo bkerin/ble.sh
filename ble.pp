@@ -1089,10 +1089,16 @@ function ble/bin/awk/.instantiate {
   local path q=\' Q="'\''" ext=1
 
   if ble/util/assign path "builtin type -P -- nawk 2>/dev/null" && [[ $path ]]; then
-    builtin eval "function ble/bin/nawk { '${path//$q/$Q}' -v AWKTYPE=nawk \"\$@\"; }"
-    if [[ ! $_ble_bin_awk_type ]]; then
-      _ble_bin_awk_type=nawk
-      builtin eval "function ble/bin/awk { '${path//$q/$Q}' -v AWKTYPE=nawk \"\$@\"; }" && ext=0
+    # Note: Some distribution (like Ubuntu) provides gawk as "nawk" by
+    # default. To avoid wrongly picking gawk as nawk, we need to check the
+    # version output from the command.
+    ble/util/assign version '"$path" -W version' 2>/dev/null </dev/null
+    if [[ $version != *'GNU Awk'* && $version != *mawk* ]]; then
+      builtin eval "function ble/bin/nawk { '${path//$q/$Q}' -v AWKTYPE=nawk \"\$@\"; }"
+      if [[ ! $_ble_bin_awk_type ]]; then
+        _ble_bin_awk_type=nawk
+        builtin eval "function ble/bin/awk { '${path//$q/$Q}' -v AWKTYPE=nawk \"\$@\"; }" && ext=0
+      fi
     fi
   fi
 
@@ -1119,7 +1125,7 @@ function ble/bin/awk/.instantiate {
       function ble/bin/awk { /usr/xpg4/bin/awk -v AWKTYPE=xpg4 "$@"; } && ext=0
     elif ble/util/assign path "builtin type -P -- awk 2>/dev/null" && [[ $path ]]; then
       local version
-      ble/util/assign version '"$path" --version 2>&1'
+      ble/util/assign version '"$path" -W version || "$path" --version' 2>/dev/null </dev/null
       if [[ $version == *'GNU Awk'* ]]; then
         _ble_bin_awk_type=gawk
       elif [[ $version == *mawk* ]]; then
@@ -2434,6 +2440,10 @@ function ble/base/process-blesh-arguments {
   local inputrc=$_ble_base_arguments_inputrc
 
   _ble_base_rcfile=$_ble_base_arguments_rcfile
+
+  # reconstruction type of user-bindings
+  _ble_decode_initialize_inputrc=$inputrc
+
 #%if measure_load_time
 time {
 #%end
@@ -2450,9 +2460,6 @@ ble/debug/measure-set-timeformat "blerc: '$_ble_base_rcfile'"; }
   (none) ;;
   (*) ble/util/print "ble.sh: unrecognized attach method --attach='$attach'." ;;
   esac
-
-  # reconstruction type of user-bindings
-  _ble_decode_initialize_inputrc=$inputrc
 }
 
 function ble/base/sub:test {

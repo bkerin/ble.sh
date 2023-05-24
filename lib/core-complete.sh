@@ -3512,14 +3512,27 @@ function ble/complete/progcomp/.filter-and-split-compgen {
         next;
       }
 
+      function register_mandb_entry(name, display, entry) {
+        if (name2index[name] != "") {
+          # Remove duplicates after removing trailing /=$/.  If the new
+          # "display" is longer, overwrite the existing one.
+          if (length(display) <= length(name2display[name])) return;
+          name2display[name] = display;
+          entries[name2index[name]] = entry;
+        } else {
+          name2index[name] = mandb_count;
+          name2display[name] = display;
+          entries[mandb_count++] = entry;
+        }
+      }
+
       !hash[$0]++ {
         if (/^$/) next;
 
         name = $0
         sub(/=$/, "", name);
         if (mandb[name]) {
-          mandb_count++;
-          print mandb[name];
+          register_mandb_entry(name, $0, mandb[name]);
           next;
         } else if (sub(/^--no-/, "--", name)) {
 
@@ -3538,8 +3551,7 @@ function ble/complete/progcomp/.filter-and-split-compgen {
                 optarg = "";
                 suffix = " ";
               }
-              mandb_count++;
-              print option FS optarg FS suffix FS desc;
+              register_mandb_entry(name, $0, option FS optarg FS suffix FS desc);
             }
             next;
           }
@@ -3549,7 +3561,13 @@ function ble/complete/progcomp/.filter-and-split-compgen {
         print $0;
       }
 
-      END { if (mandb_count) exit 10; }
+      END {
+        if (mandb_count) {
+          for (i = 0; i < mandb_count; i++)
+            print entries[i];
+          exit 10;
+        }
+      }
     '
     ble/util/assign-array "$1" 'ble/bin/awk -F "$_ble_term_FS" "$awk_script" "${args_mandb[@]}" mode=compgen - <<< "$out"'
     (($?==10)) && flag_mandb=1
@@ -3658,7 +3676,10 @@ function ble/complete/progcomp/.compgen {
       ble-import -f contrib/integration/fzf-completion
 
     # bash_completion
-    if ble/is-function _quote_readline_by_ref; then
+    if ble/is-function _comp_initialize; then
+      # bash-completion 2.12
+      ble/complete/mandb:bash-completion/inject
+    elif ble/is-function _quote_readline_by_ref; then
       # https://github.com/scop/bash-completion/pull/492 (fixed in bash-completion 2.12)
       function _quote_readline_by_ref {
         if [[ $1 == \'* ]]; then
@@ -3679,7 +3700,7 @@ function ble/complete/progcomp/.compgen {
       # https://github.com/scop/bash-completion/pull/773 (fixed in bash-completion 2.12)
       ble/function#suppress-stderr _function 2>/dev/null
 
-      ble/complete/mandb:_parse_help/inject
+      ble/complete/mandb:bash-completion/inject
     fi
 
     # cobra GenBashCompletionV2
@@ -4008,7 +4029,8 @@ function ble/complete/progcomp {
 # オプション名に現れる事を許す文字の集合 (- と + を除く)
 # Exclude non-ASCII or symbols /[][()<>{}="'\''`]/
 # Note: awk の正規表現内部で使っても大丈夫な様に \ と / をエスケープしている。
-_ble_complete_option_chars='_!#$%&:;.,^~|\\?\/*a-zA-Z0-9'
+# Note (#D2039): @ は cd -@ で使われている
+_ble_complete_option_chars='_!#$%&:;.,^~|\\?\/*a-zA-Z0-9@'
 
 # action:mandb
 #
@@ -4284,6 +4306,7 @@ function ble/complete/mandb/.generate-cache-from-man {
   local command=$1
   local ret
   ble/complete/mandb/search-file "$command" || return 1
+  local LC_ALL= LC_COLLATE=C 2>/dev/null
   local path=$ret
   case $ret in
   (*.gz)       ble/bin/gzip -cd "$path" ;;
@@ -4585,6 +4608,7 @@ function ble/complete/mandb/.generate-cache-from-man {
 
       gsub(/\x1b\[[ -?]*[@-~]/, "", line); # CSI seq
       gsub(/\x1b[ -\/]*[0-~]/, "", line); # ESC seq
+      gsub(/\t/, "    ", line); # HT
       gsub(/.\x08/, "", line); # CHAR BS
       gsub(/\x0E/, "", line); # SO
       gsub(/\x0F/, "", line); # SI
@@ -4689,6 +4713,7 @@ function ble/complete/mandb/.generate-cache-from-man {
     { process_line($0); }
     END { flush_pair(); }
   ' | ble/bin/sort -t "$_ble_term_FS" -k 1
+  ble/util/unlocal LC_COLLATE LC_ALL 2>/dev/null
 }
 
 ## @fn ble/complete/mandb:help/generate-cache [opts]
@@ -4703,12 +4728,15 @@ function ble/complete/mandb:help/generate-cache {
   local space=$' \t' # for #D1709 (WA gawk 4.0.2)
   local rex_argsep='(\[?[:=]|  ?|\[)'
   local rex_option='[-+](,|[^]:='$space',[]+)('$rex_argsep'(<[^<>]+>|\([^()]+\)|\[[^][]+\]|[^-[:space:]、。][^[:space:]、。]*))?([,[:space:]]|$)'
+  local LC_ALL= LC_COLLATE=C 2>/dev/null
   ble/bin/awk -F "$_ble_term_FS" '
     BEGIN {
       cfg_help = ENVIRON["cfg_help"];
-      g_indent = -1;
-      g_keys_count = 0;
-      g_desc = "";
+      g_help_indent = -1;
+      g_help_score = -1; # score based on indent and the interval between the
+                         # option and desc. smaller is better.
+      g_help_keys_count = 0;
+      g_help_desc = "";
 
       cfg_usage = ENVIRON["cfg_usage"];
       g_usage_count = 0;
@@ -4732,8 +4760,8 @@ function ble/complete/mandb:help/generate-cache {
       if (name ~ /^\+/ && !cfg_plus) return;
 
       if (entries_index[name] != "") {
-        ientry = entries_index[name];
         if (score >= entries_score[name]) return;
+        ientry = entries_index[name];
       } else {
         ientry = entries_count++;
         entries_keys[ientry] = name;
@@ -4777,6 +4805,7 @@ function ble/complete/mandb:help/generate-cache {
     {
       gsub(/\x1b\[[ -?]*[@-~]/, ""); # CSI seq
       gsub(/\x1b[ -\/]*[0-~]/, ""); # ESC seq
+      gsub(/\t/, "    "); # HT
       gsub(/[\x00-\x1F]/, ""); # Remove all the other C0 chars
     }
 
@@ -4852,28 +4881,33 @@ function ble/complete/mandb:help/generate-cache {
       }
       return ret;
     }
-    function flush_data(_, i, desc, prev_opt) {
-      if (g_indent < 0) return;
-      for (i = 0; i < g_keys_count; i++) {
-        desc = g_desc;
+    function help_flush(_, i, desc, prev_opt) {
+      if (g_help_indent < 0) return;
+      for (i = 0; i < g_help_keys_count; i++) {
+        desc = g_help_desc;
 
         # show a short option
-        if (i > 0 && g_keys[i] ~ /^--/) {
-          prev_opt = g_keys[i - 1];
+        if (i > 0 && g_help_keys[i] ~ /^--/) {
+          prev_opt = g_help_keys[i - 1];
           sub(/\034.*/, "", prev_opt);
-          if (prev_opt ~ /^-[^-]$/)
+          if (prev_opt ~ /^-[^-]$/) {
+            # Note: This particular form of desc is used by
+            # ble/complete/mandb:bash-completion/_parse_help.advice.  When we
+            # change the format, the function also needs to be updated.
             desc = "\033[1m[\033[0;36m" prev_opt "\033[0;1m]\033[m " desc;
+          }
         }
 
-        entries_register(g_keys[i] FS desc, g_indent);
+        entries_register(g_help_keys[i] FS desc, g_help_score);
       }
-      g_indent = -1;
-      g_keys_count = 0;
-      g_desc = "";
+      g_help_indent = -1;
+      g_help_keys_count = 0;
+      g_help_desc = "";
     }
-    function register_key(keydef, _, key, keyinfo, keys, nkey, i, optarg) {
-      if (g_desc != "") flush_data();
-      g_indent = get_indent(keydef);
+    function help_start(keydef, _, key, keyinfo, keys, nkey, i, optarg) {
+      if (g_help_desc != "") help_flush();
+      g_help_indent = get_indent(keydef);
+      g_help_score = g_help_indent;
 
       nkey = 0;
       for (;;) {
@@ -4916,15 +4950,15 @@ function ble/complete/mandb:help/generate-cache {
 
       for (i = 0; i < nkey; i++)
         if ((keyinfo = split_option_optarg_suffix(keys[i])) != "")
-          g_keys[g_keys_count++] = keyinfo;
+          g_help_keys[g_help_keys_count++] = keyinfo;
     }
-    function append_desc(desc) {
+    function help_append_desc(desc) {
       gsub(/^[[:space:]]+|[[:space:]]$/, "", desc);
       if (desc == "") return;
-      if (g_desc == "")
-        g_desc = desc;
+      if (g_help_desc == "")
+        g_help_desc = desc;
       else
-        g_desc = g_desc " " desc;
+        g_help_desc = g_help_desc " " desc;
     }
 
     # Note (#D1847): We here restrict the number of spaces between synonymous
@@ -4934,36 +4968,44 @@ function ble/complete/mandb:help/generate-cache {
       key = substr($0, 1, RLENGTH);
       desc = substr($0, RLENGTH + 1);
       if (desc ~ /^,/) next;
-      register_key(key);
-      append_desc(desc);
+      help_start(key);
+      help_append_desc(desc);
+      if (desc !~ /^[[:space:]]/) g_help_score += 100;
       next;
     }
-    g_indent >= 0 {
+    g_help_indent >= 0 {
       sub(/[[:space:]]+$/, "");
       indent = get_indent($0);
-      if (indent <= g_indent)
-        flush_data();
+      if (indent <= g_help_indent)
+        help_flush();
       else
-        append_desc($0);
+        help_append_desc($0);
     }
 
     #--------------------------------------------------------------------------
 
     END {
-      flush_data();
+      help_flush();
       usage_generate();
       generate_plus();
       entries_dump();
     }
   ' | ble/bin/sort -t "$_ble_term_FS" -k 1
+  ble/util/unlocal LC_COLLATE LC_ALL 2>/dev/null
 }
 
-function ble/complete/mandb:_parse_help/inject {
-  ble/is-function _parse_help || return 0
-  ble/function#advice before _parse_help 'ble/complete/mandb:_parse_help/generate-cache "${ADVICE_WORDS[1]}" "${ADVICE_WORDS[2]}"' &&
-    ble/function#advice before _longopt 'ble/complete/mandb:_parse_help/generate-cache "${ADVICE_WORDS[1]}"' &&
-    ble/function#advice before _parse_usage 'ble/complete/mandb:_parse_help/generate-cache "${ADVICE_WORDS[1]}" "${ADVICE_WORDS[2]}" usage' &&
-    function ble/complete/mandb:_parse_help/inject { return 0; }
+function ble/complete/mandb:bash-completion/inject {
+  if ble/is-function _comp_compgen_help; then
+    # bash-completion 2.12
+    ble/function#advice after _comp_compgen_help__get_help_lines 'ble/complete/mandb:bash-completion/_get_help_lines.advice' &&
+      ble/function#advice before _comp_longopt 'ble/complete/mandb:bash-completion/_parse_help.advice "${ADVICE_WORDS[1]}"' &&
+      function ble/complete/mandb:bash-completion/inject { return 0; }
+  elif ble/is-function _parse_help; then
+    ble/function#advice before _parse_help 'ble/complete/mandb:bash-completion/_parse_help.advice "${ADVICE_WORDS[1]}" "${ADVICE_WORDS[2]}"' &&
+      ble/function#advice before _longopt 'ble/complete/mandb:bash-completion/_parse_help.advice "${ADVICE_WORDS[1]}"' &&
+      ble/function#advice before _parse_usage 'ble/complete/mandb:bash-completion/_parse_help.advice "${ADVICE_WORDS[1]}" "${ADVICE_WORDS[2]}"' &&
+      function ble/complete/mandb:bash-completion/inject { return 0; }
+  fi
 } 2>/dev/null # _parse_help が別の枠組みで定義されている事がある? #D1900
 
 ## @fn ble/string#hash-pjw text [size shift]
@@ -4983,27 +5025,95 @@ function ble/string#hash-pjw {
   ret=$h
 }
 
-## @fn ble/complete/mandb:_parse_help/generate-cache command [args] [opts]
-function ble/complete/mandb:_parse_help/generate-cache {
-  [[ $_ble_attached ]] || return 0
+## @fn ble/complete/mandb:bash-completion/.alloc-subcache command hash [opts]
+##   @var[out] ret
+function ble/complete/mandb:bash-completion/.alloc-subcache {
+  ret=
+  [[ $_ble_attached ]] || return 1
 
-  local command=$1; [[ $1 == ble*/* ]] || command=${1##*/}
-  local ret; ble/string#hash-pjw "${*:2}" 64; local hash=$ret
+  local command=$1 hash=$2 opts=$3
+  if [[ :$opts: == *:dequote:* ]]; then
+    ble/syntax:bash/simple-word/is-simple "$command" &&
+      ble/syntax:bash/simple-word/eval "$command" noglob &&
+      command=$ret
+  fi
+  [[ $command ]] || return 1
+
+  [[ $command == ble*/* ]] || command=${1##*/}
+  ble/string#hash-pjw "$args" 64; local hash=$ret
   local lc_messages=${LC_ALL:-${LC_MESSAGES:-${LANG:-C}}}
   local mandb_cache_dir=$_ble_base_cache/complete.mandb/${lc_messages//'/'/%}
-  local subcache; ble/util/sprintf subcache '%s.%014x' "$mandb_cache_dir/_parse_help.d/$command" "$hash"
+  ble/util/sprintf ret '%s.%014x' "$mandb_cache_dir/_parse_help.d/$command" "$hash"
 
-  [[ -s $subcache && $subcache -nt $_ble_base/lib/core-complete.sh ]] && return 0
+  [[ -s $ret && $ret -nt $_ble_base/lib/core-complete.sh ]] && return 1
 
-  ble/util/mkd "${subcache%/*}"
-  if [[ $1 == - ]]; then
-    ble/complete/mandb:help/generate-cache "$3"
+  ble/util/mkd "${ret%/*}"
+}
+
+## @fn ble/complete/mandb:bash-completion/_parse_help.advice command args
+function ble/complete/mandb:bash-completion/_parse_help.advice {
+  local cmd=$1 args=$2 func=$ADVICE_FUNCNAME
+  # 現在のコマンド名。 Note: ADVICE_WORDS には実際に現在補完しようとしているコ
+  # マンドとは異なるものが指定される場合があるので (例えば help や - 等) 信用で
+  # きない。
+  local command=${COMP_WORDS[0]-} hash="${ADVICE_WORDS[*]}" ret
+  ble/complete/mandb:bash-completion/.alloc-subcache "$command" "$hash" dequote || return 0
+  local subcache=$ret
+
+  local default_option=--help help_opts=
+  [[ $func == _parse_usage ]] &&
+    default_option=--usage help_opts=mandb-usage
+
+  if [[ ( $func == _parse_help || $func == _parse_usage ) && $cmd == - ]]; then
+    # 標準入力からの読み取り
+    ble/complete/mandb:help/generate-cache "$help_opts" >| "$subcache"
+
+    # Note: _parse_help が読み取る筈だった内容を横取りしたので抽出した内容を標
+    # 準出力に出力する。但し、対応する long option がある short option は除外す
+    # る。
+    LC_ALL= LC_COLLATE=C ble/bin/awk -F "$_ble_term_FS" '
+      BEGIN { entry_count = 0; }
+      {
+        entries[entry_count++] = $1;
+
+        # Assumption: the descriptions of long options have the form
+        # "[short_opt] desc".  The format is defined by
+        # ble/complete/mandb:help/generate-cache.
+        desc = $4;
+        gsub(/\033\[[ -?]*[@-~]/, "", desc);
+        if (match(desc, /^\[[^][:space:][]*\] /) > 0) { # #D1709 safe
+          short_opt = substr(desc, 2, RLENGTH - 3);
+          excludes[short_opt] =1;
+        }
+      }
+      END {
+        for (i = 0; i < entry_count; i++)
+          if (!excludes[entries[i]])
+            print entries[i];
+      }
+    ' "$subcache" 2>/dev/null # suppress locale error #D1440
   else
-    local args default_option=--help
-    [[ :$3: == *:usage:* ]] && default_option=--usage
-    ble/string#split-words args "${2:-$default_option}"
-    "$1" "${args[@]}" 2>&1 | ble/complete/mandb:help/generate-cache "$3"
-  fi >| "$subcache"
+    local cmd_args
+    ble/string#split-words cmd_args "${args:-$default_option}"
+    "$cmd" "${cmd_args[@]}" 2>&1 | ble/complete/mandb:help/generate-cache "$help_opts" >| "$subcache"
+  fi
+}
+
+function ble/complete/mandb:bash-completion/_get_help_lines.advice {
+  ((${#_lines[@]})) || return 0
+
+  # @var cmd
+  #   現在のコマンド名。Note: _comp_command_offset 等によって別のコマンドの補完
+  #   を呼び出している場合があるので ble.sh の用意する comp_words は信用できな
+  #   い。bash-completion の使っている _comp_args[0] または bash-completion が
+  #   上書きしている COMP_WORDS を参照する。
+  local cmd=${_comp_args[0]-${COMP_WORDS[0]-}} hash="${ADVICE_WORDS[*]}"
+  ble/complete/mandb:bash-completion/.alloc-subcache "$cmd" "$hash" dequote || return 0
+  local subcache=$ret
+
+  local help_opts=
+  [[ ${ADVICE_FUNCNAME[1]} == *_usage ]] && help_opts=mandb-usage
+  printf '%s\n' "${_lines[@]}" | ble/complete/mandb:help/generate-cache "$help_opts" >| "$subcache"
 }
 
 ## @fn ble/complete/mandb/generate-cache cmdname
@@ -5059,9 +5169,22 @@ function ble/complete/mandb/generate-cache {
   done
 
   if [[ $update ]]; then
+    local -x exclude=
+    ble/opts#extract-last-optarg "$cmdspec_opts" mandb-exclude && exclude=$ret
+
     local fs=$_ble_term_FS
     ble/bin/awk -F "$_ble_term_FS" '
-      BEGIN { plus_count = 0; nodesc_count = 0; }
+      BEGIN {
+        plus_count = 0;
+        nodesc_count = 0;
+        exclude = ENVIRON["exclude"];
+      }
+      function emit(name, entry) {
+        hash[name] = entry;
+        if (exclude != "" && name ~ exclude) return;
+        print entry;
+      }
+
       $4 == "" {
         if ($1 ~ /^\+/) {
           plus_name[plus_count] = $1;
@@ -5074,16 +5197,13 @@ function ble/complete/mandb/generate-cache {
         }
         next;
       }
-      !hash[$1] { hash[$1] = $0; print; }
+      !hash[$1] { emit($1, $0); }
 
       END {
         # minus options
-        for (i = 0; i < nodesc_count; i++) {
-          if (!hash[nodesc_name[i]]) {
-            hash[nodesc_name[i]] = nodesc_entry[i];
-            print nodesc_entry[i];
-          }
-        }
+        for (i = 0; i < nodesc_count; i++)
+          if (!hash[nodesc_name[i]])
+            emit(nodesc_name[i], nodesc_entry[i]);
 
         # plus options
         for (i = 0; i < plus_count; i++) {
@@ -5110,8 +5230,7 @@ function ble/complete/mandb/generate-cache {
           }
 
           if (!desc) desc = "reverse of \033[4m" mname "\033[m";
-          hash[name] = name FS optarg FS suffix FS desc;
-          print hash[name];
+          emit(name, name FS optarg FS suffix FS desc);
         }
       }
     ' "${subcaches[@]}" >| "$fcache"
@@ -5194,6 +5313,7 @@ function ble/complete/source:option {
 ##     complete. COMPV is, if available, its current value after
 ##     evaluation. The variable "comp_type" contains additional flags
 ##     for the completion context.
+##   @var[ref] cand_iloop
 ##
 function ble/complete/source:option/generate-for-command {
   local cmd=$1 prev_args
@@ -5227,7 +5347,7 @@ function ble/complete/source:option/generate-for-command {
   for entry in "${entries[@]}"; do
     ((cand_iloop++%bleopt_complete_polling_cycle==0)) &&
       ble/complete/check-cancel && return 148
-    local CAND=${entry%%$_ble_term_FS*}
+    local CAND=${entry%%$fs*}
     [[ $CAND == "$COMPV"* ]] || continue
     ble/complete/cand/yield mandb "$CAND" "$entry"
     [[ $entry == *"$fs"*"$fs"*"$fs"?* ]] && has_desc=1
@@ -6390,7 +6510,7 @@ function ble/complete/menu-complete.class/render-item {
 
   # 一致部分の出力
   if ((${#m[@]})); then
-    local i iN=${#m[@]} p p0=0 out=
+    local i iN=${#m[@]} p p0=0
     for ((i=0;i<iN;i++)); do
       ((p=m[i]))
       if ((p0<p)); then
@@ -9151,6 +9271,93 @@ function ble-decode/keymap:dabbrev/define {
 #------------------------------------------------------------------------------
 # default cmdinfo/complete
 
+## @fn ble/cmdinfo/complete/yield-flag cmd flags [opts]
+##   "-${flags}X" の X を補完する。
+##   @param[in] cmd
+##     mandb 検索に用いるコマンド名
+##   @param[in] flags
+##     可能なオプション文字の一覧
+##   @param[in,opt] opts
+##     コロン区切りのリスト
+##
+##     dedup[=XFLAGS]
+##       既に指定されている排他的フラグは除外します。XFLAGS には排他的フラグの
+##       集合を指定します。省略または空文字列を指定した場合は全てのフラグが排他
+##       的であると見なします。
+##
+##     cancel-on-empty
+##       候補のフラグがもうない場合に補完候補生成をキャンセルします。既定では、
+##       候補のフラグがもうない場合には現在入力済みの内容で補完確定します。
+##
+##     hasarg=AFLAGS
+##       オプション引数を持つフラグの集合を指定します。この文字集合に含まれる文
+##       字が既に COMPV に指定されている場合にはオプションは補完しません。
+##
+##   @var[in] COMPV
+
+ble/complete/action#inherit-from mandb.flag mandb
+function ble/complete/action:mandb.flag/initialize {
+  ble/complete/action:mandb/initialize "$@"
+}
+function ble/complete/action:mandb.flag/init-menu-item {
+  ble/complete/action:mandb/init-menu-item
+  prefix=${CAND::!!PREFIX_LEN}
+}
+
+function ble/cmdinfo/complete/yield-flag {
+  local cmd=$1 flags=$2 opts=$3
+  [[ $COMPV != [!-]* && $COMPV != --* && $flags ]] || return 1
+
+  local "${_ble_complete_yield_varnames[@]/%/=}" # WA #D1570 checked
+  ble/complete/cand/yield.initialize mandb
+
+  # opts dedup
+  local ret
+  if [[ ${COMPV:1} ]] && ble/opts#extract-last-optarg "$opts" dedup "$flags"; then
+    local specified_flags=${ret//[!"${COMPV:1}"]}
+    flags=${flags//["$specified_flags"]}
+  fi
+
+  if ble/opts#extract-last-optarg "$opts" hasarg; then
+    [[ $COMPV == -*["$ret"]* ]] && return 1
+  fi
+
+  if [[ ! $flags ]]; then
+    [[ :$opts: == *:cancel-on-empty:* ]] && return 1
+
+    # 候補のフラグがもうない場合は現在の内容で一意確定
+    local "${_ble_complete_yield_varnames[@]/%/=}" # WA #D1570 checked
+    ble/complete/cand/yield.initialize word
+    ble/complete/cand/yield word "$COMPV"
+    return "$?"
+  fi
+
+  local COMP_PREFIX=$COMPV
+
+  # desc が mandb に見つかればそれを適用する
+  local has_desc=
+  if local ret; ble/complete/mandb/load-cache "$cmd"; then
+    local entry fs=$_ble_term_FS
+    for entry in "${ret[@]}"; do
+      ((cand_iloop++%bleopt_complete_polling_cycle==0)) &&
+        ble/complete/check-cancel && return 148
+      local option=${entry%%$fs*}
+      [[ $option == -? && ${option:1} == ["$flags"] ]] || continue
+      ble/complete/cand/yield mandb.flag "$COMPV${option:1}" "$entry"
+      [[ $entry == *"$fs"*"$fs"*"$fs"?* ]] && has_desc=1
+      flags=${flags//${option:1}}
+    done
+    [[ $has_desc ]] && bleopt complete_menu_style=desc
+  fi
+
+  # 見つからない場合には説明なしで生成する
+  local i
+  for ((i=0;i<${#flags};i++)); do
+    ble/complete/cand/yield mandb.flag "$COMPV${flags:i:1}"
+  done
+}
+
+
 # action:cdpath (action:file を修正)
 
 function ble/complete/action:cdpath/initialize {
@@ -9193,28 +9400,66 @@ function ble/cmdinfo/complete:cd/.impl {
   local type=$1
   [[ $comps_flags == *v* ]] || return 1
 
-  if [[ $COMPV == -* ]]; then
-    local action=word
-    case $type in
-    (pushd)
-      if [[ $COMPV == - || $COMPV == -n ]]; then
-        local "${_ble_complete_yield_varnames[@]/%/=}" # WA #D1570 checked
-        ble/complete/cand/yield.initialize "$action"
-        ble/complete/cand/yield "$action" -n
-      fi ;;
-    (*)
-      COMP_PREFIX=$COMPV
-      local -a list=()
+  case $type in
+  (pushd|popd|dirs)
+    # todo: -- より後の [-+]* は処理しない
+    # todo: 実は -N/+N はオプションではなく通常引数
+    if [[ $COMPV == [-+]* ]]; then
+      local old_cand_count=$cand_count
+
+      # yield options
+      local flags=n
+      [[ $type == dirs ]] && flags=clpv
+      ble/cmdinfo/complete/yield-flag "$type" "$flags" dedup:hasarg=0123456789:cancel-on-empty
+
       local "${_ble_complete_yield_varnames[@]/%/=}" # WA #D1570 checked
-      ble/complete/cand/yield.initialize "$action"
-      [[ $COMPV == -* ]] && ble/complete/cand/yield "$action" "${COMPV}"
-      [[ $COMPV != *L* ]] && ble/complete/cand/yield "$action" "${COMPV}L"
-      [[ $COMPV != *P* ]] && ble/complete/cand/yield "$action" "${COMPV}P"
-      ((_ble_bash>=40200)) && [[ $COMPV != *e* ]] && ble/complete/cand/yield "$action" "${COMPV}e"
-      ((_ble_bash>=40300)) && [[ $COMPV != *@* ]] && ble/complete/cand/yield "$action" "${COMPV}@" ;;
-    esac
-    return 0
-  fi
+      ble/complete/cand/yield.initialize word
+      local ret
+      ble/color/face2sgr-ansi filename_directory
+      local sgr1=$ret sgr0=$'\e[m'
+
+      # yield -N/+N
+      local i n=${#DIRSTACK[@]}
+      for ((i=0;i<n;i++)); do
+        local cand=${COMPV::1}$i
+        [[ $cand == "$COMPV"* ]] || continue
+        local j=$i; [[ $COMPV == -* ]] && j=$((n-1-i))
+        ble/complete/cand/yield word "$cand" "DIRSTACK[$j] $sgr1${DIRSTACK[j]}$sgr0"
+      done
+
+      # yield - and -- for pushd
+      if [[ $type == pushd ]]; then
+        [[ ${OLDPWD:-} && $COMPV == - ]] &&
+          ble/complete/cand/yield word - "OLDPWD $sgr1$OLDPWD$sgr0"
+        [[ -- == "$COMPV"* ]] &&
+          ble/complete/cand/yield word -- '(indicate the end of options)'
+      fi
+
+      ((cand_count!=old_cand_count)) && return 0
+    fi
+    [[ $type == pushd ]] || return 0 ;;
+  (*)
+    # todo: -- より後の [-+]* は処理しない
+    if [[ $COMPV == -* ]]; then
+      local list=LP
+      ((_ble_bash>=40200)) && list=${list}e
+      ((_ble_bash>=40300)) && list=${list}@
+      ble/cmdinfo/complete/yield-flag cd "$list" dedup
+
+      local "${_ble_complete_yield_varnames[@]/%/=}" # WA #D1570 checked
+      ble/complete/cand/yield.initialize word
+      if [[ ${OLDPWD:-} && $COMPV == - ]]; then
+        local ret
+        ble/color/face2sgr-ansi filename_directory
+        local sgr1=$ret sgr0=$'\e[m'
+        ble/complete/cand/yield word - "OLDPWD $sgr1$OLDPWD$sgr0"
+      fi
+      [[ -- == "$COMPV"* ]] &&
+        ble/complete/cand/yield word -- '(indicate the end of options)'
+
+      return 0
+    fi
+  esac
 
   [[ :$comp_type: != *:[maA]:* && $COMPV =~ ^.+/ ]] && COMP_PREFIX=${BASH_REMATCH[0]}
   [[ :$comp_type: == *:[maA]:* && ! $COMPV ]] && return 1
@@ -9292,6 +9537,12 @@ function ble/cmdinfo/complete:cd {
 }
 function ble/cmdinfo/complete:pushd {
   ble/cmdinfo/complete:cd/.impl pushd
+}
+function ble/cmdinfo/complete:popd {
+  ble/cmdinfo/complete:cd/.impl popd
+}
+function ble/cmdinfo/complete:dirs {
+  ble/cmdinfo/complete:cd/.impl dirs
 }
 
 blehook/invoke complete_load
