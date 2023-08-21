@@ -5466,6 +5466,13 @@ function ble/complete/source:argument/.generate-user-defined-completion {
 function ble/complete/source:argument/generate {
   local old_cand_count=$cand_count
 
+  # FIXME: Ok, maybe here is where a better version of user-defined completion
+  # done with the full command line could be added (because built-in bash
+  # completion sucks and can't handle multiple lines).  But for this to be
+  # useful and predictable ble/syntax/completion-context/generate would have
+  # to work for everything or at least ble/syntax/completion-context/generate
+  # would have to work somehow even if the former didn't
+
   #----------------------------------------------------------------------------
   # 1. Attempt user-defined completion
   ble/complete/source:argument/.generate-user-defined-completion; local ext=$?
@@ -5648,6 +5655,7 @@ function ble/complete/context:syntax/generate-sources {
   ble/syntax/import
   ble-edit/content/update-syntax
   ble/cmdspec/initialize # load user configruation
+  # FIXME:  I think this func fails and returns nothing when inside HERE doc
   ble/syntax/completion-context/generate "$comp_text" "$comp_index"
   ((${#sources[@]}))
 }
@@ -6759,6 +6767,53 @@ function ble/complete/menu/generate-candidates-from-menu {
 #==============================================================================
 # 補完
 
+# Provide a simplified interface to some of the variables that blesh uses
+# for input/output when doing completion.  Custom completers invoked by
+# this adapter need to understand only comp_text and comp_index, and return
+# 0 with only cword_start, cword_end, and completion_words (an array) set
+# if they have a candidate set to be used, or return non-zero if they do not.
+# FIXME: rename this function according to ble.sh style
+function customCompleterAdapter {
+
+  if [ `type -t myCustomCompleter` != 'function' ]; then
+    # FIXME: make this an assertion violation of some sort
+    false
+  fi
+
+  # FIXME: rename interface vars according to ble.sh style for public stuff
+  # Input vars
+  local comp_text="$_ble_edit_str" comp_index="$_ble_edit_ind"
+  # Output vars
+  local cword_start cword_end
+  # FIXME: IIRC there was something in style guide about how to declare array
+  # vars, not sure whether we want -a here or not or something different
+  local -a completion_words
+  myCustomCompleter; local ext=$?
+  ((ext)) && return "$ext"
+
+  local cword=${comp_text:$cword_start:(($cword_end-$cword_start))}
+
+  COMP1="$cword_start"
+  COMP2="$cword_end"
+  COMPS="$cword"
+  COMPV="$COMPS"   # Because no support for quote removal or param expansion
+
+  for cand in "${completion_words[@]}"; do
+    local flag_source_filter=1
+    # FIXME: entirelyCumsom name should change
+    ble/complete/cand/yield "entirelyCustom" "$cand"
+  done
+  cand_count="${#completion_words[@]}"
+
+  cand_limit_reached=0
+
+  return 0
+}
+
+function ble/complete/action:entirelyCustom/initialize {
+  ble/complete/action/quote-insert
+}
+
 ## @fn ble/complete/generate-candidates-from-opts opts
 ##   @var[out] COMP1 COMP2 COMPS COMPV comp_type comps_flags comps_fixed
 ##   @var[out] cand_count cand_cand cand_word cand_pack
@@ -6769,12 +6824,23 @@ function ble/complete/generate-candidates-from-opts {
   # 文脈の決定
   local context; ble/complete/complete/determine-context-from-opts "$opts"
 
+  echo "checkpoint A" >>/tmp/mlf
+
   # 補完源の生成
   comp_type=
   [[ :$opts: == *:auto_menu:* ]] && comp_type=auto_menu
   local comp_text=$_ble_edit_str comp_index=$_ble_edit_ind
   local sources
+
+  echo "checkpoint B" >>/tmp/mlf
+
+  if [ `type -t myCustomCompleter` = 'function' ]; then
+    customCompleterAdapter && return 0
+  fi
+
   ble/complete/context:"$context"/generate-sources "$comp_text" "$comp_index" || return "$?"
+
+  echo "checkpoint C" >>/tmp/mlf
 
   ble/complete/candidates/generate "$opts"
 }
