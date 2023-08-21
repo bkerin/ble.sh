@@ -58,6 +58,7 @@ bleopt/declare -n complete_auto_delay 1
 bleopt/declare -v complete_auto_wordbreaks "$_ble_term_IFS"
 bleopt/declare -v complete_auto_menu ''
 bleopt/declare -v complete_allow_reduction ''
+bleopt/declare -v complete_requote_threshold 0
 
 ## @bleopt complete_menu_style
 ##   補完候補のリスト表示のスタイルを指定します。
@@ -135,3 +136,8 @@ function bleopt/check:complete_source_sabbrev_ignore {
 
 ble/color/defface auto_complete bg=254,fg=238
 ble/color/defface cmdinfo_cd_cdpath fg=26,bg=155
+
+# ble/color/defface menu_filter_fixed bg=247,bold
+# ble/color/defface menu_filter_input bg=147,bold
+ble/color/defface menu_filter_fixed bold
+ble/color/defface menu_filter_input fg=16,bg=229

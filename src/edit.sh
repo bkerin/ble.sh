@@ -878,7 +878,7 @@ function ble/prompt/.process-backslash {
   # \\ の次の文字
   local c=${tail:1:1} pat='][#!$\'
   if [[ $c == ["$pat"] ]]; then
-    case "$c" in
+    case $c in
     (\[) ble/canvas/put.draw $'\001' ;; # \[ \] は後処理の為、適当な識別用の文字列を出力する。
     (\]) ble/canvas/put.draw $'\002' ;;
     ('#') # コマンド番号 (本当は history に入らない物もある…)
@@ -1974,7 +1974,7 @@ function ble/edit/info/.construct-content {
   x=0 y=0 content=
 
   local type=$1 text=$2
-  case "$1" in
+  case $1 in
   (clear) ;;
   (ansi|esc)
     local trace_opts=truncate
@@ -3747,10 +3747,10 @@ function ble/edit/display-version/git-hash-object {
     ble/util/assign ret 'git hash-object "$file"'
     ret="hash:$ret, $size bytes"
   elif ble/bin#has sha1sum; then
-    local _ble_local_tmpfile; ble/util/assign/.mktmp
+    local _ble_local_tmpfile; ble/util/assign/mktmp
     { printf 'blob %d\0' "$size"; ble/bin/cat "$file"; } >| "$_ble_local_tmpfile"
     blob_data=$_ble_local_tmpfile ble/util/assign ret 'sha1sum "$blob_data"'
-    ble/util/assign/.rmtmp
+    ble/util/assign/rmtmp
 
     ble/string#split-words ret "$ret"
     ret="sha1:$ret, $size bytes"
@@ -3849,8 +3849,8 @@ function ble/edit/display-version/check:starship {
 
   local awk_script='
     sub(/^starship /, "") { version = $0; next; }
-    sub(/^branch:/, "") { gsub(/[[:space:]]/, "_"); if ($0 != "") version = version "-" $0; next; }
-    sub(/^commit_hash:/, "") { gsub(/[[:space:]]/, "_"); if ($0 != "") version = version "+" $0; next; }
+    sub(/^branch:/, "") { gsub(/['"$_ble_term_space"']/, "_"); if ($0 != "") version = version "-" $0; next; }
+    sub(/^commit_hash:/, "") { gsub(/['"$_ble_term_space"']/, "_"); if ($0 != "") version = version "+" $0; next; }
     sub(/^build_time:/, "") { build_time = $0; }
     sub(/^build_env:/, "") { build_env = $0; }
     END {
@@ -5971,7 +5971,7 @@ function ble/builtin/exit {
 
   # 現在、同じ(サブ)シェルでの trap 処理実行中かどうか
   local trap_processing=$_ble_builtin_trap_processing
-  [[ $_ble_builtin_trap_processing != "${BASH_SUBSHELL:-0}"/* ]] && trap_processing=
+  [[ $_ble_builtin_trap_processing == "${BASH_SUBSHELL:-0}"/* ]] || trap_processing=
 
   if [[ ! $trap_processing ]] && { ble/util/is-running-in-subshell || [[ $_ble_decode_bind_state == none ]]; }; then
     (($#)) || set -- "$ext"
@@ -6547,17 +6547,17 @@ function _ble_builtin_trap_DEBUG__initialize {
   if [[ $_ble_builtin_trap_DEBUG_userTrapInitialized ]]; then
     # Note: 既に ble/builtin/trap:DEBUG 等によって user trap が設定されている場
     # 合は改めて読み取る事はしない (読み取っても TRAPDEBUG が見えるだけ)。
-    builtin eval -- "function $FUNCNAME() ((1))"
+    builtin eval -- "function $FUNCNAME { ((1)); }"
     return 0
   elif [[ $1 == force ]] || ble/function/is-global-trace-context; then
     _ble_builtin_trap_DEBUG_userTrapInitialized=1
-    builtin eval -- "function $FUNCNAME() ((1))"
+    builtin eval -- "function $FUNCNAME { ((1)); }"
 
     # Note: ble/util/assign は DEBUG を継承しないのでその場で trap -p で出力する
-    local _ble_local_tmpfile; ble/util/assign/.mktmp
+    local _ble_local_tmpfile; ble/util/assign/mktmp
     builtin trap -p DEBUG >| "$_ble_local_tmpfile"
     local content; ble/util/readfile content "$_ble_local_tmpfile"
-    ble/util/assign/.rmtmp
+    ble/util/assign/rmtmp
 
     # ble.sh の設定した DEBUG trap は無視する。
     case ${content#"trap -- '"} in
@@ -7046,7 +7046,8 @@ function ble/widget/.newline {
       ble/textarea#invalidate str # (#D0995)
   fi
 
-  _ble_complete_menu_active= ble/widget/.insert-newline "$opts" # #D1800 checked=.newline
+  # 現在のプロンプトの最終描画 & 次の行へ移動
+  _ble_complete_menu_active= _ble_edit_overwrite_mode= ble/widget/.insert-newline "$opts" # #D1800 checked=.newline
 
   # update LINENO
   local ret; ble/string#count-char "$_ble_edit_str" $'\n'
@@ -7088,13 +7089,57 @@ function ble-edit/hist_expanded.update {
   fi
 }
 
+_ble_edit_integration_mc_precmd_stop=
+function ble/widget/accept-line/.is-mc-init {
+  [[ $MC_SID == $$ ]] && ((_ble_edit_LINENO<=5)) || return 1
+
+  # Note #D2062: mc-4.8.29 以前は最初の行だけ不完全かチェックすれば良かった
+  ((_ble_edit_LINENO==0)) && return 0
+
+  # Note #D2062: mc-4.8.29 以降では複数行の初期化スクリプトを送信してくる。特に
+  # 4行目が不完全な状態で C-j を送信してくるので不完全な状態で実行されエラーに
+  # なる。不完全な状態のものについてはコマンド実行ではなく改行挿入に変換する。
+  #
+  # ---- mc の初期化入力スクリプト例 ----
+  #  mc_print_command_buffer () { printf "%s\\n" "$READLINE_LINE" >&13; }
+  #  bind -x '"\e_":"mc_print_command_buffer"'
+  #  bind -x '"\e+":"echo $BASH_VERSINFO:$READLINE_POINT >&18"'
+  #  PROMPT_COMMAND=${PROMPT_COMMAND:+$PROMPT_COMMAND
+  #  }'pwd>&16;kill -STOP $$'
+  # PS1='\u@\h:\w\$ '
+  # -------------------------------------
+  if [[ $_ble_edit_str == *'PROMPT_COMMAND=${PROMPT_COMMAND:+$PROMPT_COMMAND'* ]]; then
+    ble/string#match "$_ble_edit_str" 'pwd>&[0-9]+;kill -STOP \$\$' &&
+      _ble_edit_integration_mc_precmd_stop=1
+    return 0
+  fi
+
+  # Note #D2062: mc-4.8.29 は C-o C-o で mc 画面に戻る直前に M-_ M-+ を送信して
+  # 現在の状態を抽出する。この時の最後の画面の状態を記録して、更に次に C-o が押
+  # された時にそれを復元する。ところが ble.sh と一緒に使っているとこの復元がで
+  # きない。M-+ における内容送信の直前で ble/textarea#redraw &
+  # ble/util/buffer.flush を実行しておけば回避できる。M-+ の束縛を書き換える。
+  if ble/string#match "$_ble_edit_str" 'bind -x '\''"\\e\+":"([^"'\'']+)"'\'''; then
+    function ble/widget/.mc_exec_command {
+      ble/textarea#redraw
+      ble/util/buffer.flush >&2
+      builtin eval -- "$1"
+    }
+    local str=${_ble_edit_str//"$BASH_REMATCH"/"ble-bind -f M-+ '.mc_exec_command '\''${BASH_REMATCH[1]}'\'''"} &&
+      [[ $str != "$_ble_edit_str" ]] &&
+      ble-edit/content/reset-and-check-dirty "$str"
+  fi
+
+  return 1
+}
+
 function ble/widget/accept-line {
   ble/decode/widget/keymap-dispatch "$@"
 }
 function ble/widget/default/accept-line {
   # 文法的に不完全の時は改行挿入
   # Note: mc (midnight commander) が改行を含むコマンドを書き込んでくる #D1392
-  if [[ :$1: == *:syntax:* || $MC_SID == $$ && $_ble_edit_LINENO == 0 ]]; then
+  if [[ :$1: == *:syntax:* ]] || ble/widget/accept-line/.is-mc-init; then
     ble-edit/content/update-syntax
     if ! ble/syntax:bash/is-complete; then
       ble/widget/newline
@@ -9815,11 +9860,11 @@ function read { ble/builtin/read "$@"; }
 ## @fn ble/widget/command-help/.read-man
 ##   @var[out] man_content
 function ble/widget/command-help/.read-man {
-  local -x _ble_local_tmpfile; ble/util/assign/.mktmp
+  local -x _ble_local_tmpfile; ble/util/assign/mktmp
   local pager="sh -c 'cat >| \"\$_ble_local_tmpfile\"'"
   MANPAGER=$pager PAGER=$pager MANOPT= man "$@" 2>/dev/null; local ext=$? # 668ms
   ble/util/readfile man_content "$_ble_local_tmpfile" # 80ms
-  ble/util/assign/.rmtmp
+  ble/util/assign/rmtmp
   return "$ext"
 }
 
@@ -9855,8 +9900,8 @@ function ble/widget/command-help/.locate-in-man-bash {
   rex='\b$'; [[ $awk == gawk && $cmd_awk =~ $rex ]] && rex_awk=$rex_awk'\y'
   local awk_script='{
     gsub(/'"$rex_esc"'/, "");
-    if (!par && $0 ~ /^[[:space:]]*'"$rex_awk"'/) { print NR; exit; }
-    par = !($0 ~ /^[[:space:]]*$/);
+    if (!par && $0 ~ /^['"$_ble_term_space"']*'"$rex_awk"'/) { print NR; exit; }
+    par = !($0 ~ /^['"$_ble_term_space"']*$/);
   }'
   local awk_out; ble/util/assign awk_out '"$awk" "$awk_script" 2>/dev/null <<< "$man_content"' || return 1 # 206ms (1 fork)
   local iline=${awk_out%$'\n'}; [[ $iline ]] || return 1
@@ -10102,7 +10147,7 @@ if [[ $bleopt_internal_suppress_bash_output ]]; then
         ble/util/readfile content "$file"
         : >| "$file"
         for cmd in $content; do
-          case "$cmd" in
+          case $cmd in
           (eof)
             # C-d
             ble-decode/.hook 4

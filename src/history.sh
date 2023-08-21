@@ -456,7 +456,7 @@ else
         else
           gsub(apos, apos "\\" apos apos, line);
 
-#%      # 対策 #D1239: bash-3.2 以前では ^A, ^? が ^A^A, ^A^? に化ける
+#%      # 対策 #D1241: bash-3.2 以前では ^A, ^? が ^A^A, ^A^? に化ける
         gsub(/\001/, "'"$apos"'${_ble_term_SOH}'"$apos"'", line);
         gsub(/\177/, "'"$apos"'${_ble_term_DEL}'"$apos"'", line);
 
@@ -928,11 +928,12 @@ fi
 
 ## @fn ble/builtin/history/.initialize opts
 ##   @param[in] opts
-##     skip0 ... 履歴が一件も読み込まれていない時はスキップします。
+##     skip0 ... Bash 初期化処理 (bashrc) を抜け出ていると判定できない状態で、
+##               履歴が一件も読み込まれていない時はスキップします。
 function ble/builtin/history/.initialize {
   [[ $_ble_builtin_history_initialized ]] && return 0
   local line; ble/util/assign line 'builtin history 1'
-  [[ ! $line && :$1: == *:skip0:* ]] && return 1
+  [[ ! $_ble_decode_hook_count && ! $line && :$1: == *:skip0:* ]] && return 1
   _ble_builtin_history_initialized=1
 
   local histnew=$_ble_base_run/$$.history.new
@@ -1074,13 +1075,13 @@ function ble/builtin/history/.write {
     fi
   fi
 
-  if [[ :$opts: != *:fetch:* && -s $histapp ]]; then
-    if [[ ! -e $file ]]; then
-      (umask 077; : >| "$file")
-    elif [[ :$opts: != *:append:* ]]; then
-      : >| "$file"
-    fi
+  if [[ ! -e $file ]]; then
+    (umask 077; : >| "$file")
+  elif [[ :$opts: != *:append:* ]]; then
+    : >| "$file"
+  fi
 
+  if [[ :$opts: != *:fetch:* && -s $histapp ]]; then
     local apos=\'
     < "$histapp" ble/bin/awk '
       BEGIN {
@@ -1263,14 +1264,15 @@ function ble/builtin/history/option:d {
 function ble/builtin/history/.get-histfile {
   histfile=${1:-${HISTFILE-}}
   if [[ ! $histfile ]]; then
+    local opt=-a
+    [[ ${FUNCNAME[1]} == *:[!:] ]] && opt=-${FUNCNAME[1]##*:}
     if [[ ${1+set} ]]; then
-      ble/util/print 'ble/builtin/history -a: the history filename is empty.' >&2
+      ble/util/print "ble/builtin/history $opt: the history filename is empty." >&2
     else
-      ble/util/print 'ble/builtin/history -a: the history file is not specified.' >&2
+      ble/util/print "ble/builtin/history $opt: the history file is not specified." >&2
     fi
     return 1
   fi
-  [[ $histfile ]]
 }
 ## @fn ble/builtin/history/option:a [filename]
 function ble/builtin/history/option:a {
@@ -1424,10 +1426,10 @@ function ble/builtin/history/erasedups/.impl-awk {
   fi
 
   local _ble_local_tmpfile
-  ble/util/assign/.mktmp; local otmp1=$_ble_local_tmpfile
-  ble/util/assign/.mktmp; local otmp2=$_ble_local_tmpfile
-  ble/util/assign/.mktmp; local itmp1=$_ble_local_tmpfile
-  ble/util/assign/.mktmp; local itmp2=$_ble_local_tmpfile
+  ble/util/assign/mktmp; local otmp1=$_ble_local_tmpfile
+  ble/util/assign/mktmp; local otmp2=$_ble_local_tmpfile
+  ble/util/assign/mktmp; local itmp1=$_ble_local_tmpfile
+  ble/util/assign/mktmp; local itmp2=$_ble_local_tmpfile
 
   # Note: ジョブを無効にする為 subshell で実行
   ( ble/util/writearray "${writearray_options[@]}" _ble_history      >| "$itmp1" & local pid1=$!
@@ -1561,10 +1563,10 @@ function ble/builtin/history/erasedups/.impl-awk {
       mapfile -d '' -t _ble_history_edit < "$otmp2"
     fi
   fi
-  _ble_local_tmpfile=$itmp2 ble/util/assign/.rmtmp
-  _ble_local_tmpfile=$itmp1 ble/util/assign/.rmtmp
-  _ble_local_tmpfile=$otmp2 ble/util/assign/.rmtmp
-  _ble_local_tmpfile=$otmp1 ble/util/assign/.rmtmp
+  _ble_local_tmpfile=$itmp2 ble/util/assign/rmtmp
+  _ble_local_tmpfile=$itmp1 ble/util/assign/rmtmp
+  _ble_local_tmpfile=$otmp2 ble/util/assign/rmtmp
+  _ble_local_tmpfile=$otmp1 ble/util/assign/rmtmp
 }
 function ble/builtin/history/erasedups/.impl-ranged {
   local cmd=$1 beg=$2

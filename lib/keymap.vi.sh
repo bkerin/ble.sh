@@ -506,6 +506,14 @@ function ble/keymap:vi/update-mode-indicator {
     str=$str${str:+' '}$'\e[1;31mREC\e[m'
   fi
 
+  # Note #D2062: mc-4.8.29 以降ではコマンド終了直後に "-- INSERT --" 等の mode
+  # indicator を出力すると、それをプロンプトと勘違いして抽出してしまう。仕方が
+  # ないので mc の中では imap に対しては mode indicator は表示しない様にする。
+  if [[ $_ble_edit_integration_mc_precmd_stop && $keymap == vi_imap ]]; then
+    ble/edit/info/clear
+    return
+  fi
+
   ble/edit/info/default ansi "$str" # 6ms
 }
 blehook internal_PRECMD!=ble/keymap:vi/update-mode-indicator
@@ -5039,7 +5047,7 @@ function ble/keymap:vi/text-object/paragraph.impl {
 ##
 function ble/keymap:vi/text-object.impl {
   local arg=$1 flag=$2 reg=$3 type=$4
-  case "$type" in
+  case $type in
   ([ia][wW]) ble/keymap:vi/text-object/word.impl "$arg" "$flag" "$reg" "$type" ;;
   ([ia][\"\'\`]) ble/keymap:vi/text-object/quote.impl "$arg" "$flag" "$reg" "$type" ;;
   ([ia]['b()']) ble/keymap:vi/text-object/block.impl "$arg" "$flag" "$reg" "${type::1}()" ;;

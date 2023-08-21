@@ -8,7 +8,16 @@
 - bgproc: support opts `kill9-timeout=TIMEOUT` `#D2034` 3ab41652
 - progcomp(cd): change display name and support mandb desc (requested by EmilySeville7cfg) `#D2039` 74402098
 - cmdspec: add completion options for builtins (motivated by EmilySeville7cfg) `#D2040` 9bd24691
-- syntax: support bash-5.3 function subst `${ list; }` `#2045` xxxxxxxx
+- syntax: support bash-5.3 function subst `${ list; }` `#2045` 0906fd95 71272a4b
+- complete: support `bleopt complete_requote_threshold` (requested by rauldipeas) `#2048` bb7e118e
+
+## Changes
+
+- edit: clear character highlighting for overwriting mode (requested by mozirilla213) `#D2052` 1afc616b
+- history (`ble/builtin/history -w`): write file even without any new entries (requested by Jai-JAP) `#D2053` c78e5c9f
+- auto-complete: overwrite subsequent characters with self-insert in overwrite mode `#D2059` 7044b2db
+- complete: move face definitions `menu_filter_*` to `core-complete-def.sh` `#D2060` af022266
+- make: add `INSDIR_LICENSE` for install location of licenses (reported by willemw) `#D2064` d39998f0 xxxxxxxx
 
 ## Fixes
 
@@ -19,15 +28,31 @@
 - progcomp: make option unique after applying mandb description `#D2042` 308ceeed
 - util (`ble/util/idle`): fix an infinite loop `#D2043` 5f4c0afd
 - main: fix `--inputrc=TYPE` not applied on startup `#D2044` 1b15b851 0adce7c9
+- stty: suggest `stty sane` after exiting from bash >= 5.2 to non-ble session `#D2046` b57ab2d6
+- util (`ble/builtin/readonly`): adjust bash options (reported by dongxi8) `#D2050` 1f3cbc01
+- history (`ble/builtin/history`): fix error message on the empty `HISTFILE` `#D2061` a2e2c4b6
 
 ## Compatibility
 
 - main: check `nawk` version explicitly `#D2037` 0ff7bca1
 - mandb: inject in bash-completion-2.12 interfaces `#D2041` dabc8553
+- complete: determine comp prefix from `COMPS` when `ble/syntax-raw` is specified (reported by teutat3s) `#D2049` f16c0d80
+- syntax: allow double-quotes in `$(())` in bash-4.4 (requested by mozirilla213) `#D2051` 611c1d93
+- syntax: support version-dependent arithmetic backslash `#D2051` 611c1d93
+- util: work around mawk 1.3.3-20090705 regex (reported by dongxi8, Frezrik) `#D2055` 4089c4e1
+- complete: update a workaround for cobra-1.5.0 (reported by 3ximus) `#D2057` a24435d3
+- make: work around ecryptfs bug (reported by juanejot) `#D2058` 969a763e dc0cdb30
+- edit: update mc-4.8.29 integration (reported by mooreye) `#D2062` 2c4194a2 68c5c5c4
+- make: work around `make-3.81` bug of pattern rules `#D2065` xxxxxxxx
 
 ## Contrib
 
 - fix(histdb): show error message only when bgproc crashed `#D2036` 887d92dd
+- contrib/fzf-git: update to be consistent with the upstream (motivated by arnoldmashava) `#D2054` c78e5c9f
+
+## Documentation
+
+- docs (CONTRIBUTING): add styleguide (motivated by bkerin) `#D2056` 44cf6756
 
 ## Internal changes
 

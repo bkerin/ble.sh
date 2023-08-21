@@ -1930,7 +1930,7 @@ function ble/util/writearray {
   local __ble_rex_dq='^"([^\\"]|\\.)*"'
   local __ble_rex_es='^\$'\''([^\\'\'']|\\.)*'\'''
   local __ble_rex_sq='^'\''([^'\'']|'\'\\\\\'\'')*'\'''
-  local __ble_rex_normal='^[^[:space:]$`"'\''()|&;<>\\]' # Note: []{}?*#!~^, @(), +() は quote されていなくても OK とする
+  local __ble_rex_normal=$'^[^'$_ble_term_space'$`"'\''()|&;<>\\]' # Note: []{}?*#!~^, @(), +() は quote されていなくても OK とする
   declare -p "$_ble_local_array" | "$__ble_awk" -v _ble_bash="$_ble_bash" '
     '"$__ble_function_gensub_dummy"'
     BEGIN {
@@ -2115,8 +2115,8 @@ function ble/util/writearray {
         gsub(/\001\177/, "\177", decl);
       }
 
-      sub(/^([_a-zA-Z][_a-zA-Z0-9]*)=\([[:space:]]*/, "", decl);
-      sub(/[[:space:]]*\)[[:space:]]*$/, "", decl);
+      sub(/^([_a-zA-Z][_a-zA-Z0-9]*)=\(['"$_ble_term_space"']*/, "", decl);
+      sub(/['"$_ble_term_space"']*\)['"$_ble_term_space"']*$/, "", decl);
 
 #%    # 空配列
       if (decl == "") return 1;
@@ -2177,17 +2177,17 @@ function ble/util/readarray {
 _ble_util_assign_base=$_ble_base_run/$$.util.assign.tmp
 _ble_util_assign_level=0
 if ((_ble_bash>=40000)); then
-  function ble/util/assign/.mktmp {
+  function ble/util/assign/mktmp {
     _ble_local_tmpfile=$_ble_util_assign_base.$((_ble_util_assign_level++))
     ((BASH_SUBSHELL)) && _ble_local_tmpfile=$_ble_local_tmpfile.$BASHPID
   }
 else
-  function ble/util/assign/.mktmp {
+  function ble/util/assign/mktmp {
     _ble_local_tmpfile=$_ble_util_assign_base.$((_ble_util_assign_level++))
     ((BASH_SUBSHELL)) && _ble_local_tmpfile=$_ble_local_tmpfile.$RANDOM
   }
 fi
-function ble/util/assign/.rmtmp {
+function ble/util/assign/rmtmp {
   ((_ble_util_assign_level--))
 #%if !release
   if ((BASH_SUBSHELL)); then
@@ -2206,21 +2206,21 @@ if ((_ble_bash>=50300)); then
 elif ((_ble_bash>=40000)); then
   # mapfile の方が read より高速
   function ble/util/assign {
-    local _ble_local_tmpfile; ble/util/assign/.mktmp
+    local _ble_local_tmpfile; ble/util/assign/mktmp
     builtin eval -- "$2" >| "$_ble_local_tmpfile"
     local _ble_local_ret=$? _ble_local_arr=
     mapfile -t _ble_local_arr < "$_ble_local_tmpfile"
-    ble/util/assign/.rmtmp
+    ble/util/assign/rmtmp
     IFS=$'\n' builtin eval "$1=\"\${_ble_local_arr[*]}\""
     return "$_ble_local_ret"
   }
 else
   function ble/util/assign {
-    local _ble_local_tmpfile; ble/util/assign/.mktmp
+    local _ble_local_tmpfile; ble/util/assign/mktmp
     builtin eval -- "$2" >| "$_ble_local_tmpfile"
     local _ble_local_ret=$? IFS=
     ble/bash/read -d '' "$1" < "$_ble_local_tmpfile"
-    ble/util/assign/.rmtmp
+    ble/util/assign/rmtmp
     builtin eval "$1=\${$1%\$_ble_term_nl}"
     return "$_ble_local_ret"
   }
@@ -2238,41 +2238,41 @@ fi
 ##
 if ((_ble_bash>=40000)); then
   function ble/util/assign-array {
-    local _ble_local_tmpfile; ble/util/assign/.mktmp
+    local _ble_local_tmpfile; ble/util/assign/mktmp
     builtin eval -- "$2" >| "$_ble_local_tmpfile"
     local _ble_local_ret=$?
     mapfile -t "$1" < "$_ble_local_tmpfile"
-    ble/util/assign/.rmtmp
+    ble/util/assign/rmtmp
     return "$_ble_local_ret"
   }
 else
   function ble/util/assign-array {
-    local _ble_local_tmpfile; ble/util/assign/.mktmp
+    local _ble_local_tmpfile; ble/util/assign/mktmp
     builtin eval -- "$2" >| "$_ble_local_tmpfile"
     local _ble_local_ret=$?
     ble/util/mapfile "$1" < "$_ble_local_tmpfile"
-    ble/util/assign/.rmtmp
+    ble/util/assign/rmtmp
     return "$_ble_local_ret"
   }
 fi
 
 if ! ((_ble_bash>=40400)); then
   function ble/util/assign-array0 {
-    local _ble_local_tmpfile; ble/util/assign/.mktmp
+    local _ble_local_tmpfile; ble/util/assign/mktmp
     builtin eval -- "$2" >| "$_ble_local_tmpfile"
     local _ble_local_ret=$?
     mapfile -d '' -t "$1" < "$_ble_local_tmpfile"
-    ble/util/assign/.rmtmp
+    ble/util/assign/rmtmp
     return "$_ble_local_ret"
   }
 else
   function ble/util/assign-array0 {
-    local _ble_local_tmpfile; ble/util/assign/.mktmp
+    local _ble_local_tmpfile; ble/util/assign/mktmp
     builtin eval -- "$2" >| "$_ble_local_tmpfile"
     local _ble_local_ret=$?
     local IFS= i=0 _ble_local_arr
     while ble/bash/read -d '' "_ble_local_arr[i++]"; do :; done < "$_ble_local_tmpfile"
-    ble/util/assign/.rmtmp
+    ble/util/assign/rmtmp
     [[ ${_ble_local_arr[--i]} ]] || builtin unset -v "_ble_local_arr[i]"
     ble/util/unlocal i IFS
     builtin eval "$1=(\"\${_ble_local_arr[@]}\")"
@@ -2282,11 +2282,11 @@ fi
 
 ## @fn ble/util/assign.has-output command
 function ble/util/assign.has-output {
-  local _ble_local_tmpfile; ble/util/assign/.mktmp
+  local _ble_local_tmpfile; ble/util/assign/mktmp
   builtin eval -- "$1" >| "$_ble_local_tmpfile"
   [[ -s $_ble_local_tmpfile ]]
   local _ble_local_ret=$?
-  ble/util/assign/.rmtmp
+  ble/util/assign/rmtmp
   return "$_ble_local_ret"
 }
 
@@ -2930,6 +2930,11 @@ function ble/util/print-quoted-command {
 function ble/util/declare-print-definitions {
   (($#==0)) && return 0
 
+  # Note (#D2055): mawk 1.3.3-20090705 bug の為に [:space:] を正規表現内部で使
+  # 用する事ができない。Ubuntu 16.04 LTS 及び Ubuntu 18.04 LTS で mawk
+  # 1.3.3-20090705 が使用されている。なので _ble_term_space という変数に
+  # <SP><TAB> を入れて使う。
+
   declare -p "$@" | ble/bin/awk -v _ble_bash="$_ble_bash" -v OSTYPE="$OSTYPE" '
     BEGIN {
       decl = "";
@@ -2967,7 +2972,7 @@ function ble/util/declare-print-definitions {
       if (match(decl, /^[_a-zA-Z][_a-zA-Z0-9]*=\(/) == 0) return 0;
       name = substr(decl, 1, RLENGTH - 2);
       decl = substr(decl, RLENGTH + 1, length(decl) - RLENGTH - 1);
-      sub(/^[[:space:]]+/, decl);
+      sub(/^['"$_ble_term_space"']+/, decl);
 
       out = name "=()\n";
 
@@ -2976,13 +2981,13 @@ function ble/util/declare-print-definitions {
         decl = substr(decl, RLENGTH + 1);
 
         value = "";
-        if (match(decl, /^('\''[^'\'']*'\''|\$'\''([^\\'\'']|\\.)*'\''|\$?"([^\\"]|\\.)*"|\\.|[^[:space:]"'\''`;&|()])*/)) {
+        if (match(decl, /^('\''[^'\'']*'\''|\$'\''([^\\'\'']|\\.)*'\''|\$?"([^\\"]|\\.)*"|\\.|[^'"$_ble_term_space"'"'\''`;&|()])*/)) {
           value = substr(decl, 1, RLENGTH)
           decl = substr(decl, RLENGTH + 1)
         }
 
         out = out name "[" key "]=" fix_value(value) "\n";
-        sub(/^[[:space:]]+/, decl);
+        sub(/^['"$_ble_term_space"']+/, decl);
       }
 
       if (decl != "") return 0;
@@ -3612,9 +3617,9 @@ elif ((_ble_bash>=40000)) && ble/fd#is-open "$_ble_util_fd_zero"; then
   # する事にする。確認した全ての OS で /dev/zero は存在した (Linux,
   # Cygwin, FreeBSD, Solaris, Minix, Haiku, MSYS2)。
   ble/util/msleep/.use-read-timeout zero.exec1-coreutil
-elif ble/bin/.freeze-utility-path sleepenh; then
+elif ble/bin#freeze-utility-path sleepenh; then
   function ble/util/msleep/.core { ble/bin/sleepenh "$1" &>/dev/null; }
-elif ble/bin/.freeze-utility-path usleep; then
+elif ble/bin#freeze-utility-path usleep; then
   function ble/util/msleep {
     local v=$((1000*$1-_ble_util_msleep_delay))
     ((v<=0)) && v=0
@@ -3827,7 +3832,7 @@ _ble_util_file_stat=
 function ble/file/has-stat {
   if [[ ! $_ble_util_file_stat ]]; then
     _ble_util_file_stat=-
-    if ble/bin/.freeze-utility-path -n stat; then
+    if ble/bin#freeze-utility-path -n stat; then
       # 参考: http://stackoverflow.com/questions/17878684/best-way-to-get-file-modified-time-in-seconds
       if ble/bin/stat -c %Y / &>/dev/null; then
         _ble_util_file_stat=c
@@ -3870,7 +3875,7 @@ function ble/file#inode {
   # fallback
   function ble/file#inode { ret=; ((0)); } || return 1
 
-  if ble/bin/.freeze-utility-path -n ls &&
+  if ble/bin#freeze-utility-path -n ls &&
       ble/util/assign-words ret 'ble/bin/ls -di /' 2>/dev/null &&
       ((${#ret[@]}==2)) && ble/string#match "$ret" '^[0-9]+$'
   then
@@ -3894,37 +3899,37 @@ function ble/file#hash {
   ble/string#split-words size "$size"
   ble/file#hash/.impl
 }
-if ble/bin/.freeze-utility-path -n git; then
+if ble/bin#freeze-utility-path -n git; then
   function ble/file#hash/.impl {
     ble/util/assign ret 'ble/bin/git hash-object "$file"'
     ret="size:$size;hash:$ret"
   }
-elif ble/bin/.freeze-utility-path -n openssl; then
+elif ble/bin#freeze-utility-path -n openssl; then
   function ble/file#hash/.impl {
     ble/util/assign-words ret 'ble/bin/openssl sha1 -r "$file"'
     ret="size:$size;sha1:$ret"
   }
-elif ble/bin/.freeze-utility-path -n sha1sum; then
+elif ble/bin#freeze-utility-path -n sha1sum; then
   function ble/file#hash/.impl {
     ble/util/assign-words ret 'ble/bin/sha1sum "$file"'
     ret="size:$size;sha1:$ret"
   }
-elif ble/bin/.freeze-utility-path -n sha1; then
+elif ble/bin#freeze-utility-path -n sha1; then
   function ble/file#hash/.impl {
     ble/util/assign-words ret 'ble/bin/sha1 -r "$file"'
     ret="size:$size;sha1:$ret"
   }
-elif ble/bin/.freeze-utility-path -n md5sum; then
+elif ble/bin#freeze-utility-path -n md5sum; then
   function ble/file#hash/.impl {
     ble/util/assign-words ret 'ble/bin/md5sum "$file"'
     ret="size:$size;md5:$ret"
   }
-elif ble/bin/.freeze-utility-path -n md5; then
+elif ble/bin#freeze-utility-path -n md5; then
   function ble/file#hash/.impl {
     ble/util/assign-words ret 'ble/bin/md5 -r "$file"'
     ret="size:$size;md5:$ret"
   }
-elif ble/bin/.freeze-utility-path -n cksum; then
+elif ble/bin#freeze-utility-path -n cksum; then
   function ble/file#hash/.impl {
     ble/util/assign-words ret 'ble/bin/cksum "$file"'
     ret="size:$size;cksum:$ret"
@@ -3946,15 +3951,17 @@ function ble/util/buffer.print {
 }
 function ble/util/buffer.flush {
   IFS= builtin eval 'local text="${_ble_util_buffer[*]-}"'
+  _ble_util_buffer=()
+  [[ $text ]] || return 0
 
-  # Note: 出力の瞬間だけカーソルを非表示にする。Windows terminal 途中
+  # Note: 出力の瞬間だけカーソルを非表示にする。Windows terminal など途中
   # のカーソル移動も無理やり表示しようとする端末に対する対策。
   [[ $_ble_term_state == internal ]] &&
     [[ $_ble_term_cursor_hidden_internal != hidden ]] &&
+    [[ $text != *"$_ble_term_civis"* && $text != *"$_ble_term_cvvis"* ]] &&
     text=$_ble_term_civis$text$_ble_term_cvvis
 
   ble/util/put "$text"
-  _ble_util_buffer=()
 }
 function ble/util/buffer.clear {
   _ble_util_buffer=()
@@ -4233,7 +4240,7 @@ function ble/util/save-editing-mode {
 ##   @param varname 編集モードを記録した変数の変数名を指定します。
 ##
 function ble/util/restore-editing-mode {
-  case "${!1}" in
+  case ${!1} in
   (emacs) set -o emacs ;;
   (vi) set -o vi ;;
   (none) set +o emacs ;;
@@ -5829,6 +5836,20 @@ function ble/term/stty/TRAPEXIT {
   # exit の場合は echo
   ble/bin/stty echo -nl \
                "${_ble_term_stty_flags_leave[@]}"
+
+  # Note (#D): WA for bash-5.2 stty: bash-5.2 以降では EXIT trap よりも後に readline
+  # が stty を復元しようとするので、セッション終了後に制御端末が壊れた状態にな
+  # る。親プロセスが同じ端末に属していてかつ ble.sh セッションでない場合には、
+  # 入力に支障を来すので制御端末の状態を手動で復元する様に表示を行う。
+  if ((_ble_bash>=50200)) && [[ :$1: == *:EXIT:* && ! -e $_ble_base_run/$PPID.load ]]; then
+    local lines
+    ble/util/assign-array lines 'ble/bin/ps -o tty "$$" "$PPID"'
+    ((${#lines[@]}>=3)) && lines=("${lines[@]:${#lines[@]}-2}")
+    if [[ ${lines[0]} == ${lines[1]} ]]; then
+      local sgr=$_ble_term_bold${_ble_term_setaf[4]} sgr0=$_ble_term_sgr0
+      ble/util/print "ble: Please run \`${sgr}stty sane$sgr0' to recover the correct TTY state." >&"${_ble_util_fd_stderr:-2}"
+    fi
+  fi
 }
 
 function ble/term/update-winsize {
@@ -5850,7 +5871,7 @@ function ble/term/update-winsize {
   local ret
 
   # (a) "tput lines cols" または "tput li co" による実装 (2909.052 usec/eval)
-  if ble/bin/.freeze-utility-path tput; then
+  if ble/bin#freeze-utility-path tput; then
     if ble/util/assign-words ret 'ble/bin/tput lines cols' 2>/dev/null &&
         [[ ${#ret[@]} -eq 2 && ${ret[0]} =~ ^[0-9]+$ && ${ret[1]} =~ ^[0-9]+$ ]]
     then
@@ -5893,7 +5914,7 @@ function ble/term/update-winsize {
   fi
 
   # (c) "resize" による実装 (3108.696 usec/eval)
-  if ble/bin/.freeze-utility-path resize &&
+  if ble/bin#freeze-utility-path resize &&
       ble/util/assign ret 'ble/bin/resize' &&
       ble/string#match "$ret" 'COLUMNS=([0-9]+).*LINES=([0-9]+)'
   then
@@ -6382,6 +6403,11 @@ function ble/term/modifyOtherKeys/.update {
         ble/term/modifyOtherKeys/.supported || method=disabled
       fi ;;
     esac
+
+    # Note #D2062: mc の内部にいる時は外側の端末に関係なく modifyOtherKeys は無
+    # 効化する。C-o が効かなくなるし、その他の mc に対するコマンドも効かなくな
+    # る可能性がある。
+    [[ $MC_SID ]] && method=disabled
 
     # 別の方式で有効化されている時は先に解除しておく。
     if ((previous>=2)) &&
@@ -7072,7 +7098,7 @@ function ble/builtin/readonly/.check-variable-name {
   # If the variable starts with "_" but does not start with "_ble", it could be
   # a global variable used by another framework.  We allow such namespaced
   # variables being readonly.
-  if [[ $1 == _* && $1 != _ble*  && $1 != __ble* ]]; then
+  if [[ $1 == _* && $1 != _ble* && $1 != __ble* ]]; then
     return 0
   fi
 
@@ -7137,6 +7163,9 @@ function ble/builtin/readonly/.print-warning {
   return 0
 }
 function ble/builtin/readonly {
+  local _ble_local_set _ble_local_shopt
+  ble/base/.adjust-bash-options _ble_local_set _ble_local_shopt
+
   local _ble_local_flags=
   local -a _ble_local_options=()
   local _ble_local_caller= # used by print-warning
@@ -7163,12 +7192,16 @@ function ble/builtin/readonly {
   if [[ $_ble_local_flags == *w* ]]; then
     ble/util/print 'ble.sh: The global variables with unprefixed lowercase names or special names should not be made readonly. It can break arbitrary Bash configurations.' >&2
   fi
+  local _ble_local_ext=0
   if [[ $_ble_local_flags != *v* || $_ble_local_flags == *r* ]]; then
     # We call `builtin readonly' only when no variables are specified
     # (e.g. readonly, readonly --help), or at least one variable are allowed to
     # become readonly.
     builtin readonly "${_ble_local_options[@]}"
+    _ble_local_ext=$?
   fi
+  ble/base/.restore-bash-options _ble_local_set _ble_local_shopt
+  return "$?"
 }
 
 function readonly { ble/builtin/readonly "$@"; }

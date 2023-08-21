@@ -28,6 +28,13 @@ endif
 
 MWGPP:=$(GAWK) -f make/mwg_pp.awk
 
+# Note (): we had used "cp -p xxx out/xxx" to copy files to the build
+# directory, but some filesystem (ecryptfs) has a bug that the subsecond
+# timestamps are truncated causing an issue: make every time copies all the
+# files into the subdirectory `out`.  We give up using `cp -p` and instead copy
+# the file with `cp` with the timestamps being the copy time.
+CP := cp
+
 #------------------------------------------------------------------------------
 # ble.sh
 
@@ -95,6 +102,7 @@ outfiles += $(OUTDIR)/lib/vim-arpeggio.sh
 outfiles += $(OUTDIR)/lib/vim-airline.sh
 
 # test
+outfiles += $(OUTDIR)/lib/test-bash.sh
 outfiles += $(OUTDIR)/lib/test-main.sh
 outfiles += $(OUTDIR)/lib/test-util.sh
 outfiles += $(OUTDIR)/lib/test-canvas.sh
@@ -105,9 +113,9 @@ outfiles += $(OUTDIR)/lib/test-complete.sh
 outfiles += $(OUTDIR)/lib/util.bgproc.sh
 
 $(OUTDIR)/lib/%.sh: lib/%.sh | $(OUTDIR)/lib
-	cp -p $< $@
+	$(CP) $< $@
 $(OUTDIR)/lib/%.txt: lib/%.txt | $(OUTDIR)/lib
-	cp -p $< $@
+	$(CP) $< $@
 $(OUTDIR)/lib/core-syntax.sh: lib/core-syntax.sh lib/core-syntax-ctx.def | $(OUTDIR)/lib
 	$(MWGPP) $< > $@
 $(OUTDIR)/lib/init-msys1.sh: lib/init-msys1.sh lib/init-msys1-helper.c | $(OUTDIR)/lib
@@ -141,15 +149,30 @@ removedfiles += \
 outdirs += $(OUTDIR)/doc
 outfiles-doc += $(OUTDIR)/doc/README.md
 outfiles-doc += $(OUTDIR)/doc/README-ja_JP.md
-outfiles-doc += $(OUTDIR)/doc/LICENSE.md
 outfiles-doc += $(OUTDIR)/doc/CONTRIBUTING.md
 outfiles-doc += $(OUTDIR)/doc/ChangeLog.md
 outfiles-doc += $(OUTDIR)/doc/Release.md
-$(OUTDIR)/doc/%: % | $(OUTDIR)/doc
-	cp -p $< $@
+outfiles-license += $(OUTDIR)/doc/LICENSE.md
+
+# Note #D2065: make-3.81 のバグにより以下の様に記述すると、より長く一致するパター
+# ンを持った規則よりも優先されてしまう。3.82 では問題は発生しない。% の代わりに
+# %.md にしたとしても、%.md が contrib/README.md 等に一致してしまう。仕方がない
+# ので $(OUTDIR)/doc/%: % に対応するファイルに関しては明示的に一つずつ記述する
+# 事にする。
+#
+#   $(OUTDIR)/doc/%: % | $(OUTDIR)/doc
+#   	$(CP) $< $@
+#
+# Workaround for make-3.81:
+$(OUTDIR)/doc/README.md: README.md | $(OUTDIR)/doc
+	$(CP) $< $@
+$(OUTDIR)/doc/README-ja_JP.md: README-ja_JP.md | $(OUTDIR)/doc
+	$(CP) $< $@
+$(OUTDIR)/doc/LICENSE.md: LICENSE.md | $(OUTDIR)/doc
+	$(CP) $< $@
 
 $(OUTDIR)/doc/%: docs/% | $(OUTDIR)/doc
-	cp -p $< $@
+	$(CP) $< $@
 
 #------------------------------------------------------------------------------
 # contrib
@@ -166,7 +189,7 @@ include contrib/contrib.mk
 $(outdirs):
 	mkdir -p $@
 
-build: contrib/contrib.mk $(outfiles) $(outfiles-doc)
+build: contrib/contrib.mk $(outfiles) $(outfiles-doc) $(outfiles-license)
 .PHONY: build
 
 all: build
@@ -177,6 +200,9 @@ all: build
 ifneq ($(INSDIR),)
   ifeq ($(INSDIR_DOC),)
     INSDIR_DOC := $(INSDIR)/doc
+  endif
+  ifeq ($(INSDIR_LICENSE),)
+    INSDIR_LICENSE := $(INSDIR)/doc
   endif
 else
   ifneq ($(filter-out %/,$(DESTDIR)),)
@@ -193,6 +219,7 @@ else
 
   INSDIR = $(DATA_HOME)/blesh
   INSDIR_DOC = $(DATA_HOME)/doc/blesh
+  INSDIR_LICENSE = $(DATA_HOME)/doc/blesh
 endif
 
 ifneq ($(strip_comment),)
@@ -204,20 +231,25 @@ endif
 install: \
   $(outfiles:$(OUTDIR)/%=$(INSDIR)/%) \
   $(outfiles-doc:$(OUTDIR)/doc/%=$(INSDIR_DOC)/%) \
+  $(outfiles-license:$(OUTDIR)/doc/%=$(INSDIR_LICENSE)/%) \
   $(INSDIR)/cache.d $(INSDIR)/run
 $(INSDIR)/%: $(OUTDIR)/%
 	bash make_command.sh install $(opt_strip_comment) "$<" "$@"
 $(INSDIR_DOC)/%: $(OUTDIR)/doc/%
 	bash make_command.sh install "$<" "$@"
+ifneq ($(INSDIR_DOC),$(INSDIR_LICENSE))
+$(INSDIR_LICENSE)/%: $(OUTDIR)/doc/%
+	bash make_command.sh install "$<" "$@"
+endif
 $(INSDIR)/cache.d $(INSDIR)/run:
 	mkdir -p $@ && chmod a+rwxt $@
 .PHONY: install
 
 clean:
-	-rm -rf $(outfiles) $(OUTDIR)/ble.dep
+	-rm -rf $(outfiles) $(outfiles-doc) $(outfiles-license) $(OUTDIR)/ble.dep
 .PHONY: clean
 
-dist: $(outfiles)
+dist: $(outfiles) $(outfiles-doc) $(outfiles-license)
 	FULLVER=$(FULLVER) bash make_command.sh dist $^
 .PHONY: dist
 
