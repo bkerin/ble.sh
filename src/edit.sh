@@ -7805,6 +7805,11 @@ function ble-edit/history/goto {
   fi
   _ble_edit_mark=0
   _ble_edit_mark_active=
+
+  if [ `type -t myBleshHistoryGotoHook` = 'function' ]; then
+    myBleshHistoryGotoHook
+  fi
+
 }
 
 function ble-edit/history/history-message.hook {
