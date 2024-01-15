@@ -4486,6 +4486,11 @@ function ble/keymap:vi/text-object/word.extend-forward {
       [[ ${_ble_edit_str:end:1} == $'\n' ]] && ((end++))
     fi
 
+    # FIXME: WORK POINT: In my clone of upstream I had a stray change that
+    # changed 'end' to ((end+1) here and ${#rematch} to ${#rematch}+1 a
+    # few lines down and I recall that actually fixing something somewhere
+    # I thought, but it never made it to upstream nor this here my repo,
+    # so not sure now should test this against vi
     [[ ${_ble_edit_str:end} =~ $rex_unit ]] || return 1
     rematch=$BASH_REMATCH
     ((end+=${#rematch}))
