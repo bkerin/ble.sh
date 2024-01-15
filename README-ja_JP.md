@@ -362,11 +362,18 @@ make INSDIR="$HOME/.local/share/blesh" install
 基本的に `ble.sh` ディレクトリとユーザの追加した設定を単に削除していただければ問題ありません。
 
 - 全ての `ble.sh` セッション (`ble.sh` をロードしている Bash 対話セッション) を終了します。
-- `.bashrc` に追加した行があれば削除します。
-- `blerc` 設定ファイル (`~/.blerc` または `~/.config/blesh/init.sh`) があれば削除します。
-- `ble.sh` をインストールしたディレクトリを削除します。
+- 関連するユーザーデータを削除します。これらのデータを保持しておきたい場合は必要に応じてスキップしてください。
+  - `.bashrc` に追加した行があれば削除します。
+  - `blerc` 設定ファイル (`~/.blerc` または `~/.config/blesh/init.sh`) があれば削除します。
+  - 状態ディレクトリ `~/.cache/blesh` が生成されていればそれを削除します。
+- `ble.sh` をインストールしたディレクトリを削除します。git リポジトリ内の
+  `out/ble.sh` を直接ご使用の場合はインストールしたディレクトリは、git リポジト
+  リ自体です。`make intall` を用いてインストールした場合は、インストールしたディ
+  レクトリは `<PREFIX>/share/blesh` です。但し、`<PREFIX>` (既定値: `~/.local`)
+  は `make install` に指定した `PREFIX` の値です。生成済み tarball をご利用の際
+  には、インストールしたディレクトリは tarball を展開して得られたディレクトリを
+  配置した場所です。
 - キャッシュディレクトリ `~/.cache/blesh` が生成されていればそれを削除します。
-- 状態ディレクトリ `~/.cache/blesh` が生成されていればそれを削除します。
 - 一時ディレクトリ `/tmp/blesh` が生成されていればそれを削除します。これは `/tmp` の内容が自動的にクリアされないシステムで必要です。
 
 # 2 基本設定
@@ -375,7 +382,7 @@ make INSDIR="$HOME/.local/share/blesh" install
 [質問と回答](https://github.com/akinomyoga/ble.sh/wiki/%E8%B3%AA%E5%95%8F%E3%81%A8%E5%9B%9E%E7%AD%94)、
 [逆引きレシピ](https://github.com/akinomyoga/ble.sh/wiki/%E9%80%86%E5%BC%95%E3%81%8D%E3%83%AC%E3%82%B7%E3%83%94)、
 [`contrib` リポジトリ](https://github.com/akinomyoga/blesh-contrib/blob/master/README-ja.md) にも便利な設定があります。
-その他の全ての設定項目はテンプレート [`blerc`](https://github.com/akinomyoga/ble.sh/blob/master/blerc) に含まれています。
+その他の全ての設定項目はテンプレート [`blerc.template`](https://github.com/akinomyoga/ble.sh/blob/master/blerc.template) に含まれています。
 詳細な説明に関しては[説明書](https://github.com/akinomyoga/ble.sh/wiki/%E7%9B%AE%E6%AC%A1)を参照して下さい。
 
 ## 2.1 Vim モード

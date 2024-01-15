@@ -235,13 +235,110 @@ bleopt/declare -v accept_line_threshold 5
 
 bleopt/declare -v exec_restore_pipestatus ''
 
+bleopt/declare -v edit_marker $'\e[94m[ble: %s]\e[m'
+bleopt/declare -v edit_marker_error $'\e[91m[ble: %s]\e[m'
+
+## @fn ble/edit/marker#get msg opts
+##   @param[in] msg
+##     string shown in the mark
+##   @param[in,opt] opts
+##     A colon-separated list of the following options:
+##
+##     @opt bare
+##       Do not enclose within `edit_marker` and `edit_marker_error` ([ble: %s]
+##       by default).
+##
+##     @opt error
+##       Use `edit_marker_error` instead of `edit_marker` as the default
+##       format.
+##
+##     @opt non-empty
+##       When `edit_marker` or `edit_marker_error` produces the empty result,
+##       use the default value `[ble: %s]` instead of omitting the marker.
+##
+##   @var[out] ret
+function ble/edit/marker#get {
+  local msg=$1 opts=${2-}
+  ret=$msg
+  if [[ :$opts: != *:bare:* ]]; then
+    if [[ :$opts: == *:error:* ]]; then
+      ble/util/sprintf ret "$bleopt_edit_marker_error" "$ret"
+    else
+      ble/util/sprintf ret "$bleopt_edit_marker" "$ret"
+    fi
+  fi
+  if [[ ! $ret && $msg && :$opts: == *:non-empty:* ]]; then
+    if [[ :$opts: == *:error:* ]]; then
+      ret=$'\e[91m[ble: '$msg$']\e[m'
+    else
+      ret=$'\e[94m[ble: '$msg$']\e[m'
+    fi
+  fi
+  [[ $ret ]]
+}
+
+## @fn ble/edit/marker#instantiate msg config
+##   @param[in] msg
+##     string shown in the mark
+##   @param[in,opt] opts
+##     See the description of ble/edit/marker#get.
+##   @var[out] ret
+function ble/edit/marker#instantiate {
+  ble/edit/marker#get "$@"
+  if [[ $ret ]]; then
+    ret=${ret%$'\e[m'}$'\e[m'
+    x=0 y=0 g=0 LINES=1 ble/canvas/trace "$ret" confine:truncate
+  fi
+  [[ $ret ]]
+}
+
+function ble/edit/marker#declare-config {
+  local name=$1 value=$2 opts=$3
+  if [[ :$opts: == *:error:* ]]; then
+    value=$'\e[91m[ble: '$value$']\e[m'
+  else
+    value=$'\e[94m[ble: '$value$']\e[m'
+  fi
+  bleopt/declare -v "$name" "$value"
+}
+
+## @fn ble/edit/marker#get-config config_name
+##   @param[in] config
+##      bleopt config name
+##   @var[out] ret
+function ble/edit/marker#get-config {
+  bleopt/default "$1"
+  local default_value=$ret
+  local current_ref=bleopt_$1
+  local current_value=${!current_ref}
+
+  ret=$current_value
+  if [[ $current_value == "$default_value" ]]; then
+    if ble/string#match "$current_value" $'^\e\[94m\[ble: (.*)]\e\[m$'; then
+      ble/util/sprintf ret "$bleopt_edit_marker" "${BASH_REMATCH[1]}"
+    elif ble/string#match "$current_value" $'^\e\[91m\[ble: (.*)\]\e\[m$'; then
+      ble/util/sprintf ret "$bleopt_edit_marker_error" "${BASH_REMATCH[1]}"
+    fi
+  fi
+  [[ $ret ]]
+}
+
+function ble/edit/marker#instantiate-config {
+  ble/edit/marker#get-config "$1" &&
+    ret=${ret%$'\e[m'}$'\e[m' &&
+    x=0 y=0 g=0 LINES=1 ble/canvas/trace "$ret" confine:truncate
+  [[ $ret ]]
+}
+
 ## @bleopt exec_errexit_mark
 ##   終了ステータスが非零の時に表示するマークの書式を指定します。
 ##   この変数が空の時、終了ステータスは表示しません。
-bleopt/declare -v exec_errexit_mark $'\e[91m[ble: exit %d]\e[m'
+ble/edit/marker#declare-config exec_errexit_mark 'exit %d' error
 
-bleopt/declare -v exec_elapsed_mark $'\e[94m[ble: elapsed %s (CPU %s%%)]\e[m'
+ble/edit/marker#declare-config exec_elapsed_mark 'elapsed %s (CPU %s%%)'
 bleopt/declare -v exec_elapsed_enabled 'usr+sys>=10000'
+
+ble/edit/marker#declare-config exec_exit_mark 'exit'
 
 ## @bleopt line_limit_length
 ##   一括挿入時のコマンドライン文字数の上限を指定します。
@@ -645,7 +742,7 @@ function ble/prompt/initialize {
     if [[ $WINDIR == [a-zA-Z]:\\* ]]; then
       local bsl='\' sl=/
       local c=${WINDIR::1} path=${WINDIR:3}
-      if [[ $c == [A-Z] ]]; then
+      if ble/string#isupper "$c"; then
         if ((_ble_bash>=40000)); then
           c=${c,?}
         else
@@ -1651,7 +1748,9 @@ if ble/is-function ble/util/idle.push; then
   _ble_prompt_timeout_lineno=
   function ble/prompt/timeout/process {
     ble/util/idle.suspend # exit に失敗した時の為 task を suspend にする
-    local msg="${_ble_term_setaf[12]}[ble: auto-logout]$_ble_term_sgr0 timed out waiting for input"
+
+    ble/edit/marker#instantiate 'auto-logout' non-empty
+    local msg="$ret timed out waiting for input"
     ble/widget/.internal-print-command '
       ble/util/print "$msg"
       builtin exit 0 &>/dev/null
@@ -1815,7 +1914,7 @@ function ble/prompt/update {
 
   # bleopt prompt_xterm_title
   case ${_ble_term_TERM:-$TERM:-} in
-  (sun*|minix*) ;; # black list
+  (sun*|minix*|eterm*) ;; # black list
   (*)
     [[ $bleopt_prompt_xterm_title || ${_ble_prompt_xterm_title_data[10]} ]] &&
       ble/prompt/unit#update _ble_prompt_xterm_title && dirty=1 ;;
@@ -2435,12 +2534,12 @@ function ble/keymap:generic/clear-arg {
 ##     enter-menu
 ##       補完 menu が表示されている時、menu に入ってから menu 選択を行います。
 ##       修飾なしの数字であっても常に引数として取り扱います。
-##     bell
-##       補完 menu に入った後で対応する項目がなかった時に bell を鳴らします。
+##     nobell
+##       補完 menu に入った後で対応する項目がなかった時に bell を鳴らしません。
 ##
 function ble/widget/append-arg-or {
   # ble/widget/complete 直後 (menu 表示時) の引数で menu に入る
-  ble/function#try ble/widget/complete/.select-menu-with-arg "${@:2}" && return 0
+  ble/function#try ble/widget/complete/.select-menu-with-arg "${2-}" && return 0
 
   local n=${#KEYS[@]}; ((n&&n--))
   local code=$((KEYS[n]&_ble_decode_MaskChar))
@@ -2460,7 +2559,7 @@ function ble/widget/append-arg-or {
     ble/decode/widget/skip-lastwidget
     _ble_edit_arg=$_ble_edit_arg$ch
   else
-    ble/widget/"$@"
+    ble/widget/"$1"
   fi
 }
 function ble/widget/append-arg {
@@ -3577,10 +3676,16 @@ function ble/textarea#save-state {
   ble/array#push vars "${_ble_textmap_VARNAMES[@]}"
 
   # _ble_highlight_layer_*
-  ble/array#push vars _ble_highlight_layer__list
+  ble/array#push vars _ble_highlight_layer_list
   local layer names
-  for layer in "${_ble_highlight_layer__list[@]}"; do
-    builtin eval "ble/array#push vars \"\${!_ble_highlight_layer_$layer@}\""
+  for layer in "${_ble_highlight_layer_list[@]}"; do
+    local _ble_local_script='
+      if [[ ${_ble_highlight_layer_LAYER_VARNAMES[@]-} ]]; then
+        ble/array#push vars "${_ble_highlight_layer_LAYER_VARNAMES[@]}"
+      else
+        ble/array#push vars "${!_ble_highlight_layer_LAYER_@}"
+      fi'
+    builtin eval -- "${_ble_local_script//LAYER/$layer}"
   done
 
   # _ble_textarea_*
@@ -3986,6 +4091,9 @@ function ble/edit/display-version/check:zoxide {
 function ble/widget/display-shell-version {
   ble-edit/content/clear-arg
 
+  local set shopt
+  [[ $_ble_bash_options_adjusted ]] || ble/base/.adjust-bash-options set shopt
+
   local sgrC= sgrF= sgrV= sgrA= sgr2= sgr3= sgr0= bold=
   if [[ -t 1 ]]; then
     bold=$_ble_term_bold
@@ -4056,6 +4164,8 @@ function ble/widget/display-shell-version {
   lines[iline++]=$line
 
   ble/widget/print "${lines[@]}"
+
+  [[ $_ble_bash_options_adjusted ]] || ble/base/.restore-bash-options set shopt
 }
 function ble/widget/readline-dump-functions {
   ble-edit/content/clear-arg
@@ -4749,6 +4859,14 @@ _ble_edit_bracketed_paste_proc=
 _ble_edit_bracketed_paste_count=0
 function ble/widget/bracketed-paste {
   ble-edit/content/clear-arg
+  if [[ ${TERM%%-*} == eterm ]]; then
+    # Note (#D2087): eterm の中では \e[200~ (paste_begin) だけが入力として入っ
+    # て来て \e[201~ (paste_end) が来ない (Emacs 28.2)。これは内側で
+    # bracketed-paste を有効にしていなくても発生する。結果として
+    # bracketed-paste mode から抜け出せなくなって見た目上応答がなくなる。対策と
+    # して eterm の中では bracketed-paste mode には入らない。
+    return 0
+  fi
   _ble_edit_mark_active=
   _ble_edit_bracketed_paste=()
   _ble_edit_bracketed_paste_count=0
@@ -4968,7 +5086,9 @@ function ble/widget/exit {
       else
         message='There are remaining jobs. Use "exit" to leave the shell.'
       fi
-      ble/widget/internal-command "ble/util/print '${_ble_term_setaf[12]}[ble: ${message//$q/$Q}]$_ble_term_sgr0'; jobs"
+      local ret
+      ble/edit/marker#instantiate "$message" non-empty
+      ble/widget/internal-command "ble/util/print '${ret//$q/$Q}'; jobs"
       return "$?"
     fi
   elif [[ :$opts: == *:checkjobs:* ]]; then
@@ -4989,7 +5109,8 @@ function ble/widget/exit {
   local -a DRAW_BUFF=()
   ble/canvas/panel#goto.draw "$_ble_textarea_panel" "$_ble_textarea_gendx" "$_ble_textarea_gendy"
   ble/canvas/bflush.draw
-  ble/util/buffer.print "${_ble_term_setaf[12]}[ble: exit]$_ble_term_sgr0"
+  ble/edit/marker#instantiate-config exec_exit_mark
+  ble/util/buffer.print "$ret"
   ble/util/buffer.flush >&2
 
   # Note: ジョブが残っている場合でも強制終了させる為 2 回連続で呼び出す必要がある。
@@ -5847,6 +5968,49 @@ function ble/widget/transpose-XWORDs { ble/widget/transpose-words.impl XWORD; }
 #%expand 2.r/XWORD/sword/
 #%expand 2.r/XWORD/fword/
 
+function ble/widget/zap-to-char.hook {
+  local code ret char
+  ble/widget/self-insert/.get-code
+  ble/util/c2s "$code"
+  char=$ret
+  
+  # search nth occurrence of `char` and send it to the kill ring
+  local arg; ble-edit/content/get-arg 1
+  if ((arg>=0)); then
+    ((arg==0)) && arg=1
+    if ble/string#index-of "${_ble_edit_str:_ble_edit_ind}" "$char" "$arg"; then
+      ble/widget/.kill-range "$_ble_edit_ind" "$((_ble_edit_ind+ret+${#char}))"
+      return "$?"
+    fi
+  else
+    if ble/string#last-index-of "${_ble_edit_str::_ble_edit_ind}" "$char" "$((-arg))"; then
+      ble/widget/.kill-range "$ret" "$_ble_edit_ind"
+      return "$?"
+    fi
+  fi
+
+  if ((arg>0)); then
+    if ((arg==-1)); then
+      ble/widget/.bell "last char '$char' not found"
+    else
+      ble/widget/.bell "$((-arg))th last char '$char' not found"
+    fi
+  else
+    if ((arg==1)); then
+      ble/widget/.bell "next char '$char' not found"
+    else
+      ble/widget/.bell "$arg-th next char '$char' not found"
+    fi
+  fi
+
+  return 0
+}
+function ble/widget/zap-to-char {
+  _ble_edit_mark_active=
+  _ble_decode_key__hook=ble/widget/zap-to-char.hook
+  return 147
+}
+
 #------------------------------------------------------------------------------
 # **** ble-edit/exec ****                                            @edit.exec
 
@@ -5923,10 +6087,6 @@ function ble-edit/exec/.adjust-eol {
     ble/canvas/put-cuf.draw "$advance"
   fi
   ble/canvas/put.draw "  $_ble_term_cr$_ble_term_el"
-
-  # bleopt prompt_ruler
-  ble/prompt/print-ruler.draw "$_ble_edit_exec_BASH_COMMAND"
-
   ble/canvas/bflush.draw
 }
 
@@ -6033,7 +6193,9 @@ function ble/builtin/exit {
         esac
       done
     fi
-    ble/util/print "${_ble_term_setaf[12]}[ble: exit]$_ble_term_sgr0" >&2
+    local ret
+    ble/edit/marker#instantiate-config exec_exit_mark &&
+      ble/util/print "$ret" >&2
   fi
 
   # Note #D1765: Bash 4.4..5.1 では "{ time { exit 2>/dev/tty; } } 2>/dev/null"
@@ -6799,16 +6961,16 @@ function ble-edit/exec:gexec/.epilogue {
   if ((_ble_edit_exec_lastexit)); then
     # ERREXEC処理
     ble-edit/exec:gexec/invoke-hook-with-setexit ERREXEC "$_ble_edit_exec_BASH_COMMAND"
-    if [[ $bleopt_exec_errexit_mark ]]; then
-      local ret
-      ble/util/sprintf ret "$bleopt_exec_errexit_mark" "$_ble_edit_exec_lastexit"
+    if local ret; ble/edit/marker#get-config exec_errexit_mark; then
+      ble/util/sprintf ret "$ret" "$_ble_edit_exec_lastexit"
       msg=$ret
     fi
   fi
 
   if ble/exec/time#mark-enabled; then
-    local format=$bleopt_exec_elapsed_mark
-    if [[ $format ]]; then
+    if local ret; ble/edit/marker#get-config exec_elapsed_mark; then
+      local format=$ret
+
       # ata
       local ata=$((_ble_exec_time_ata/1000))
       if ((ata<1000)); then
@@ -6844,10 +7006,13 @@ function ble-edit/exec:gexec/.epilogue {
     fi
   fi
 
-  if [[ $msg ]]; then
-    x=0 y=0 g=0 LINES=1 ble/canvas/trace "$msg" confine:truncate
-    ble/util/buffer.print "$ret"
-  fi
+  local ret
+  ble/edit/marker#instantiate "$msg" bare && ble/util/buffer.print "$ret"
+
+  # bleopt prompt_ruler
+  local -a DRAW_BUFF=()
+  ble/prompt/print-ruler.draw "$_ble_edit_exec_BASH_COMMAND"
+  ble/canvas/bflush.draw
 }
 function ble-edit/exec:gexec/.setup {
   # コマンドを _ble_decode_bind_hook に設定してグローバルで評価する。
@@ -6891,7 +7056,9 @@ function ble-edit/exec:gexec/.setup {
       #   後にそのままコマンドを実行しないと無駄な出力がされてしまう。
       # Note: restore-lastarg の $_ble_edit_exec_lastarg は $_ を設定するための
       #   ものである。
-      buff[ibuff++]='{ time LINENO='$lineno' builtin eval -- "ble-edit/exec:gexec/.restore-lastarg \"\$_ble_edit_exec_lastarg\"'
+      # Note #D1824, #D2108: LINENO について vanishing tempenv bug を避ける為に
+      #   builtin eval ではなく eval を意図的に使っている。
+      buff[ibuff++]='{ time LINENO='$lineno' eval -- "ble-edit/exec:gexec/.restore-lastarg \"\$_ble_edit_exec_lastarg\"'
       buff[ibuff++]='$_ble_edit_exec_BASH_COMMAND_eval'
       # Note #D0465: 実際のコマンドと save-lastarg を同じ eval の中に入れている
       #   のは、同じ eval の中でないと $_ が失われてしまうから (特に eval を出
@@ -7196,7 +7363,11 @@ function ble/widget/default/accept-line {
   ble/history/add "$command"
 
   _ble_edit_CMD=$old_cmd ble/widget/.newline # #D1800 register
-  [[ $hist_is_expanded ]] && ble/util/buffer.print "${_ble_term_setaf[12]}[ble: expand]$_ble_term_sgr0 $command"
+  if [[ $hist_is_expanded ]]; then
+    local ret
+    ble/edit/marker#instantiate 'expand' non-empty
+    ble/util/buffer.print "$ret $command"
+  fi
 }
 
 function ble/widget/accept-and-next {
@@ -7310,7 +7481,8 @@ function ble/widget/edit-and-execute-command.impl {
   fi
 
   # Note: accept-line を参考にした
-  ble/util/buffer.print "${_ble_term_setaf[12]}[ble: fc]$_ble_term_sgr0 $command"
+  ble/edit/marker#instantiate 'fc' non-empty
+  ble/util/buffer.print "$ret $command"
   ble/history/add "$command"
   ble-edit/exec/register "$command"
 }
@@ -7596,17 +7768,17 @@ function ble-edit/undo/.load {
     local old=$_ble_edit_str new=$str ret
     if [[ $bleopt_undo_point == end ]]; then
       ble/string#common-suffix "${old:_ble_edit_ind}" "$new"; local s1=${#ret}
-      local old=${old::${#old}-s1} new=${new:${#new}-s1}
+      local old=${old::${#old}-s1} new=${new::${#new}-s1}
       ble/string#common-prefix "${old::_ble_edit_ind}" "$new"; local p1=${#ret}
       local old=${old:p1} new=${new:p1}
       ble/string#common-suffix "$old" "$new"; local s2=${#ret}
-      local old=${old::${#old}-s2} new=${new:${#new}-s2}
+      local old=${old::${#old}-s2} new=${new::${#new}-s2}
       ble/string#common-prefix "$old" "$new"; local p2=${#ret}
     else
       ble/string#common-prefix "${old::_ble_edit_ind}" "$new"; local p1=${#ret}
       local old=${old:p1} new=${new:p1}
       ble/string#common-suffix "${old:_ble_edit_ind-p1}" "$new"; local s1=${#ret}
-      local old=${old::${#old}-s1} new=${new:${#new}-s1}
+      local old=${old::${#old}-s1} new=${new::${#new}-s1}
       ble/string#common-prefix "$old" "$new"; local p2=${#ret}
       local old=${old:p2} new=${new:p2}
       ble/string#common-suffix "$old" "$new"; local s2=${#ret}
@@ -9025,7 +9197,7 @@ function ble/widget/history-search {
     (hide-status)
       opts=$opts:hide-status ;;
     (emulate-readline)
-      opts=hide-status:point=end:$opts ;;
+      opts=hide-status:point=end:immediate-accept:$opts ;;
     (previous-search)
       _ble_edit_nsearch_needle=$_ble_edit_nsearch_prev ;;
     esac
@@ -9444,7 +9616,7 @@ function ble-decode/keymap:safe/define {
   ble-bind -f 'f1'       command-help
   ble-bind -f 'C-x C-v'  display-shell-version
   ble-bind -c 'C-z'      fg
-  ble-bind -c 'M-z'      fg
+  ble-bind -f 'M-z'      zap-to-char
 }
 
 function ble-edit/bind/load-editing-mode:safe {
@@ -9637,7 +9809,7 @@ function ble/builtin/read/.set-up-textarea {
 
   # syntax, highlight
   _ble_syntax_lang=text
-  _ble_highlight_layer__list=(plain region overwrite_mode disabled)
+  _ble_highlight_layer_list=(plain region overwrite_mode disabled)
   return 0
 }
 function ble/builtin/read/TRAPWINCH {
@@ -10004,8 +10176,8 @@ function ble/widget/command-help/.type/.resolve-alias {
     builtin unalias "$command"
     builtin eval "alias_def=${alias_def#*=}" # remove quote
     literal=${alias_def%%["$_ble_term_IFS"]*} command= type=
-    ble/syntax:bash/simple-word/is-simple "$literal" || break # Note: type=
-    local ret; ble/syntax:bash/simple-word/eval "$literal"; command=$ret
+    local ret; ble/syntax:bash/simple-word/safe-eval "$literal" nonull || break # Note: type=
+    command=$ret
     ble/util/type type "$command"
     [[ $type ]] || break # Note: type=
 
@@ -10040,8 +10212,7 @@ function ble/widget/command-help/.type/.resolve-alias {
 function ble/widget/command-help/.type {
   local literal=$1
   type= command=
-  ble/syntax:bash/simple-word/is-simple "$literal" || return 1
-  local ret; ble/syntax:bash/simple-word/eval "$literal"; command=$ret
+  local ret; ble/syntax:bash/simple-word/safe-eval "$literal" nonull || return 1; command=$ret
   ble/util/type type "$command"
 
   # alias の時はサブシェルで解決
@@ -10246,7 +10417,9 @@ function ble-edit/bind/.check-detach {
   if [[ ! -o emacs && ! -o vi ]]; then
     # 実は set +o emacs などとした時点で eval の評価が中断されるので、これを検知することはできない。
     # 従って、現状ではここに入ってくることはないようである。
-    ble/util/print "${_ble_term_setaf[9]}[ble: unsupported]$_ble_term_sgr0 Sorry, ble.sh is supported only with some editing mode (set -o emacs/vi)." 1>&2
+    local ret
+    ble/edit/marker#instantiate 'unsupported' error:non-empty
+    ble/util/print "$ret Sorry, ble.sh is supported only with some editing mode (set -o emacs/vi)." 1>&2
     ble-detach
   fi
 
@@ -10265,15 +10438,19 @@ function ble-edit/bind/.check-detach {
       # ※この部分は現在使われていない。
       #   exit 時の処理は trap EXIT を用いて行う事に決めた為。
       #   一応 _ble_edit_detach_flag=exit と直に入力する事で呼び出す事はできる。
-      ble-detach/message "${_ble_term_setaf[12]}[ble: exit]$_ble_term_sgr0"
+      local ret
+      ble/edit/marker#instantiate-config exec_exit_mark &&
+        ble-detach/message "$ret"
 
       # bind -x の中から exit すると bash が stty を「前回の状態」に復元してしまう様だ。
       # シグナルハンドラの中から exit すれば stty がそのままの状態で抜けられる様なのでそうする。
       builtin trap 'ble-edit/bind/.exit-TRAPRTMAX' RTMAX
       kill -RTMAX $$
     else
+      local ret
+      ble/edit/marker#instantiate 'detached' non-empty
       ble-detach/message \
-        "${_ble_term_setaf[12]}[ble: detached]$_ble_term_sgr0" \
+        ${ret+"$ret"} \
         "Please run \`stty sane' to recover the correct TTY state."
 
       if ((_ble_bash>=40000)); then
@@ -10507,12 +10684,14 @@ function ble-decode/INITIALIZE_DEFMAP {
   fi
 
   # エラーメッセージ
+  ble/edit/marker#instantiate "The definition of the default keymap \"$defmap\" is not found. ble.sh uses \"safe\" keymap instead." error
+  local msg=$ret
+
   ble/edit/enter-command-layout # #D1800 pair=leave-command-layout
   ble/widget/.hide-current-line
+
   local -a DRAW_BUFF=()
-  ble/canvas/put.draw "$_ble_term_cr$_ble_term_el${_ble_term_setaf[9]}"
-  ble/canvas/put.draw "[ble.sh: The definition of the default keymap \"$defmap\" is not found. ble.sh uses \"safe\" keymap instead.]"
-  ble/canvas/put.draw "$_ble_term_sgr0$_ble_term_nl"
+  ble/canvas/put.draw "$_ble_term_cr$_ble_term_el$msg$_ble_term_nl"
   ble/canvas/bflush.draw
   ble/util/buffer.flush >&2
   ble/edit/leave-command-layout # #D1800 pair=enter-command-layout

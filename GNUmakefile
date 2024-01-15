@@ -9,14 +9,14 @@ ifeq ($(.FEATURES),)
 endif
 
 # check gawk
-GAWK := $(shell which gawk 2>/dev/null || type -p gawk 2>/dev/null)
+GAWK := $(shell which gawk 2>/dev/null || bash -c 'type -p gawk' 2>/dev/null)
 ifneq ($(GAWK),)
   GAWK_VERSION := $(shell LANG=C $(GAWK) --version 2>/dev/null | sed -n '1{/[Gg][Nn][Uu] [Aa][Ww][Kk]/p;}')
   ifeq ($(GAWK_VERSION),)
     $(error Sorry, gawk is found but does not seem to work. Please install a proper version of gawk (GNU Awk).)
   endif
 else
-  GAWK := $(shell which awk 2>/dev/null || type -p awk 2>/dev/null)
+  GAWK := $(shell which awk 2>/dev/null || bash -c 'type -p awk' 2>/dev/null)
   ifeq ($(GAWK),)
     $(error Sorry, gawk/awk could not be found. Please check your PATH environment variable.)
   endif
@@ -28,7 +28,7 @@ endif
 
 MWGPP:=$(GAWK) -f make/mwg_pp.awk
 
-# Note (): we had used "cp -p xxx out/xxx" to copy files to the build
+# Note (#D2058): we had used "cp -p xxx out/xxx" to copy files to the build
 # directory, but some filesystem (ecryptfs) has a bug that the subsecond
 # timestamps are truncated causing an issue: make every time copies all the
 # files into the subdirectory `out`.  We give up using `cp -p` and instead copy
@@ -59,13 +59,17 @@ $(OUTDIR)/ble.sh: ble.pp GNUmakefile | .git $(OUTDIR)
 	  $(MWGPP) $< >/dev/null
 .DELETE_ON_ERROR: $(OUTDIR)/ble.sh
 
+GENTABLE := bash make/canvas.c2w.generate-table.sh
+
 src/canvas.c2w.sh:
-	bash make_command.sh generate-c2w-table > $@
+	$(GENTABLE) c2w
 src/canvas.c2w.musl.sh: make/canvas.c2w.wcwidth.cpp make/canvas.c2w.wcwidth-musl.cpp
 	+make -C make canvas.c2w.wcwidth.exe
-	make/canvas.c2w.wcwidth.exe table_musl2014 | bash make_command.sh convert-custom-c2w-table _ble_util_c2w_musl > $@
+	make/canvas.c2w.wcwidth.exe table_musl2014 | $(GENTABLE) convert-custom-c2w _ble_util_c2w_musl > $@
 src/canvas.emoji.sh:
-	bash make_command.sh generate-emoji-table > $@
+	$(GENTABLE) emoji
+src/canvas.GraphemeClusterBreak.sh:
+	$(GENTABLE) GraphemeClusterBreak
 
 #------------------------------------------------------------------------------
 # lib
@@ -77,7 +81,6 @@ outfiles += $(OUTDIR)/lib/keymap.emacs.sh
 outfiles += $(OUTDIR)/lib/keymap.vi.sh
 outfiles += $(OUTDIR)/lib/keymap.vi_digraph.sh
 outfiles += $(OUTDIR)/lib/keymap.vi_digraph.txt
-outfiles += $(OUTDIR)/lib/keymap.vi_test.sh
 
 # init
 outfiles += $(OUTDIR)/lib/init-term.sh
@@ -110,6 +113,7 @@ outfiles += $(OUTDIR)/lib/test-decode.sh
 outfiles += $(OUTDIR)/lib/test-edit.sh
 outfiles += $(OUTDIR)/lib/test-syntax.sh
 outfiles += $(OUTDIR)/lib/test-complete.sh
+outfiles += $(OUTDIR)/lib/test-keymap.vi.sh
 outfiles += $(OUTDIR)/lib/util.bgproc.sh
 
 $(OUTDIR)/lib/%.sh: lib/%.sh | $(OUTDIR)/lib
@@ -141,7 +145,8 @@ removedfiles += \
   keymap/vi_digraph.txt \
   keymap/vi_imap.rlfunc.txt \
   keymap/vi_nmap.rlfunc.txt \
-  keymap/vi_test.sh
+  keymap/vi_test.sh \
+  lib/keymap.vi_test.sh
 
 #------------------------------------------------------------------------------
 # documents
@@ -228,11 +233,16 @@ else
   opt_strip_comment :=
 endif
 
-install: \
+install-files := \
   $(outfiles:$(OUTDIR)/%=$(INSDIR)/%) \
   $(outfiles-doc:$(OUTDIR)/doc/%=$(INSDIR_DOC)/%) \
   $(outfiles-license:$(OUTDIR)/doc/%=$(INSDIR_LICENSE)/%) \
   $(INSDIR)/cache.d $(INSDIR)/run
+install: $(install-files)
+uninstall:
+	bash make_command.sh uninstall $(install-files)
+.PHONY: install uninstall
+
 $(INSDIR)/%: $(OUTDIR)/%
 	bash make_command.sh install $(opt_strip_comment) "$<" "$@"
 $(INSDIR_DOC)/%: $(OUTDIR)/doc/%
@@ -243,7 +253,6 @@ $(INSDIR_LICENSE)/%: $(OUTDIR)/doc/%
 endif
 $(INSDIR)/cache.d $(INSDIR)/run:
 	mkdir -p $@ && chmod a+rwxt $@
-.PHONY: install
 
 clean:
 	-rm -rf $(outfiles) $(outfiles-doc) $(outfiles-license) $(OUTDIR)/ble.dep

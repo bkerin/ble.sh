@@ -10,7 +10,14 @@
 - cmdspec: add completion options for builtins (motivated by EmilySeville7cfg) `#D2040` 9bd24691
 - syntax: support bash-5.3 function subst `${ list; }` `#2045` 0906fd95 71272a4b
 - complete: support `bleopt complete_requote_threshold` (requested by rauldipeas) `#2048` bb7e118e
-- menu (`ble/widget/menu/append-arg`): add option `bell` (motivated by bkerin) `#D2066` xxxxxxxx
+- menu (`ble/widget/menu/append-arg`): add option `bell` (motivated by bkerin) `#D2066` 3f31be18 bbf3fed3
+- make: support `make uninstall` `#D2068` a39a4a89
+- edit: support `bleopt {edit_marker{,_error},exec_exit_mark}` `#D2079` e4e1c874
+- edit: add widget `zap-to-char` `#D2082` ce7ce403
+- keymap/vi: split widget `text-object` into `text-object-{inner,outer}` (requested by Darukutsu) `#D2093` 11cf118a
+- keymap/vi: implement text-object in xmap for brackets (requested by Darukutsu) `#D2095` 7d80167c
+- util: support `ble-import -C callback` (motivated by Dominiquini) `#D2102` 0fdbe3b0
+- mandb: look for git subcommands (motivated by bkerin) `#D2111` xxxxxxxx
 
 ## Changes
 
@@ -19,6 +26,8 @@
 - auto-complete: overwrite subsequent characters with self-insert in overwrite mode `#D2059` 7044b2db
 - complete: move face definitions `menu_filter_*` to `core-complete-def.sh` `#D2060` af022266
 - make: add `INSDIR_LICENSE` for install location of licenses (reported by willemw) `#D2064` d39998f0 acf3b091
+- prompt: show prompt ruler after markers (motivated by U-Labs) `#D2067` e4a90378
+- complete: suffix a space to non-filenames with `compopt -o filenames` (reported by Dominiquini) `#D2096` aef8927f
 
 ## Fixes
 
@@ -32,6 +41,16 @@
 - stty: suggest `stty sane` after exiting from bash >= 5.2 to non-ble session `#D2046` b57ab2d6
 - util (`ble/builtin/readonly`): adjust bash options (reported by dongxi8) `#D2050` 1f3cbc01
 - history (`ble/builtin/history`): fix error message on the empty `HISTFILE` `#D2061` a2e2c4b6
+- complete: exit auto-complete mode on complete self-insert `#D2075` 2783d3d0
+- complete: fix error messages on empty command names `#D2085` dab8dd04
+- complete: fix parsing the output of `complete -p` in bash-5.2 (reported by maheis) `#D2088` a7eb5d04
+- make: specify bash to search the awk path using `type -p` (reported by rashil2000) `#D2089` 26826354
+- keymap/vi: fix the behavior of text-object for quotes in xmap (reported by Darukutsu) `#D2094` 5f9a44ec
+- edit(redo): fix broken common prefix/suffix determination (reported by Darukutsu) `#D2098` c920ea65
+- keymap/vi: improve text-object in omap for brackets (reported by Darukutsu) `#D2100` d1a1d538
+- decode(bind): fix command-line argument parsing `#D2107` 57a13c3c
+- edit(gexec): fix a bug that `LINENO` is vanishing `#D2108` b5776596
+- mandb: fix extraction of option description in format 5 (reported by bkerin) `#D2109` xxxxxxxx
 
 ## Compatibility
 
@@ -45,19 +64,47 @@
 - make: work around ecryptfs bug (reported by juanejot) `#D2058` 969a763e dc0cdb30
 - edit: update mc-4.8.29 integration (reported by mooreye) `#D2062` 2c4194a2 68c5c5c4
 - make: work around `make-3.81` bug of pattern rules `#D2065` f7ec170b
+- decode: work around `convert-meta on` in bash >= 5.2 with broken locale (reported by 3ximus) `#D2069` 226f9718
+- canvas: adjust GraphemeClusterBreak of hankaku-kana voiced marks `#D2077` 31d168cc
+- canvas: update tables and grapheme clusters for Unicode 15.1.0 `#D2078` 503bb38b 9d84b424 9d84b424
+- complete: use conditional-sync for cobraV2 completions (reported by sebhoss) `#D2084` 595f905b
+- term: add workarounds for `eterm` `#D2087` a643f0ea
+- global: adjust bash options for utilities outside the ble context (motivated by jkemp814) `#D2092` 6b144de7
+- decode,syntax: quote `$#` in arguments properly `#D2097` 40a625d3
+- global: work around case-interleaving collation (reported by dongxi8) `#D2103` a3b94bb3
+- nsearch: set `immediate-accept` for `empty=emulate-readline` (reported by blackteahamburger) `#D2104` 870ecef7
+- decode(bind): support the colonless form of `bind -x` of bash-5.3 `#D2106` 78d7d2e3
+- decode, vi_digraph: trim CR of text resources in MSYS `#D2105` 6f4badf4
+- progcomp: conditionally suffix space for git completion (reported by bkerin) `#D2110` xxxxxxxx
 
 ## Contrib
 
 - fix(histdb): show error message only when bgproc crashed `#D2036` 887d92dd
 - contrib/fzf-git: update to be consistent with the upstream (motivated by arnoldmashava) `#D2054` c78e5c9f
+- contrib/layer/pattern: add `{pattern}` layer `#D2074` 449d92ca
+- contrib/fzf-git: fix unsupported command modes (reported by dgudim) `#D2083` ba2b8865
 
 ## Documentation
 
-- docs (CONTRIBUTING): add styleguide (motivated by bkerin) `#D2056` 44cf6756
+- docs(CONTRIBUTING): add styleguide (motivated by bkerin) `#D2056` 44cf6756
+- docs(README): fix dead links to blerc.template (fixed by weskeiser) e0f3ac28
+- github: add FUNDING `#D2080` 3f133936
+- blerc: describe keybinding to accept autosuggestion by TAB (motivated by TehFunkWagnalls) `#D2090` cd069860
+- docs: apply Grammarly and fix typos `#D2099` 8b3f6f8c
+
+## Test
+
+- test(bash): fix condition for bash bug of history expansion `#D2071` aacf1462
+- test(main): fix delimiter of `MSYS` in adding `winsymlinks` `#D2071` aacf1462
+- test(util,vi): adjust `ble/util/is-stdin-ready` while testing `#D2105` 23a05827 6f4badf4
 
 ## Internal changes
 
 - refactor: move files `{keymap/ => lib/keymap.}*` f4c973b8
+- global: fix coding style `#D2072` bdcecbbf
+- memo: add recent configs and create directories `#D2073` 99cb5e81
+- highlight: generalize `region` layer `#D2074` 449d92ca
+- keymap/vi: integrate vi tests into the test framework `#D2101` d16b8438
 
 <!---------------------------------------------------------------------------->
 # ble-0.4.0-devel3

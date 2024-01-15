@@ -23,7 +23,7 @@ function ble/debug/measure-set-timeformat {
 $"leakvar"=__t1wJltaP9nmow__
 #%%end.i
 function ble/bin/grep { command grep "$@"; }
-function ble/util/print { printf '%s\n' "$*"; }
+function ble/util/print { printf '%s\n' "$1"; }
 source "${BASH_SOURCE%/*}/lib/core-debug.sh"
 #%end
 #%define inc
@@ -979,7 +979,11 @@ fi
 # check environment
 
 # will be overwritten by src/util.sh
-function ble/util/assign { builtin eval "$1=\$(builtin eval -- \"\$2\")"; }
+if ((_ble_bash>=50300)); then
+  function ble/util/assign { builtin eval "$1=\${ builtin eval -- \"\$2\"; }"; }
+else
+  function ble/util/assign { builtin eval "$1=\$(builtin eval -- \"\$2\")"; }
+fi
 
 # ble/bin
 
@@ -1073,6 +1077,41 @@ function ble/init/check-environment {
 
   if [[ ! ${LANG-} ]]; then
     ble/util/print "ble.sh: suspicious environment: \$LANG is empty." >&2
+  fi
+
+  # Check locale and work around `convert-meta on' in bash >= 5.2
+  if ((_ble_bash>=50200)); then
+    # Note #D2069: In bash >= 5.2, when the specified locale does not exist,
+    # the readline setting `convert-meta' is automatically turned on when
+    # Readline is first initialized.  This interferes with ble.sh's trick to
+    # distinguish isolated ESCs from meta ESCs, i.e., the combination "ESC ["
+    # is converted to "<C0> <9B> [" by ble.sh's macro, <C0> is converted to
+    # "ESC @" by `convert-meta', and "ESC @" is again converted to "<C0> <9B>
+    # @".  This forms an infinite loop.  ble.sh tries to adjust `convert-meta',
+    # but Readline's adjustment takes place at a random timing which is not
+    # controllable.  To work around this, we need to forcibly initialize
+    # Readline before ble.sh adjusts `convert-meta'.
+
+    local error
+    # Note: We check if the current locale setting produces an error message.
+    # We try the workaround only when the locale appears to be broken because
+    # the workaround may have a side effect of consuming user's input.
+    ble/util/assign error '{ LC_ALL= LC_CTYPE=C ble/util/put; } 2>&1'
+    if [[ $error ]]; then
+      ble/util/print "$error" >&2
+      ble/util/print "ble.sh: please check the locale settings (LANG and LC_*)." >&2
+
+      # Note: Somehow, the workaround of using "read -et" only works after
+      # running `LC_ALL= LC_CTYPE=C cmd'.  In bash < 5.3, ble/util/assign at
+      # this point is executed under a subshell, so we need to run `LC_ALL=
+      # LC_CTYPE=C ble/util/put' again in the main shell
+      ((_ble_bash>=50300)) || { LC_ALL= LC_CTYPE=C ble/util/put; } 2>/dev/null
+
+      # We here forcibly initialize locales of Readline to make Readline's
+      # adjustment of convert-meta take place here.
+      local dummy
+      builtin read -et 0.000001 dummy </dev/tty
+    fi
   fi
 
   # 暫定的な ble/bin/$cmd 設定
@@ -2089,7 +2128,7 @@ function ble/dispatch {
   (version|--version) ble/util/print "ble.sh, version $BLE_VERSION (noarch)" ;;
   (check|--test) ble/base/sub:test "$@" ;;
   (*)
-    if ble/string#match "$cmd" '^[-a-z0-9]+$' && ble/is-function "ble-$cmd"; then
+    if ble/string#match "$cmd" '^[-a-zA-Z0-9]+$' && ble/is-function "ble-$cmd"; then
       "ble-$cmd" "$@"
     elif ble/is-function ble/bin/ble; then
       ble/bin/ble "$cmd" "$@"
@@ -2288,7 +2327,8 @@ function ble-detach/message {
 function ble/base/unload-for-reload {
   if [[ $_ble_attached ]]; then
     ble-detach/impl
-    ble/util/print "${_ble_term_setaf[12]}[ble: reload]$_ble_term_sgr0" 1>&2
+    local ret
+    ble/edit/marker#instantiate 'reload' && ble/util/print "$ret" 1>&2
     [[ $_ble_edit_detach_flag ]] ||
       _ble_edit_detach_flag=reload
   fi
@@ -2474,7 +2514,7 @@ function ble/base/sub:test {
   ble-import lib/core-test
 
   if (($#==0)); then
-    set -- bash main util canvas decode edit syntax complete
+    set -- bash main util canvas decode edit syntax complete keymap.vi
     logfile=$_ble_base_cache/test.$(date +'%Y%m%d.%H%M%S').log
     : >| "$logfile"
     ble/test/log#open "$logfile"
@@ -2492,16 +2532,18 @@ function ble/base/sub:test {
   done
   ble/test/log "$line"
 
+  local _ble_test_section_failure_count=0
   local section
   for section; do
     local file=$_ble_base/lib/test-$section.sh
     if [[ -f $file ]]; then
-      source "$file" || error=1
+      source "$file"
     else
       ble/test/log "ERROR: Test '$section' is not defined."
       error=1
     fi
   done
+  ((_ble_test_section_failure_count)) && error=1
 
   if [[ $logfile ]]; then
     ble/test/log#close

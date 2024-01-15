@@ -2,7 +2,7 @@
 
 ble-import lib/core-test
 
-ble/test/start-section 'bash' 38
+ble/test/start-section 'bash' 49
 
 # case $word を quote する必要がある条件は?
 
@@ -126,7 +126,7 @@ ble/test/start-section 'bash' 38
   #   "${...#$'...'}" (#D1774) という形を使うと $'...' の展開結果が ... ではな
   #   く '...'  の様に、余分な引用符が入ってしまう。extquote を設定しても結果は
   #   変わらない。
-  unset -v scalar
+  builtin unset -v scalar
   if ((_ble_bash<30100)); then
     ble/test code:'ret="[${scalar-$'\''hello'\''}]"' ret="['hello']" # disable=#D1774
   else
@@ -244,7 +244,7 @@ ble/test/start-section 'bash' 38
   #   > hello=()
   #
   #   これは bash-3.1-patches/bash31-004 で修正されている様だ。
-  function f1 { local -a arr=(b b b); echo "(${arr[*]})"; }
+  function f1 { local -a arr=(b b b); ble/util/print "(${arr[*]})"; }
   function f2 { local -a arr=(a a a); f1; }
   if ((30100<=_ble_bash&&_ble_bash<30104)); then
     ble/test f2 stdout='()'
@@ -304,7 +304,7 @@ ble/test/start-section 'bash' 38
   #     も同様である。
   #   * "${scalar[@]/xxxx}" (#D1570) は全て空になる。変数名が配列である事が保証
   #     されている必要がある。
-  unset -v scalar
+  builtin unset -v scalar
   scalar=abcd
   if ((_ble_bash<30100)); then
     ble/test code:'ret=${scalar[@]//[bc]}' ret=''   # disable=#D1570
@@ -317,25 +317,32 @@ ble/test/start-section 'bash' 38
 
 # Other bugs
 (
-  # BUG bash-3.0..5.2 (3.0..4.0?)
+  # BUG bash-3.0..4.0 (3.0..5.2 in 非対話セッション)
 
   # $'' 内に \' を入れていると履歴展開が '' の中で起こる? 例えば
-  # rex='a'$'\'\'''!a' とすると !a の部分が展開される。
+  # rex='a'$'\'\'''!a' とすると !a の部分が展開される (9f0644470 OK)。
   #
-  # →実は history -p だとどのバージョンでも問題は再現する様だ。因みに対応する
-  # 履歴がない場合には 4.1 以下でエラーメッセージが表示される。遡ってみるとこの
-  # 項目は memo.txt に commit 9f064447 (2015-03-08) で追加されている。但し対応
-  # する項目は memo.txt には記述されていない。#D0206 が近いが微妙に異なることを
-  # 議論している。
+  # 因みに対応する履歴がない場合には 4.1 以下でエラーメッセージが表示される。
+  #
+  # Note: bash -c や独立したスクリプト実行の中だと 3.0..5.2 および devel の全バー
+  # ジョンで問題は再現する。対話セッションや set +H を指定した場合には問題は
+  # 3.0..4.0 でしか発生しない。
+  #
+  # Note: 遡ってみるとこの項目は memo.txt に commit 9f064447 (2015-03-08) で追
+  # 加されている。但し対応する項目は memo.txt には記述されていない。#D0206 が近
+  # いが微妙に異なることを議論している。
+  #
   q=\' line='$'$q'\'$q'!!'$q'\'$q
   ble/util/assign ret '(builtin history -s histentry; builtin history -p "$line")'
   if ((_ble_bash<30100)); then
+    # 3.0 ではそもそも失敗する。
     ble/test code:'' ret=
-  else
+  elif ((_ble_bash<40100)) || [[ $- != *[iH]* ]]; then
+    # 非対話セッション または 3.1..4.0 では意図せず展開が起こる
     ble/test code:'' ret="${line//!!/histentry}"
-
-    # 本来は以下になって欲しい
-    #ble/test code:'' ret="$line"
+  else
+    # 期待した振る舞い
+    ble/test code:'' ret="$line"
   fi
   ble/test '(builtin history -c; builtin history -p "$line")' stdout=
 
@@ -345,9 +352,9 @@ ble/test/start-section 'bash' 38
   #
   #   どうも更に関数を func REDIRECT & で呼び出した時にのみ発生する様だ。呼び出
   #   し元のリダイレクションリストで上書きされているという事だろうか。e
-  function f1 { echo hello; } >&"$fd1"
-  function f2 { echo hello >&"$fd1"; }
-  function f3 { { echo hello; } >&"$fd1"; }
+  function f1 { ble/util/print hello; } >&"$fd1"
+  function f2 { ble/util/print hello >&"$fd1"; }
+  function f3 { { ble/util/print hello; } >&"$fd1"; }
   function test1 {
     local fd1=
     ble/fd#alloc fd1 '>&1'

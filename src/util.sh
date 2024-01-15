@@ -28,6 +28,7 @@ function bleopt/.read-arguments/process-option {
 }
 
 ## @fn bleopt/expand-variable-pattern pattern opts
+##   @param[in] pattern
 ##   @var[out] ret
 function bleopt/expand-variable-pattern {
   ret=()
@@ -134,6 +135,11 @@ function bleopt/.read-arguments {
 function bleopt/changed.predicate {
   local cur=$1 def=_ble_opt_def_${1#bleopt_}
   [[ ! ${!def+set} || ${!cur} != "${!def}" ]]
+}
+
+function bleopt/default {
+  local def=_ble_opt_def_${1#bleopt_}
+  ret=${!def}
 }
 
 ## @fn bleopt args...
@@ -505,13 +511,17 @@ else
   function ble/is-array {
     local "decl$1"
     ble/util/assign "decl$1" "declare -p $1" 2>/dev/null || return 1
-    local rex='^declare -[b-zA-Z]*a'
+    # Note: [b-zAB-Z] specifies a letter excluding "a".  For locales where
+    # collation order is "AaBb...Zz", we avoid to use the range [b-zA-Z].
+    local rex='^declare -[b-zAB-Z]*a'
     builtin eval "[[ \$decl$1 =~ \$rex ]]"
   }
   function ble/is-assoc {
     local "decl$1"
     ble/util/assign "decl$1" "declare -p $1" 2>/dev/null || return 1
-    local rex='^declare -[a-zB-Z]*A'
+    # Note: [ab-zB-Z] specifies a letter excluding "A".  For locales where
+    # collation order is "aAbB...zZ", we avoid to use the range [a-zB-Z].
+    local rex='^declare -[ab-zB-Z]*A'
     builtin eval "[[ \$decl$1 =~ \$rex ]]"
   }
   ((_ble_bash>=40000)) ||
@@ -581,24 +591,24 @@ function ble/array#insert-at {
 ## @fn ble/array#insert-after arr needle elements...
 function ble/array#insert-after {
   local _ble_local_script='
-    local iARR=0 eARR aARR=
-    for eARR in "${ARR[@]}"; do
-      ((iARR++))
-      [[ $eARR == "$2" ]] && aARR=iARR && break
+    local iNAME=0 eNAME aNAME=
+    for eNAME in "${NAME[@]}"; do
+      ((iNAME++))
+      [[ $eNAME == "$2" ]] && aNAME=iNAME && break
     done
-    [[ $aARR ]] && ble/array#insert-at "$1" "$aARR" "${@:3}"
-  '; builtin eval -- "${_ble_local_script//ARR/$1}"
+    [[ $aNAME ]] && ble/array#insert-at "$1" "$aNAME" "${@:3}"
+  '; builtin eval -- "${_ble_local_script//NAME/$1}"
 }
 ## @fn ble/array#insert-before arr needle elements...
 function ble/array#insert-before {
   local _ble_local_script='
-    local iARR=0 eARR aARR=
-    for eARR in "${ARR[@]}"; do
-      [[ $eARR == "$2" ]] && aARR=iARR && break
-      ((iARR++))
+    local iNAME=0 eNAME aNAME=
+    for eNAME in "${NAME[@]}"; do
+      [[ $eNAME == "$2" ]] && aNAME=iNAME && break
+      ((iNAME++))
     done
-    [[ $aARR ]] && ble/array#insert-at "$1" "$aARR" "${@:3}"
-  '; builtin eval -- "${_ble_local_script//ARR/$1}"
+    [[ $aNAME ]] && ble/array#insert-at "$1" "$aNAME" "${@:3}"
+  '; builtin eval -- "${_ble_local_script//NAME/$1}"
 }
 ## @fn ble/array#filter arr predicate
 ##   @param[in] predicate
@@ -617,12 +627,12 @@ function ble/array#filter {
   fi
 
   local _ble_local_script='
-    local -a aARR=() eARR
-    for eARR in "${ARR[@]}"; do
-      "$_ble_local_predicate" "$eARR" && ble/array#push "aARR" "$eARR"
+    local -a aNAME=() eNAME
+    for eNAME in "${NAME[@]}"; do
+      "$_ble_local_predicate" "$eNAME" && ble/array#push "aNAME" "$eNAME"
     done
-    ARR=("${aARR[@]}")
-  '; builtin eval -- "${_ble_local_script//ARR/$1}"
+    NAME=("${aNAME[@]}")
+  '; builtin eval -- "${_ble_local_script//NAME/$1}"
 }
 function ble/array#filter/not.predicate { ! "$_ble_local_pred" "$1"; }
 function ble/array#remove-if {
@@ -666,40 +676,40 @@ function ble/array#remove {
 ##   @var[out] ret
 function ble/array#index {
   local _ble_local_script='
-    local eARR iARR=0
-    for eARR in "${ARR[@]}"; do
-      if [[ $eARR == "$2" ]]; then ret=$iARR; return 0; fi
-      ((++iARR))
+    local eNAME iNAME=0
+    for eNAME in "${NAME[@]}"; do
+      if [[ $eNAME == "$2" ]]; then ret=$iNAME; return 0; fi
+      ((++iNAME))
     done
     ret=-1; return 1
-  '; builtin eval -- "${_ble_local_script//ARR/$1}"
+  '; builtin eval -- "${_ble_local_script//NAME/$1}"
 }
 ## @fn ble/array#last-index arr needle
 ##   @var[out] ret
 function ble/array#last-index {
   local _ble_local_script='
-    local eARR iARR=${#ARR[@]}
-    while ((iARR--)); do
-      [[ ${ARR[iARR]} == "$2" ]] && { ret=$iARR; return 0; }
+    local eNAME iNAME=${#NAME[@]}
+    while ((iNAME--)); do
+      [[ ${NAME[iNAME]} == "$2" ]] && { ret=$iNAME; return 0; }
     done
     ret=-1; return 1
-  '; builtin eval -- "${_ble_local_script//ARR/$1}"
+  '; builtin eval -- "${_ble_local_script//NAME/$1}"
 }
 ## @fn ble/array#remove-at arr index
 function ble/array#remove-at {
   local _ble_local_script='
-    builtin unset -v "ARR[$2]"
-    ARR=("${ARR[@]}")
-  '; builtin eval -- "${_ble_local_script//ARR/$1}"
+    builtin unset -v "NAME[$2]"
+    NAME=("${NAME[@]}")
+  '; builtin eval -- "${_ble_local_script//NAME/$1}"
 }
 function ble/array#fill-range {
   ble/array#reserve-prototype "$(($3-$2))"
-  local _ble_script='
-      local -a sARR; sARR=("${_ble_array_prototype[@]::$3-$2}")
-      ARR=("${ARR[@]::$2}" "${sARR[@]/#/$4}" "${ARR[@]:$3}")' # WA #D1570 #D1738 checked
+  local _ble_local_script='
+      local -a sNAME; sNAME=("${_ble_array_prototype[@]::$3-$2}")
+      NAME=("${NAME[@]::$2}" "${sNAME[@]/#/$4}" "${NAME[@]:$3}")' # WA #D1570 #D1738 checked
   ((_ble_bash>=40300)) && ! shopt -q compat42 &&
-    _ble_script=${_ble_script//'$4'/'"$4"'}
-  builtin eval -- "${_ble_script//ARR/$1}"
+    _ble_local_script=${_ble_local_script//'$4'/'"$4"'}
+  builtin eval -- "${_ble_local_script//NAME/$1}"
 }
 ## @fn ble/idict#replace arr needle [replacement]
 ##   needle に一致する要素を全て replacement に置換します。
@@ -709,18 +719,18 @@ function ble/array#fill-range {
 ##   @var[in,opt] replacement
 function ble/idict#replace {
   local _ble_local_script='
-    local iARR=0 extARR=1
-    for iARR in "${!ARR[@]}"; do
-      [[ ${ARR[iARR]} == "$2" ]] || continue
-      extARR=0
+    local iNAME=0 extNAME=1
+    for iNAME in "${!NAME[@]}"; do
+      [[ ${NAME[iNAME]} == "$2" ]] || continue
+      extNAME=0
       if (($#>=3)); then
-        ARR[iARR]=$3
+        NAME[iNAME]=$3
       else
-        builtin unset -v '\''ARR[iARR]'\''
+        builtin unset -v '\''NAME[iNAME]'\''
       fi
     done
-    return "$extARR"
-  '; builtin eval -- "${_ble_local_script//ARR/$1}"
+    return "$extNAME"
+  '; builtin eval -- "${_ble_local_script//NAME/$1}"
 }
 
 function ble/idict#copy {
@@ -909,25 +919,23 @@ function ble/string#last-index-of {
 ##   @var[out] ret
 _ble_util_string_lower_list=abcdefghijklmnopqrstuvwxyz
 _ble_util_string_upper_list=ABCDEFGHIJKLMNOPQRSTUVWXYZ
-function ble/string#toggle-case.impl {
-  local LC_ALL= LC_COLLATE=C
+function ble/string#islower { [[ $1 == ["$_ble_util_string_lower_list"] ]]; }
+function ble/string#isupper { [[ $1 == ["$_ble_util_string_upper_list"] ]]; }
+function ble/string#toggle-case {
   local text=$1 ch i
   local -a buff
   for ((i=0;i<${#text};i++)); do
     ch=${text:i:1}
-    if [[ $ch == [A-Z] ]]; then
+    if ble/string#isupper "$ch"; then
       ch=${_ble_util_string_upper_list%%"$ch"*}
       ch=${_ble_util_string_lower_list:${#ch}:1}
-    elif [[ $ch == [a-z] ]]; then
+    elif ble/string#islower "$ch"; then
       ch=${_ble_util_string_lower_list%%"$ch"*}
       ch=${_ble_util_string_upper_list:${#ch}:1}
     fi
     ble/array#push buff "$ch"
   done
   IFS= builtin eval 'ret="${buff[*]-}"'
-}
-function ble/string#toggle-case {
-  ble/string#toggle-case.impl "$1" 2>/dev/null # suppress locale error #D1440
 }
 ## @fn ble/string#tolower text
 ## @fn ble/string#toupper text
@@ -936,13 +944,12 @@ if ((_ble_bash>=40000)); then
   function ble/string#tolower { ret=${1,,}; }
   function ble/string#toupper { ret=${1^^}; }
 else
-  function ble/string#tolower.impl {
-    local LC_ALL= LC_COLLATE=C
+  function ble/string#tolower {
     local i text=$1 ch
     local -a buff=()
     for ((i=0;i<${#text};i++)); do
       ch=${text:i:1}
-      if [[ $ch == [A-Z] ]]; then
+      if ble/string#isupper "$ch"; then
         ch=${_ble_util_string_upper_list%%"$ch"*}
         ch=${_ble_util_string_lower_list:${#ch}:1}
       fi
@@ -950,25 +957,18 @@ else
     done
     IFS= builtin eval 'ret="${buff[*]-}"'
   }
-  function ble/string#toupper.impl {
-    local LC_ALL= LC_COLLATE=C
+  function ble/string#toupper {
     local i text=$1 ch
     local -a buff=()
     for ((i=0;i<${#text};i++)); do
       ch=${text:i:1}
-      if [[ $ch == [a-z] ]]; then
+      if ble/string#islower "$ch"; then
         ch=${_ble_util_string_lower_list%%"$ch"*}
         ch=${_ble_util_string_upper_list:${#ch}:1}
       fi
       ble/array#push buff "$ch"
     done
     IFS= builtin eval 'ret="${buff[*]-}"'
-  }
-  function ble/string#tolower {
-    ble/string#tolower.impl "$1" 2>/dev/null # suppress locale error #D1440
-  }
-  function ble/string#toupper {
-    ble/string#toupper.impl "$1" 2>/dev/null # suppress locale error #D1440
   }
 fi
 
@@ -1084,8 +1084,22 @@ function ble/string#escape-for-bash-double-quote {
   local a b
   a='!' b='"\!"' ret=${ret//"$a"/"$b"} # WA #D1751 checked
 }
+_ble_util_string_escape_string_pairs=(
+  $'\001':'\001' $'\002':'\002' $'\003':'\003' $'\004':'\004'
+  $'\005':'\005' $'\006':'\006' $'\016':'\016' $'\017':'\017'
+  $'\020':'\020' $'\021':'\021' $'\022':'\022' $'\023':'\023'
+  $'\024':'\024' $'\025':'\025' $'\026':'\026' $'\027':'\027'
+  $'\030':'\030' $'\031':'\031' $'\032':'\032' $'\034':'\034'
+  $'\035':'\035' $'\036':'\036' $'\037':'\037' $'\177':'\177'
+)
 function ble/string#escape-for-bash-escape-string {
   ble/string#escape-characters "$1" $'\\\a\b\e\f\n\r\t\v'\' '\abefnrtv'\'
+  if [[ $ret == *[$'\001'-$'\037\177']* ]]; then
+    local pair a b
+    for pair in "${_ble_util_string_escape_string_pairs[@]}"; do
+      a=${pair%%:*} b=${pair#*:} ret=${ret//"$a"/"$b"}
+    done
+  fi
 }
 ## @fn ble/string#escape-for-bash-specialchars text flags
 ##   @param[in] text
@@ -1235,8 +1249,8 @@ function ble/string#quote-word {
     return 0
   fi
 
-  local chars=$'\a\b\e\f\n\r\t\v'
-  if [[ $ret == *["$chars"]* ]]; then
+  local chars=$'\a\b\e\f\n\r\t\v\001-\037\177'
+  if [[ $ret == *[$chars]* ]]; then
     ble/string#escape-for-bash-escape-string "$ret"
     ret=$sgrq\$\'$ret\'$sgr0
     return 0
@@ -1254,6 +1268,14 @@ function ble/string#quote-word {
 }
 
 function ble/string#match { [[ $1 =~ $2 ]]; }
+
+function ble/string#match-safe/.impl {
+  local LC_ALL= LC_COLLATE=C
+  [[ $1 =~ $2 ]]
+}
+function ble/string#match-safe {
+  ble/string#match-safe/.impl "$@" 2>/dev/null # suppress locale error #D1440
+}
 
 ## @fn ble/string#create-unicode-progress-bar/.block value
 ##   @var[out] ret
@@ -1363,6 +1385,10 @@ function ble/path#remove {
     opts=${opts//:"$2":}
     opts=${opts//::/:} opts=${opts#:} opts=${opts%:}'
   _ble_local_script=${_ble_local_script//opts/"$1"}
+  if shopt -q nocasematch 2>/dev/null; then
+    shopt -u nocasematch
+    _ble_local_script=$_ble_local_script';shopt -s nocasematch'
+  fi
   builtin eval -- "$_ble_local_script"
 }
 function ble/path#remove-glob {
@@ -1372,6 +1398,10 @@ function ble/path#remove-glob {
     opts=${opts//:$2:}
     opts=${opts//::/:} opts=${opts#:} opts=${opts%:}'
   _ble_local_script=${_ble_local_script//opts/"$1"}
+  if shopt -q nocasematch 2>/dev/null; then
+    shopt -u nocasematch
+    _ble_local_script=$_ble_local_script';shopt -s nocasematch'
+  fi
   builtin eval -- "$_ble_local_script"
 }
 function ble/path#contains {
@@ -2137,28 +2167,28 @@ function ble/util/readarray {
 
   if ((_ble_bash>=40400)); then
     local _ble_local_script='
-      mapfile -t -d "$_ble_local_delim" ARR'
+      mapfile -t -d "$_ble_local_delim" NAME'
   elif ((_ble_bash>=40000)) && [[ $_ble_local_delim == $'\n' ]]; then
     local _ble_local_script='
-      mapfile -t ARR'
+      mapfile -t NAME'
   else
     local _ble_local_script='
-      local IFS= ARRI=0; ARR=()
-      while ble/bash/read -d "$_ble_local_delim" "ARR[ARRI++]"; do :; done'
+      local IFS= NAMEI=0; NAME=()
+      while ble/bash/read -d "$_ble_local_delim" "NAME[NAMEI++]"; do :; done'
   fi
 
   if [[ $_ble_local_nlfix ]]; then
     _ble_local_script=$_ble_local_script'
-      local ARRN=${#ARR[@]} ARRF ARRI
-      if ((ARRN--)); then
-        ble/string#split-words ARRF "${ARR[ARRN]}"
-        builtin unset -v "ARR[ARRN]"
-        for ARRI in "${ARRF[@]}"; do
-          builtin eval -- "ARR[ARRI]=${ARR[ARRI]}"
+      local NAMEN=${#NAME[@]} NAMEF NAMEI
+      if ((NAMEN--)); then
+        ble/string#split-words NAMEF "${NAME[NAMEN]}"
+        builtin unset -v "NAME[NAMEN]"
+        for NAMEI in "${NAMEF[@]}"; do
+          builtin eval -- "NAME[NAMEI]=${NAME[NAMEI]}"
         done
       fi'
   fi
-  builtin eval -- "${_ble_local_script//ARR/$_ble_local_array}"
+  builtin eval -- "${_ble_local_script//NAME/$_ble_local_array}"
 }
 
 ## @fn ble/util/assign var command
@@ -2673,11 +2703,11 @@ function ble/util/type {
 
 if ((_ble_bash>=40000)); then
   function ble/is-alias {
-    [[ ${BASH_ALIASES[$1]+set} ]]
+    [[ $1 && ${BASH_ALIASES[$1]+set} ]]
   }
   function ble/alias#active {
     shopt -q expand_aliases &&
-      [[ ${BASH_ALIASES[$1]+set} ]]
+      [[ $1 && ${BASH_ALIASES[$1]+set} ]]
   }
   ## @fn ble/alias#expand word
   ##   @var[out] ret
@@ -2685,7 +2715,7 @@ if ((_ble_bash>=40000)); then
   ##     エイリアス展開が実際に行われた時に成功します。
   function ble/alias#expand {
     ret=$1
-    shopt -q expand_aliases &&
+    shopt -q expand_aliases && [[ $1 ]] &&
       ret=${BASH_ALIASES[$ret]-$ret}
   }
   function ble/alias/list {
@@ -2908,7 +2938,7 @@ function ble/fd#close-all-tty {
 ## @fn ble/util/nohup command [opts]
 ##   @param[in] command
 ##   @param[in,opt] opts
-##     @opts print-bgpid
+##     @opt print-bgpid
 function ble/util/nohup {
   if ((!BASH_SUBSHELL)); then
     (ble/util/nohup "$@")
@@ -3382,7 +3412,7 @@ function ble/util/msleep/.use-read-timeout {
       ! ble/bash/read-timeout "$v" -u "$_ble_util_msleep_fd" v
     } ;;
   (*.*)
-    if local rex='^(fifo|zero|ptmx)\.(open|exec)([12])(-[a-z]+)?$'; [[ $msleep_type =~ $rex ]]; then
+    if local rex='^(fifo|zero|ptmx)\.(open|exec)([12])(-[_a-zA-Z0-9]+)?$'; [[ $msleep_type =~ $rex ]]; then
       local file=${BASH_REMATCH[1]}
       local open=${BASH_REMATCH[2]}
       local direction=${BASH_REMATCH[3]}
@@ -4600,15 +4630,17 @@ function ble/util/import/finalize {
   _ble_util_import_files=()
 }
 ## @fn ble/util/import/.read-arguments args...
-##   @var[out] files not_found
+##   @var[out] files callbacks
 ##   @var[out] flags
 ##     E error
+##     N not_found
 ##     h help
 ##     d delay
 ##     f force
 ##     q query
 function ble/util/import/.read-arguments {
-  flags= files=() not_found=()
+  flags= files=() callbacks=()
+  local -a not_found=()
   while (($#)); do
     local arg=$1; shift
     if [[ $flags != *-* ]]; then
@@ -4622,6 +4654,16 @@ function ble/util/import/.read-arguments {
         (--help)  flags=h$flags ;;
         (--force) flags=f$flags ;;
         (--query) flags=q$flags ;;
+        (--callback=*)
+          ble/array#push callbacks "${arg#*=}" ;;
+        (--callback)
+          if (($#)); then
+            ble/array#push callbacks "$1"
+            shift
+          else
+            ble/util/print "ble-import: missing optarg for '--callback'" >&2
+            flags=E$flags
+          fi ;;
         (*)
           ble/util/print "ble-import: unrecognized option '$arg'" >&2
           flags=E$flags ;;
@@ -4633,6 +4675,17 @@ function ble/util/import/.read-arguments {
           c=${arg:i:1}
           case $c in
           ([dfq]) flags=$c$flags ;;
+          (C)
+            if ((i+1<${#arg})); then
+              ble/array#push callbacks "${arg:i+1}"
+            elif (($#)); then
+              ble/array#push callbacks "$1"
+              shift
+            else
+              ble/util/print "ble-import: missing optarg for '-C'" >&2
+              flags=E$flags
+            fi
+            break ;;
           (*)
             ble/util/print "ble-import: unrecognized option '-$c'" >&2
             flags=E$flags ;;
@@ -4651,12 +4704,15 @@ function ble/util/import/.read-arguments {
   done
 
   # 存在しないファイルがあった時
-  if [[ $flags != *[fq]* ]] && ((${#not_found[@]})); then
-    local file
-    for file in "${not_found[@]}"; do
-      ble/util/print "ble-import: file '$file' not found" >&2
-    done
-    flags=E$flags
+  if ((${#not_found[@]})); then
+    flags=N$flags
+    if [[ $flags != *[fq]* ]]; then
+      local file
+      for file in "${not_found[@]}"; do
+        ble/util/print "ble-import: file '$file' not found" >&2
+      done
+      flags=E$flags
+    fi
   fi
 
   return 0
@@ -4680,9 +4736,9 @@ function ble/util/import {
   return "$ext"
 }
 ## @fn ble/util/import/option:query
-##   @var[in] files not_found
+##   @var[in] files flags
 function ble/util/import/option:query {
-  if ((${#not_found[@]})); then
+  if [[ $flags == *N* ]]; then
     return 127
   elif ((${#files[@]})); then
     local file
@@ -4697,22 +4753,30 @@ function ble/util/import/option:query {
 }
 
 function ble-import {
-  local files flags not_found
+  local files flags callbacks
   ble/util/import/.read-arguments "$@"
   if [[ $flags == *[Eh]* ]]; then
     [[ $flags == *E* ]] && ble/util/print
     ble/util/print-lines \
-      'usage: ble-import [-dfq|--delay|--force|--query] [--] [SCRIPTFILE...]' \
+      'usage: ble-import [-dfq|--delay|--force|--query]' \
+      '          [-C CALLBACK|--callback=CALLBACK]+ [--] [SCRIPTFILE...]' \
       'usage: ble-import --help' \
-      '    Search and source script files that have not yet been loaded.' \
+      '' \
+      '    Search and source script files that have not yet been loaded.  When none of' \
+      '    -q, --query, -d, --delay, -C, --callback is specified, SCRIPTFILEs are' \
+      '    sourced.' \
       '' \
       '  OPTIONS' \
       '    --help        Show this help.' \
-      '    -d, --delay   Delay actual loading of the files if possible.' \
+      '    -d, --delay   Register SCRIPTFILEs for later loading in idle time.' \
       '    -f, --force   Ignore non-existent files without errors.' \
       '    -q, --query   When SCRIPTFILEs are specified, test if all of these files' \
       '                  are already loaded.  Without SCRIPTFILEs, print the list of' \
       '                  already imported files.' \
+      '    -C, --callback=CALLBACK' \
+      '                  Specify a command that will be evaluated when all of' \
+      '                  SCRIPTFILEs are loaded.  If all of SCRIPTFILESs are already' \
+      '                  loaded, the callback is immediately evaluated.' \
       '' \
       >&2
     [[ $flags == *E* ]] && return 2
@@ -4730,6 +4794,21 @@ function ble-import {
     return 2
   fi
 
+  if ((${#callbacks[@]})); then
+    local file i q=\' Q="'\''"
+    for file in "${files[@]}"; do
+      ble/util/import/is-loaded "$file" && continue
+      for i in "${!callbacks[@]}"; do
+        callbacks[i]="ble/util/import/eval-after-load '${file//$q/$Q}' '${callbacks[i]//$q/$Q}'"
+      done
+    done
+
+    local cb
+    for cb in "${callbacks[@]}"; do
+      builtin eval -- "$cb"
+    done
+  fi
+
   if [[ $flags == *d* ]] && ble/is-function ble/util/idle.push; then
     local ret
     ble/string#quote-command ble/util/import "${files[@]}"
@@ -4737,7 +4816,7 @@ function ble-import {
     return 0
   fi
 
-  ble/util/import "${files[@]}"
+  ((${#callbacks[@]})) || ble/util/import "${files[@]}"
 }
 
 _ble_util_import_onload_count=0
@@ -5200,7 +5279,7 @@ if ((_ble_bash>=40000)); then
     [[ $_ble_idle_running ]] && return 0
     local isfirst=1
     while
-      # ファイル等他の条件を待っている時は一回だけで外に戻り確認する状態確認
+      # ファイル等他の条件を待っている時は一回だけで外に戻り状態確認する
       [[ $_ble_idle_waiting && ! $isfirst ]] && break
 
       local sleep_amount=
@@ -6058,6 +6137,11 @@ function ble/term/bracketed-paste-mode/.init {
   if ((_ble_bash>=50100)) && ! ble/util/rlvar#test enable-bracketed-paste; then
     # Bash 5.1 以降では既定で on なのでもし無効になっていたら意図的にユーザーが
     # off にしたという事。
+    bleopt term_bracketed_paste_mode=
+  elif [[ ${TERM%%-*} == eterm ]]; then
+    # Note (#D2087): eterm (Emacs 28.2) では eterm 中で bracketed paste を送信
+    # すると終了判定が壊れる様である。然し、シェルの側でこれを無効にしても解決
+    # しない。Emacs 自体が設定した bracketed paste の処理の問題と思われる。
     bleopt term_bracketed_paste_mode=
   fi
   function bleopt/check:term_bracketed_paste_mode {
@@ -7113,12 +7197,13 @@ function ble/builtin/readonly/.check-variable-name {
 
   # If the variable name is in the black list, the variable cannot be readonly.
   ble/builtin/readonly/.initialize-blacklist
-  if ble/gdict#get _ble_builtin_readonly_blacklist; then
+  if ble/gdict#has _ble_builtin_readonly_blacklist "$1"; then
     return 1
   fi
 
   # Otherwise, the variables that do not contain lowercase characters are
-  # allowed to become readonly.
+  # allowed to become readonly.  Note (#D2103): We adjust LC_COLLATE in
+  # ble/builtin/readonly.
   if [[ $1 != *[a-z]* ]]; then
     return 0
   fi
@@ -7165,6 +7250,7 @@ function ble/builtin/readonly/.print-warning {
 function ble/builtin/readonly {
   local _ble_local_set _ble_local_shopt
   ble/base/.adjust-bash-options _ble_local_set _ble_local_shopt
+  local LC_ALL= LC_COLLATE=C 2>/dev/null # suppress locale error #D1440
 
   local _ble_local_flags=
   local -a _ble_local_options=()
@@ -7200,6 +7286,8 @@ function ble/builtin/readonly {
     builtin readonly "${_ble_local_options[@]}"
     _ble_local_ext=$?
   fi
+
+  ble/util/unlocal LC_ALL LC_COLLATE 2>/dev/null # suppress locale error #D1440
   ble/base/.restore-bash-options _ble_local_set _ble_local_shopt
   return "$?"
 }
@@ -7340,7 +7428,7 @@ function ble/util/message.process {
       ble/util/message/handler:"$_ble_local_event" "$_ble_local_data"
     done
 
-    ((${#_ble_local_remove[@]})) &&ble/bin/rm -f "${_ble_local_remove[@]}" ;;
+    ((${#_ble_local_remove[@]})) && ble/bin/rm -f "${_ble_local_remove[@]}" ;;
   (*)
     ble/util/print "ble/util/message: unknown event type '$event'" >&2
     return 2 ;;

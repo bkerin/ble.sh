@@ -1217,7 +1217,7 @@ function ble/syntax:bash/simple-word/evaluate-last-brace-expansion {
   ret=$out simple_ibrace=$iopen:$((${#out}-no_brace_length))
 }
 
-## @fn ble/syntax:bash/simple-word/reconstruct-incomplete-word
+## @fn ble/syntax:bash/simple-word/reconstruct-incomplete-word word
 ##   word について不完全なブレース展開と不完全な引用符を閉じ、
 ##   更にブレース展開を実行して最後の単語を取得します。
 ##
@@ -1552,6 +1552,35 @@ function ble/syntax:bash/simple-word/eval {
   return "$ext"
 }
 
+## @fn ble/syntax:bash/simple-word/eval word [opts]
+##   @param[in,opt] opts
+##     A colon-separated list of options.  In addition to the values supported
+##     by ble/syntax:bash/simple-word/eval, the following value is available:
+##
+##     @opt reconstruct
+##       Try to reconstruct the full word using
+##       ble/syntax:bash/simple-word/reconstruct-incomplete-word when there is
+##       no closing quote corresponding to an opening one in the word.
+##
+##     @opt nonull
+##       Fails when no word is generated.  This may happen with e.g. an
+##       expansion an empty array "${arr[@]}" or unmatching glob pattern with
+##       nullglob.
+##
+##   @arr[out] ret
+##
+function ble/syntax:bash/simple-word/safe-eval {
+  if [[ :$2: == *:reconstruct:* ]]; then
+    local simple_flags simple_ibrace
+    ble/syntax:bash/simple-word/reconstruct-incomplete-word "$1" || return 1
+    ble/util/unlocal simple_flags simple_ibrace
+  else
+    ble/syntax:bash/simple-word/is-simple "$1" || return 1
+  fi
+  ble/syntax:bash/simple-word/eval "$1" &&
+    { [[ :$2: != *:nonull:* ]] || ((${#ret[@]})); }
+}
+
 ## @fn ble/syntax:bash/simple-word/get-rex_element sep
 ##   指定した分割文字 (sep) で区切られた単純単語片に一致する正規表現を構築します。
 ##   @var[out] rex_element
@@ -1648,7 +1677,7 @@ function ble/syntax:bash/simple-word/detect-separated-path {
   [[ $word ]] || return 1
 
   local rex_url='^[a-z]+://'
-  [[ :$opts: == *:url:* && $word =~ $rex_url ]] && return 1
+  [[ :$opts: == *:url:* ]] && ble/string#match-safe "$word" "$rex_url" && return 1
 
   # read eval options
   local eval_opts=$opts notilde=
@@ -1695,7 +1724,7 @@ function ble/syntax:bash/simple-word/locate-filename/.exists {
     [[ $path == // ]]
   else
     [[ -e $path || -h $path ]]
-  fi || [[ :$opts: == *:url:* && $path =~ $rex_url ]]
+  fi || [[ :$opts: == *:url:* ]] && ble/string#match-safe "$path" "$rex_url"
 }
 ## @fn ble/syntax:bash/simple-word/locate-filename word [sep] [opts]
 ##   @param[in] word
@@ -5387,7 +5416,7 @@ function ble/syntax/parse {
 function ble/syntax/highlight {
   local text=$1 lang=${2:-bash} cache_prefix=$3
 
-  local -a _ble_highlight_layer__list=(plain syntax)
+  local -a _ble_highlight_layer_list=(plain syntax)
   local -a vars=()
   ble/array#push vars "${_ble_syntax_VARNAMES[@]}"
   ble/array#push vars "${_ble_highlight_layer_plain_VARNAMES[@]}"
@@ -7283,7 +7312,7 @@ function ble/progcolor/.compline-rewrite-command {
   ((comp_cword&&(comp_cword+=$#-1)))
 
   # update tree_words
-  ble/array#reserve-prototype $#
+  ble/array#reserve-prototype "$#"
   tree_words=("${tree_words[0]}" "${_ble_array_prototype[@]::$#-1}" "${tree_words[@]:1}")
 }
 ## @fn ble/progcolor cmd opts
@@ -7347,11 +7376,11 @@ function ble/highlight/layer:syntax/touch-range {
 }
 function ble/highlight/layer:syntax/fill {
   local _ble_local_script='
-    local iARR=0 i1ARR=$2 i2ARR=$3
-    for ((iARR=i1ARR;iARR<i2ARR;iARR++)); do
-      ARR[iARR]=$4
+    local iNAME=0 i1NAME=$2 i2NAME=$3
+    for ((iNAME=i1NAME;iNAME<i2NAME;iNAME++)); do
+      NAME[iNAME]=$4
     done
-  '; builtin eval -- "${_ble_local_script//ARR/$1}"
+  '; builtin eval -- "${_ble_local_script//NAME/$1}"
 }
 
 _ble_highlight_layer_syntax_VARNAMES=(

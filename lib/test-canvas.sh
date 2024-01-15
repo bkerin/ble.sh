@@ -344,7 +344,7 @@ ble/test/end-section
 
 #------------------------------------------------------------------------------
 
-ble/test/start-section 'ble/textmap#update' 5
+ble/test/start-section 'ble/canvas/textmap' 5
 
 function ble/test:canvas/textmap {
   local text=$1
@@ -373,7 +373,7 @@ function ble/test:canvas/textmap {
 #------------------------------------------------------------------------------
 # Grapheme_Cluster_Break
 
-ble/test/start-section 'ble/unicode/GraphemeCluster/c2break' 77
+ble/test/start-section 'ble/canvas/GraphemeCluster/c2break' 77
 
 if (LC_ALL=C.UTF-8 builtin eval "s=\$'\\U1F6D1'"; ((${#s}==2))) 2>/dev/null; then
   function ble/test:canvas/GraphemeCluster/.locate-code-point {
@@ -391,6 +391,10 @@ else
 fi
 
 (
+  bleopt grapheme_cluster=extended
+  # Disable terminal-specific tailored grapheme cluster for testing purpose.
+  _ble_unicode_GraphemeClusterBreak_custom=()
+
   bleopt emoji_opts=ri:tpvs:epvs:zwj
   ble/test 'ble/unicode/GraphemeCluster/c2break "$((0x20))"' ret="$_ble_unicode_GraphemeClusterBreak_Other"
   ble/test 'ble/unicode/GraphemeCluster/c2break "$((0x41))"' ret="$_ble_unicode_GraphemeClusterBreak_Other"
@@ -401,7 +405,7 @@ fi
   ble/test 'ble/unicode/GraphemeCluster/c2break "$((0x1F))"' ret="$_ble_unicode_GraphemeClusterBreak_Control"
   ble/test 'ble/unicode/GraphemeCluster/c2break "$((0x80))"' ret="$_ble_unicode_GraphemeClusterBreak_Control"
   ble/test 'ble/unicode/GraphemeCluster/c2break "$((0x9F))"' ret="$_ble_unicode_GraphemeClusterBreak_Control"
-  ble/test 'ble/unicode/GraphemeCluster/c2break "$((0x0308))"' ret="$_ble_unicode_GraphemeClusterBreak_Extend"
+  ble/test 'ble/unicode/GraphemeCluster/c2break "$((0x0308))"' ret="$_ble_unicode_GraphemeClusterBreak_InCB_Extend"
   ble/test 'ble/unicode/GraphemeCluster/c2break "$((0x200C))"' ret="$_ble_unicode_GraphemeClusterBreak_Extend" # ZWNJ
   ble/test 'ble/unicode/GraphemeCluster/c2break "$((0x200D))"' ret="$_ble_unicode_GraphemeClusterBreak_ZWJ"    # ZWJ
   ble/test 'ble/unicode/GraphemeCluster/c2break "$((0x0600))"' ret="$_ble_unicode_GraphemeClusterBreak_Prepend"
@@ -489,8 +493,13 @@ fi
   fi
 )
 
-ble/test/start-section 'ble/unicode/GraphemeCluster/c2break (GraphemeBreakTest.txt)' 3251
+ble/test/start-section 'ble/canvas/GraphemeCluster/c2break (GraphemeBreakTest.txt)' 6244
 (
+  bleopt grapheme_cluster=extended
+  _ble_unicode_c2w_version=17 # Test cases contain 15.1.0 features
+  # Disable terminal-specific tailored grapheme cluster for testing purpose.
+  _ble_unicode_GraphemeClusterBreak_custom=()
+
   bleopt emoji_opts=ri:tpvs:epvs:zwj
   tests_cases=(
 #%< test-canvas.GraphemeClusterTest.sh
@@ -498,7 +507,7 @@ ble/test/start-section 'ble/unicode/GraphemeCluster/c2break (GraphemeBreakTest.t
 
   function ble/test:canvas/GraphemeClusterBreak/find-previous-boundary {
     local ans=${1%%:*} str=${1#*:}
-    eval "local s=\$'$str'"
+    builtin eval "local s=\$'$str'"
     ble/string#split ans , "$ans"
     local k=0 b=0
     for k in "${!ans[@]}"; do

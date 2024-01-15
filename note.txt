@@ -1905,6 +1905,110 @@ bash_tips
   - make_command.sh の整理 (scan 分離, char_width 分離)
   - note.txt -> memo.txt
 
+2024-01-05
+
+  * mc 的な TUI を自前で実装しても良いのではないか? どうも mc を使っている人は
+    結構いるようである。更に、dylanaraps/fff 等の機能も参考にしても良いのかもしれない。と
+    思ったが、fff はデモを見る限りは大した機能はないのではないのかという気がす
+    る。
+
+2023-12-10
+
+  * main: ble-update, ble-reload, bleopt, ble-sabbrev, ble-palette の adjust-bash-options
+
+    もしくは全部 ble 経由で呼び出してもらうことにして ble の側で待避を行えば良
+    いのかもしれない。
+
+    ble-reload に関しては内部で source するのだとしたら無理やり状態を復元保存し
+    ようとするのは問題がある気がする。特に ble-reload で adjust した後の状態を
+    グローバル変数に記録してしまうのではないか。そう思うと ble-reload は待避の
+    対象ではない気がする。そういう場合もあるという事を考えると ble で一括で待避
+    するというのも実は柔軟性に書けるという事になるのかもしれない。
+
+2023-10-04
+
+  * {,dir/}*.* が failglob エラー着色になる。本来は *.* に対して一致が試みられ
+    て failglob にはならない筈。どうも / で先に split するので /}*/* というパター
+    ンに対して一致が試みられている気がする。本来は先に {} について処理するべき。
+
+2023-09-13
+
+  * bash-5.2 "\e[\000"
+    Ref #D2069
+
+    * bash-5.2 で "\e[\000": "<C0><9B>[" という macro になっているのが気になる。
+      本来此処には \000 は存在するべきではない。これは実際に内部的に \000 があ
+      るのかそれとも出力する時の問題で \000 となっているのか。然し、これは既に
+      bash-dev では修正されているし、またそれにもかかわらず bash-dev でも今回の
+      問題が起こっているので、これは今回の問題には関係ない。
+
+      これは以前にも気付いていた事の気がする。探してみたら 2021-11-05 に項目が
+      あってしかも放置されている。何れにしても 5.3 では修正されている。実際の振
+      る舞いに影響があるのかどうかは不明である。
+
+      うーん。これは bash-5.2 のソースコードを使って何が起こっているか確認する
+      べきなのかもしれない。或いは bisect を実行する。bind に使っているスクリプ
+      トはどこかに出力する事ができる筈である。或いはキャッシュになっている →
+      キャッシュにあった。確認すると builtin bind '"\e[":"\xC0\x9B["' で bind
+      しているので実行するコマンド自体が壊れていたとかそういう事ではないはず。
+
+    * どうやら単に以下を実行しただけで既に再現する。
+
+      $ bash-5.2 --norc
+      $ bind '"\e[":"abcd"'
+      $ bind -s
+
+      そして M-[ を押すと (多少の keymap delay の後に) abcd が入力される。つま
+      り、実際に \e[\000 が束縛されているというよりは表示の際に変な表示になって
+      しまっているという事の気がする。
+
+      これが実際に何らかの問題を具体的に引き起こす事はあるだろうか。そもそも通
+      常は \e[ は単独では bind しない。なので、例えば ble-detach の時に復元する
+      対象にはなっていないと考えられる。
+
+2023-09-03
+
+  * complete: copilot
+    https://github.com/akinomyoga/ble.sh/issues/358
+
+    * reject: AWS Copilog CLI (copilot completion bash)
+      https://aws.github.io/copilot-cli/ja/docs/commands/completion/ これは公式
+      の copilot for shell の様な気がする。一番初めにチェックするべきはこれの気
+      がする。copilot バイナリは何処で手に入るのかと思ったが standalone binary
+      がある。
+      https://github.com/aws/copilot-cli/releases/latest/download/copilot-linux
+
+      →うーん。上記の例は単に copilot コマンドのコマンド引数を補完する為の補完
+      設定だった。更に、試してみた所 github-copilot-cli と互換なサブコマンドは
+      提供されていない。そもそも AWS Copilot CLI は AI とは何も関係ない、AWS の
+      コンテナ等を管理する為のコマンド? の様だ。
+
+      全く関係ない物だった。
+
+    * これは GPT に質問をしてコマンドを生成させるという事をしている。
+      https://github.com/tom-doerr/zsh_codex/tree/main
+
+      現在の文脈情報について含めることができるのだろうか。例えば、現在のディレ
+      クトリの内容は云々だとか、README の内容は云々だとか。README の内容を普通
+      に書き込むとその中に書かれていることも直接 GPT に対する司令だと勘違いして
+      しまう可能性もあるのではないか。具体的にどのようにしたら良いのかの例はあ
+      るのだろうか。
+
+    * GitHub Copilot CLI
+
+      * github-copilot-cli (fish)
+        https://zenn.dev/tunefs/articles/b284d532ed5460
+        これは github-copilot-cli というのを呼び出しているみたいがだが、
+        github-copilot-cli は入力中のプロンプトの編集を手伝ってくれるのではなくて、
+        呼び出すと独自のインターフェイスに入ってコマンドを実行してくれるだけである。
+        https://www.npmjs.com/package/@githubnext/github-copilot-cli
+
+      * 取り敢えず以下の頁を参考にして登録してみる事にした。
+
+        https://zenn.dev/k9i/articles/56920952ce9644
+
+      waitlist で待たなければならない。
+
 2023-08-17
 
   * ext: Android OS コンパイル環境での問題
@@ -1953,16 +2057,6 @@ bash_tips
     く分からない。kpup などに翻訳されているという事だろうか。また再現した時に
     keylog でどのような受信・翻訳になっているかを確認する事にする。
 
-2023-07-18
-
-  * Grisha が bind -X の出力形式を修正している
-    https://lists.gnu.org/archive/html/bug-bash/2023-07/msg00076.html
-
-    現在の ble.sh は間違っている事を前提として問答無用で前後の "" を削除してい
-    たはず。これの削除をなかった事にする。取り敢えず Grisha は "" で囲まない様
-    に変更している気がする。なので、ble.sh はこのままで大丈夫の筈だが後で振る舞
-    いをチェックする。
-
 2023-06-21
 
   * menu for history entries (requested by auwsom)
@@ -2000,6 +2094,51 @@ bash_tips
       b 或いは stdin を潰してしまえばその場で終了するのではないか? と思ったがそ
         の場合に正しく端末の状態が復元されるのかは非自明である。更に exit に指
         定した exit status を反映させる方法が存在しない。
+
+2023-05-19
+
+  * osh のテスト上で bash が失敗している。何故だろう。
+    http://travis-ci.oilshell.org/github-jobs/
+    http://travis-ci.oilshell.org/github-jobs/4035/app-tests.wwz/_tmp/soil/logs/ble-test-bash.txt
+
+    * 先ず mawk が正規表現を正しく処理できていない。然し手元の mawk では特に問
+      題がある様には見えない。arch 等でも問題が見られた記憶はない。最新の mawk
+      で試してみる価値はある。
+
+      > mawk: line 37: regular expression compile failed (missing operand)
+      > ^('[^']*'|\$'([^\\']|\\.)*'|\$?"([^\\"]|\\.)*"|\\.|[^[:space:]"'`;&|()])*
+
+      確認してみたが少なくとも Fedora に載っている mawk は Debian の最新の mawk
+      と同じである。という事は最新の mawk で問題があるという訳では無い様に思わ
+      れる。では逆に古い mawk で問題があるという可能性?
+
+      と思ったが mawk のページには最近幾つかの新しい version が公開されている。
+      これらを試す価値はある。改めて最新の物を試してみたが問題は再現しない。
+      2010 の物を試してみたが再現しない。念の為、最も古い物を試してみる。と思っ
+      たら再現した。2008 の物である。これは mawk のバグだと思って良いだろう。
+
+    もしかしたらテストの失敗もこの mawk によって引き起こされているのかもしれな
+    い。mawk を上書きした状態でテストを実行したらどうなるかについて確認する。うー
+    ん。実際にやってみるとテストに新しく2箇所失敗する。然しながら oilshell ci
+    上で見られたエラーは確認されていない。これはまた別の古い awk 実装によって問
+    題が発生している可能性があるだろうか。更に試してみるとこの2個のエラーは正規
+    表現のエラーとは関係ない様だ。
+
+
+    ? mawk の version check をする? テスト上で問題が発生しないのは 20090705 以
+      降である。また初期化時の正規表現のエラーが発生しないのは 20090710 以降で
+      ある。
+
+      ところが mawk が現在のバージョン表記に切り替えたのは mawk 1.3.3 20090721
+      以降の様である。それ以前は "mawk 1.3.3 Nov 1996" という文字列固定で表示さ
+      れている。バージョン表記に関しては mawk 1.3.4 以降であるか、または mawk
+      1.3.3 20?????? 的な形式をしていれば良いという事にする?
+
+      然し、このチェックを行う為だけでも初期化コストがかかる。そもそもこの様な
+      古い mawk を使っている場合というのは限られているのでそもそも判定しなくて
+      も良いのではないか。
+
+    todo: mawk のテストも test-bash に追加する事にする。
 
 2023-05-13
 
@@ -2294,7 +2433,7 @@ bash_tips
 
 2023-03-01
 
-  * [保留] decode: M-S-o と M-O のどちらか一方でに強制的に揃える?
+  * [保留] decode: M-S-o と M-O のどちらか一方に強制的に揃える?
 
     現状では二つの形式に同じ binding を与える様に設定しているがわざわざ両方設定
     するのは大変である。一方で、CapsLock 等を考慮に入れると両者は実は互換ではな
@@ -2621,21 +2760,6 @@ bash_tips
 
     これは元々存在している inputrc か何かが悪さをしている可能性? 然しそうだとし
     ても普通に attach したら問題は生じない。なのでやはり違うのだろうか。
-
-  * eterm: Emacs に実装されている M-x term 若しくは M-x ansi-term
-
-    端末実装が色々滅茶苦茶である。infocmp にて対応している事になっている機能で
-    も振る舞いが変である。
-
-    * 先ず、IL, DL は行の途中で実行するとおかしな事になる。IL はその位置に改行
-      を挿入して行を2つに分ける機能を持っている。DL は一方で emacs 内部で C-k
-      をするのと同じ機能である。即ちその位置以降の文字列を消去するか、行末にい
-      る場合には次の行と結合する。これは一応行頭に移動すれば問題ない気がする。
-
-    * RI に関しては端末の一番下にいる時に全体を scroll down し、端末の一番上に
-      いる時には何も実行しない。
-
-    未だちゃんと動かない。これは後でちゃんと調べる必要がある。
 
 2022-06-02
 
@@ -6434,7 +6558,7 @@ bash_tips
     2018-02-22 現状の xmap におけるテキストオブジェクトの状況について整理する。
     - ble/keymap:vi/text-object/word.impl に於いては既に xmap での振る舞いに対応している様子である。
     - ble/keymap:vi/text-object/quote.impl は明らかに対応していない→対応した #D0670
-    - ble/keymap:vi/text-object/block.impl も対応していない
+    - ble/keymap:vi/text-object/block.impl も対応していない→対応した #D2095
     - ble/keymap:vi/text-object/tag.impl も対応していない
     - ble/keymap:vi/text-object/sentence.impl も対応していない
     - ble/keymap:vi/text-object/paragraph.impl も対応していない
@@ -6936,10 +7060,2444 @@ bash_tips
     Done (実装ログ)
 -------------------------------------------------------------------------------
 
+2024-01-05
+
+  * mandb: git のオプションの説明は man git-subcommand から取得するべき (motivated by bkerin) [#D2111]
+    https://github.com/akinomyoga/ble.sh/issues/386
+
+    果たしてこれが報告者の意図していた事かは分からないがその様に読めなくもない。
+    何れにしてもこれは対応できる様な気がするので対応する事にする。
+
+    ? 先ず、mandb から説明を補填するかどうかの判定条件に $compcmd ==
+      ${comp_words[0]} がある。これは一体何を意味しているのか。compcmd の初期化
+      を辿ってみると、先ず -D や -I の特別な場合を除き ${comp_words[0]}} を代入
+      している。そして、その後で simple-word の時には eval した値で置き換えてい
+      る。eval したかどうかで振る舞いを変えるというのは変な気がするので、これは
+      単に -D や -I ではないという事を確認する為の物だろうか。
+
+      一応コードの履歴を確認する事にする。判定は c1cd666b で最初に progcomp に
+      対する説明付加が導入された時から存在しているが、大した議論は残っていない。
+      特に意図があってこの様な判定にしたという訳でもない気がするので、気にしな
+      い事にする。単に -D または -I ではないという事を確認する為のコードと思う
+      事にする。
+
+      然し、-D だったとしても man ${comp_words[0]} で候補を探索しても良いのでは
+      ないか? うーん。改めて ${comp_words[0]} を展開しなおしてしまっても良いの
+      では?
+
+    うーん。取り敢えず progcomp で生成したオプションに説明を付加する部分と、
+    source:option の generate-for-command で対応した。
+
+    x ok: generate-for-command の alias 展開 & 変数代入読み飛ばし部分で
+      words[iret] になっていた。修正した。
+
+    * done: ble/complete/mandb:bash-completion/inject の対象である
+      _comp_longopt は _comp_complete_longopt に改名された。一応両方に対応でき
+      る様にしておく。
+
+      また __load_completion は _comp_load -D に変わった。今回の場合には -D は
+      欲しくないので _comp_load で呼び出す (わざわざ -D を bash-completion で導
+      入したのは ble.sh を使う事を念頭に置いての物)。
+
+    x done: git format-patch --output-directory に関しては元々は = が入っていた
+      が、man git-format-patch には = が含まれていない為に単なる空白に変わって
+      しまっている。git が suggest する内容に = が含まれている場合には = を保持
+      する様にできないか? → その様に修正した。
+
+    * done: simple-word/safe-eval を使える箇所は置き換える。
+
+  * progcomp: git の補完するオプションで --option= の後に空白が挿入される (reported by bkerin) [#D2110]
+    https://github.com/akinomyoga/ble.sh/issues/387
+
+    調べてみるとそもそも git の補完に関してはどの程度 quote したら良いかも不明
+    という事なので、末尾の空白を消してその後に空白を付加するという実装になって
+    いる。特に git の補完が付加した compopt -o nospace を除去している。これを生
+    成された候補に応じて nospace を保持する様にするべきなのでは?
+
+    一つでも末尾空白がない物があれば nospace を保持するのか、或いは全ての生成候
+    補について末尾空白がない場合に nospace を保持するのか、どちらが良いか? 曖昧
+    である場合には付加しないという観点から言えば一つでも末尾空白がない物があれ
+    ば nospace を保持するべきである。
+
+  * mandb: git の説明の抽出が変 (reported by bkerin) [#D2109]
+    https://github.com/akinomyoga/ble.sh/issues/386
+
+    コードを見たら物凄く単純なミスだった。man ping の解析をする為に導入したコー
+    ドが励起していて、その時点で複数行の説明の場合にも対応する様に書いていたが、
+    変数に新しい行を追加する時に前の行内容を入れるのを忘れていたので、最終的に
+    最終行しか残っていなかった。単純な修正だった。
+
+    x ok: 修正したら今度は --config-env= 等の候補が表示されなくなってしまった。
+      と思ったが元々表示されていなかった。git completion の時点で config-env は
+      候補として表示していない様だ。然し一方で complete -r した後でも表示されな
+      いのは不思議である。と思ったが unset -f __load_completion 等したらちゃん
+      と生成される様になった。つまり、--config-env が表示されないのは git
+      completion による意図的な物という事。
+
+2023-12-31
+
+  * [棄却] PREEXEC で一定時間以上時間をかけるとコマンド実行前後に 0.1ms の遅延が生じる [#D2108]
+
+    Note: これはどうしようもない気がするので気にしない事にする。
+
+    atuin による時間計測を観察していて気づいた。atuin がなくても以下の簡単な設
+    定で観察できる。sleep 0.1 の時間を縮めて行くと突然遅延はなくなる。また
+    sleep 0.1 の時間を長くして行っても遅延が長くなる訳ではない。直後のコマンド
+    実行にのみ影響を与える様である。
+
+    $ blehook PREEXEC='sleep 0.1'
+    $ blehook POSTEXEC='echo beg=$_ble_exec_time_beg:ret=$ret:end=$_ble_exec_time_end:ata=$_ble_exec_time_ata'
+    $ ret=$EPOCHREALTIME
+
+    色々詳細に時間を計測すると ble-edit/exec:gexec/.restore-lastarg から抜ける
+    時に時間がかかっている様に見える。うーん。何に時間がかかっているのか本当に
+    気になる。
+
+    bash の execute_cmd.c (execute_function) に DPF を埋め込んでそれぞれのコー
+    ドの呼び出し時間を計測する。
+
+               | w/PREEXEC           | w/o PREEXEC
+      ---------+---------------------+---------------------
+      b1  まで | 33,31,30    avg 31  | 8,9,8,9     avg 9
+      b2  まで | 55,62,64    avg 60  | 20,20,21,21 avg 21
+      b3  まで | 32,36,39    avg 35  | 11,11,11,12 avg 11
+      b4  まで | 31,34,34    avg 32  | 11,10,10,10 avg 10
+      c4  まで | 30,33,33    avg 32  | 10,11,10,10 avg 10
+      c3  まで | 45,31.33    avg 36  | 11,10,11,11 avg 11
+      c31 まで | 32,39,33    avg 35  | 11,11,10,11 avg 11
+      c32 まで | 69,75,76    avg 73  | 25,24,24,24 avg 24
+      c2  まで | 34,42,54    avg 43  | 13,12,13,13 avg 13
+      c1  まで | 35,53,51    avg 46  | 11,11,11,10 avg 11
+      実行まで | ?                   |
+      end まで | 265,323,291 avg 293 | 57,59,56,56 avg 57
+
+    分かる事は全体に遅くなっているという事。これは OS レベルの話なのだろうか。
+    また、b2 と c32 が元より遅くて、更にとても遅くなっているという事。然し、b2
+    は単に result = return_catch_value; という文を実行しているだけである。一方
+    で、c32 は run_unwind_frame ("function_calling") を実行している。
+
+    うーん。何処かに特に問題があるというよりは全体に遅くなっているという事。こ
+    れはどういう事なのか謎である。何か CPU のキャッシュの問題だろうか。外部プロ
+    セスから復帰した瞬間は色々メモリアクセスが遅くなっているという可能性? しか
+    しそうだとしても DPF が毎回 10us かかっていてその速度が回数を重ねても改善し
+    ないのは変だ。だとするとメモリアクセスは関係ない?
+
+      | --- a/execute_cmd.c
+      | +++ b/execute_cmd.c
+      | @@ -5292,13 +5292,18 @@ execute_function (SHELL_VAR *var, WORD_LIST *words, int flags, struct fd_bitmap
+      |    return_catch_flag++;
+      |    return_val = setjmp_nosigs (return_catch);
+      |
+      | +int dbg1 = strcmp(var->name, "ble-edit/exec:gexec/.restore-lastarg")==0;
+      |    if (return_val)
+      |      {
+      | +if (dbg1) DPF("b1 %s", var->name);
+      |        result = return_catch_value;
+      |        /* Run the RETURN trap in the function's context. */
+      | +if (dbg1) DPF("b2 %s", var->name);
+      |        save_current = currently_executing_command;
+      | +if (dbg1) DPF("b3 %s", var->name);
+      |        if (from_return_trap == 0)
+      |  ^Irun_return_trap ();
+      | +if (dbg1) DPF("b4 %s", var->name);
+      |        currently_executing_command = save_current;
+      |      }
+      |    else
+      | @@ -5308,6 +5313,7 @@ execute_function (SHELL_VAR *var, WORD_LIST *words, int flags, struct fd_bitmap
+      |        showing_function_line = 1;
+      |        save_current = currently_executing_command;
+      |        result = run_debug_trap ();
+      | +if (dbg1) DPF("a %s", var->name);
+      |  #if defined (DEBUGGER)
+      |        /* In debugging mode, if the DEBUG trap returns a non-zero status, we
+      |  ^I skip the command. */
+      | @@ -5315,7 +5321,9 @@ execute_function (SHELL_VAR *var, WORD_LIST *words, int flags, struct fd_bitmap
+      |  ^I{
+      |  ^I  showing_function_line = 0;
+      |  ^I  currently_executing_command = save_current;
+      | +if (dbg1) DPF("a1 %s", var->name);
+      |  ^I  result = execute_command_internal (fc, 0, NO_PIPE, NO_PIPE, fds_to_close);
+      | +if (dbg1) DPF("a2 %s", var->name);
+      |
+      |  ^I  /* Run the RETURN trap in the function's context */
+      |  ^I  save_current = currently_executing_command;
+      | @@ -5332,13 +5340,18 @@ execute_function (SHELL_VAR *var, WORD_LIST *words, int flags, struct fd_bitmap
+      |        showing_function_line = 0;
+      |      }
+      |
+      | +if (dbg1) DPF("c4");
+      |    /* If we have a local copy of OPTIND, note it in the saved getopts state. */
+      |    gv = find_variable ("OPTIND");
+      |    if (gv && gv->context == variable_context)
+      |      gs->gs_flags |= 1;
+      |
+      | -  if (subshell == 0)
+      | +if (dbg1) DPF("c3 %d", subshell);
+      | +  if (subshell == 0) {
+      | +if (dbg1) DPF("c31");
+      |      run_unwind_frame ("function_calling");
+      | +if (dbg1) DPF("c32");
+      | +  }
+      |  #if defined (ARRAY_VARS)
+      |    else
+      |      {
+      | @@ -5349,7 +5362,9 @@ execute_function (SHELL_VAR *var, WORD_LIST *words, int flags, struct fd_bitmap
+      |      }
+      |  #endif
+      |
+      | +if (dbg1) DPF("c2 %s", var->name);
+      |    function_misc_cleanup ();
+      | +if (dbg1) DPF("c1 %s", var->name);
+      |    return (result);
+      |  }
+
+    謎に包まれている。bash-5.0 でも同様の現象がある。bash-4.4 以前については
+    EPOCHREALTIME が存在していないので振る舞いを調べる事はできない。また、
+    version で違うという事を期待する理由もない気がする。
+
+2023-12-30
+
+  * 2023-12-26 gexec: LINENO が更新されなくなっている [#D2108]
+
+    LINENO=... eval '...' では駄目なのか? どうも調べてみるとこれでは eval の一
+    番最初のコマンドしか LINENO が適用されない様である。やはり unset -v するし
+    かないのだろうか。todo にこの事は記録されていないのか? → 検索する限りは残
+    されていない。
+
+    と思ったら #D1824 に書かれていた。どうもこれは bash のバグである。他の変数
+    でも全く同じ現象を再現できた。これに依存している他の全ての変数について問題
+    が生じるのではないか? これを回避する方法はないのか? 例えば二重に eval した
+    ら? → 駄目だった。
+
+    - このバグを最初に見つけたのは f1 help の表示で LESS だか MANPATH だかを指
+      定した物だった筈。更に今回のこれ。他にも declare 関係であった気がする。
+
+    * 現状の対策としてはやはり LINENO は unset して明示的に設定するという事。但
+      し、他の BASH_COMMAND 等については対策できない。
+
+    改めて #D1824 を読んでみると builtin eval ではなく eval を使うと書いてある。
+    対応する commit は f629698e5 (2022-06-27) である。確かに確認してみると
+    builtin を外している。然し、現在の master を見ると builtin eval になってい
+    る。つまり、この変更を導入した時点ではちゃんとこの問題について意識していて
+    その対策をしたという事。しかし、後で make scan か何かの結果を見て上書きして
+    しまったという事。
+
+    調べてみると #D1938 (commit 00cae745b2023-02-03) で書き換えられている。
+    LINENO として ble.sh 内部の変数を直接参照していたために、コマンド発行時の値
+    ではない値になるという問題があって、コマンド発行時に記録した lineno を使う
+    様に変更したのだった。その時に builtin が抜けていると思って再度 builtin を
+    追加してしまったのが問題である。
+
+  * decode(bind): ble-bind -P に含まれる制御文字・bind の引数解析の修正 [#D2107]
+
+    * fixed: ble-bind -P でコマンドの出力時に制御文字をちゃんと $'...' の形式で
+      出力する必要があるのではないか?
+
+      →実装を確認した所ちゃんと ble/string#quote-word を呼び出している。実際に
+      改行等の制御文字については $'...' の形式に切り替わる。どうも、通常の制御
+      文字に関しては対応していない様だ。というか、そもそも
+      ble/string#escape-for-bash-escape-string からして任意の制御文字には対応し
+      ていない。
+
+      ble/string#escape-for-bash-escape-string 及び ble/string#quote-word の両
+      方とも一般の制御文字 (C0 および DEL) の escape に対応する事にした。C1 に
+      ついては少なくとも今は対応しない。
+
+    * fixed: 現在の実装だと bind -x'"\C-t": ...' を正しく処理できていない。bash
+      はちゃんと処理できている。真面目に実装する必要がある。
+
+      うーん。これは独立した項目にして backport した方が良い気がする。という事
+      を考えると前の項目の ble/string#quote-word も同様である。修正した。そんな
+      に難しくなかった。
+
+  * 2023-07-18 Grisha が bind -X の出力形式を修正している [#D2106]
+    https://lists.gnu.org/archive/html/bug-bash/2023-07/msg00076.html
+
+    現在の ble.sh は間違っている事を前提として問答無用で前後の "" を削除してい
+    たはず。これの削除をなかった事にする。取り敢えず Grisha は "" で囲まない様
+    に変更している気がする。なので、ble.sh はこのままで大丈夫の筈だが後で振る舞
+    いをチェックする。
+
+    →今確認した所 : が出力されなくなっている。何故? 一方で quote の数は変わっ
+    ていない。元からちゃんと quote されていたという事の気がする。よく分からない
+    が新しい形式として "keyseq" "command" という物が追加された様だ。また、この
+    追加によって今まで可能だった bind -x '"keyseq" : "command"' が動かなくなっ
+    ている
+
+      →そもそも元々のコードでは "keyseq"anything: "command" でも動いていた。こ
+      の振る舞いを潰すという事で考えるのであれば "keyseq" : も同様に潰すという
+      考えでも良い気がする。
+
+    うーん。そもそも色々振る舞いが違うかもしれない。振る舞いについて確認する。
+    調べる限りでは quote して登録する事によって特別に変な事が起こるわけでもない
+    気がする。\C-a 等の escape が削除されたという訳でもない。
+
+    * done: bind -X を dump している箇所の修正は OK
+
+    * done: bind の emulation をしている箇所も修正する必要がある。
+
+      うーん。decompose-pair のインターフェイスを変更する? 目的に応じて振る舞い
+      を変更するしかないのか?
+
+      先ず ble/builtin/bind/.decompose-pair を呼び出しているのは
+      ble/builtin/bind/.initialize-keys-and-value だけである。そして
+      initialize-keys-and-value を呼び出しているのは ble/builtin/bind/option:x
+      と ble/builtin/bind/option:- だけである。value を設定しているのは
+      .decompose-pair であり、.initialize-keys-and-value は value には触ってい
+      ない。option:- では囲みの "..." を除去しているのは option:- の中である。
+      それは "macro" と rlfunc を区別する為に必要である。option:x の場合には最
+      終的に全部文字列として取り扱うのだから関係ない?
+
+      動作確認を行う。
+
+      o ok: "\C-t": "echo hello " の形は大丈夫。元々末尾の空白が削除されていた
+        がそれもちゃんと処理される様になった。
+
+      x fixed: 余分な文字列が末尾にくっついている時に警告を表示する様にしている
+        がそれが表示されない。何故か? どうやら suppress local error をしている
+        為にちゃんと表示されていないという事の様だ。ちゃんと redirect して出力
+        される様にした。
+
+      o ok: "\C-t": "echo \"hello の様に閉じていない場合もちゃんとエラーが出力
+        されている。
+
+      o ok: "\C-t" "echo \"hello\"" などもちゃんとできている。"\C-t": echo
+        \"hello\" もちゃんと動いている。
+
+      ? ok: うーん。ble.sh の実装では "\C-t" "echo \"hello" は 'echo "hello' と
+        解釈されているが bash-dev ではどうだろうか。'echo \"hello' にはならない
+        のか? →試してみた所ちゃんと echo "hello" という感じになっている。echo
+        \"hello\" の様にはなっていない。
+
+      o ok: bind '"\C-t": "self-insert"' 及び bind '"\C-t": self-insert' もチェッ
+        クした。周りに空白がある場合も動作確認した。
+
+    x ok: そもそも ble/builtin/bind/option:x における value の解釈が怪しい。
+      bash は "" の中にある escape をちゃんと処理している気がするが、ble.sh の
+      実装では escape がそのまま残ってしまう。
+
+      →改めて bash の振る舞いを確認してみたが別に処理していなかった。単にコマ
+      ンドを実行する時の eval で処理されているのであって、bind -x で登録された
+      文字列は未だ escape が処理される前の物である。
+
+2023-12-24
+
+  * github: CIテストが失敗している [#D2105]
+
+    そもそもどの commit で失敗する様になったのかを特定する。
+
+    或いは tolower や toupper が動かなくなっている可能性? と思ったが test-util
+    を見てみると既に tolower や toupper についてのテストは完備している。二つの
+    テストの失敗は独立な物の様である。
+
+    * idle の方はテストフレームワークの変更によって引き起こされている気がする。
+      と思ったがそうではない。idle は単に ble-import のテストに使っていた物であっ
+      て、idle.do の時点で遅延されたロードが実行される事を期待していたのが実行
+      されないという問題である。
+
+      そして ble/util/idle/IS_IDLE がテスト環境では特別な状態になっている可能性?
+      IS_IDLE は既定では ! stdin/is-ready 的な何かになっているが、それが常に成
+      功するのだとしたら IS_IDLE は常に偽になり期待した物にならない。そもそもテ
+      ストがその時の状態に依存しているのがいけないのだから IS_IDLE を上書きする
+      べきである。
+
+    * macro のテストの失敗については、これは元々テストフレームワークに載せてい
+      なかったので前はチェックできていなかっただけで、実は前からこういう振る舞
+      いだったと思われる。これの修正については色々試してどういう状態になってい
+      るのか調べる必要がある。
+
+      と思ったらマクロ再生部分に ble/util/is-stdin-ready が真だった時に失敗する
+      様に書かれている。これが悪い。
+
+    両方とも修正した。動く様になった。またテスト全体の成功失敗の判定を修正した。
+    これまでの実装だと複数の section がある場合や source test-*.sh の最後が
+    end-section でない時に正しく失敗が検出できていなかった。end-section 毎に失
+    敗 section 数をインクリメントする事にした。
+
+    2024-01-01 未だ失敗している。macos で失敗している。windows では一応成功はし
+    ているが変なエラーが発生している。macos の方については単に bash-3.2 だった
+    ので ble/util/idle.do が空実装になっていてそれを使ったテストが通っていない
+    だけだった。
+
+    windows の方についてはどうも rlfunc.txt の各行の末尾に \r がついているのが
+    原因の様だ。然し、調べてみるとその他のファイルについても全部 \r がついてい
+    る様に見える。何故問題になっていないのか。bash が読み取る時にいい具合にして
+    くれるという事なのだろうか。
+
+    ? その他の自前で読み書きしているファイルについては大丈夫なのだろうか?  →調
+      べてみた所、自前で生成したファイルについては大丈夫だった。
+
+      注意しなければならないファイルは rlfunc.txt, ignoreeof-messages.txt,
+      vi_digraph.txt である。rlfunc.txt については対策はできた。
+      ignoreeof-messages.txt については行内の何処かに一致していれば良いという作
+      戦なので、余分な \r がついていてもちゃんと動作する。vi_digraph.txt につい
+      ては mapfile で読み取っているのでちゃんと調整が必要になる。
+
+    ? 或いは読み取る時の方法によって \r が除去されたりされなかったりする等の事
+      があるのだろうか? もし mapfile だけで問題が起きるのだとしたらそれについて
+      もちゃんと対策をする必要が出てくる。
+
+      既存のファイル keymap.vi_digraph.txt を使って確かめてみる事にした。実際に
+      keymap.vi_digraph.txt の中身も \r が付加されていて、更に read で読み取っ
+      たとしても \r が混入してしまうという事が確認できた。つまり、mapfile を使っ
+      たから悪いという訳ではない。
+
+    修正した。
+
+  * edit: history-search-backward に関する振る舞いに対する要望 (reported by blackteahamburger) [#D2104]
+    https://github.com/akinomyoga/ble.sh/issues/382
+
+    実際に自分で適当に以下の設定を試してみた所、空文字列で検索した時であっても
+    (表面上はただの up と同様に振る舞っている様に見えつつも)、二回 enter を押さ
+    ないと反応しない。
+
+      bind '"\e[A": history-search-backward'
+      bind '"\e[B": history-search-forward'
+
+    lib/core-decode.*.rlfunc.txt を確認してみたがちゃんと対応表には
+    empty=emulate-readline が指定されている。然し emulate-readline の実装を見て
+    みても特に immediate-accept は指定されていない。emulate-readline が導入され
+    たのは d68ba6196 (2021-09-23 #D1661 GitHub#139) であるが enter を押した時の
+    振る舞いについては何も議論されていない。因みに immediate-accept は
+    912579585 (2021-04-29 #D1517 GitHub#101,80) で導入されているので、
+    emulate-readline が導入された時には既に存在していた筈。
+
+2023-12-22
+
+  * util(readonly): work around non-standard collation order (reported by dongxi8) [#D2103]
+    https://github.com/akinomyoga/ble.sh/issues/335#issuecomment-1598485650
+
+    恐らく中国語の collation order は aAbBcC 的な何かになっている。なので小文字
+    である事を判定するのに [a-z] とすると失敗する。
+
+    他に類似の物があるだろうかと思ったが多くの場合には [a-zA-Z] となっているの
+    で即座に問題は置きない。但し、diacritical marks のついているアルファベット
+    が混ざっている場合は多くあってそれが混入すると困る場合は実は結構ある。そう
+    いう場合には対応しきれていない気がする。
+
+    以下は既に対策済みだった物。よく考えた見たら _ble_util_string_lower_list 等
+    の変数に全てのアルファベットを格納しているのだから単にそれを使って判定すれ
+    ば良い。26文字の一文字ずつについて判定するのが大変に思うかもしれないが、
+    locale の切り替えの方が格段に重いので、寧ろその様にした方が高速である。関数
+    として ble/string#isupper, ble/string#islower を用意する事にした。指定した
+    引数が一文字かつ大文字または小文字であるかを判定する。
+
+      ./src/util.sh:928:[[ $ch == [A-Z] ]]
+      ./src/util.sh:931:[[ $ch == [a-z] ]]
+      ./src/util.sh:955:[[ $ch == [A-Z] ]]
+      ./src/util.sh:969:[[ $ch == [a-z] ]]
+
+    これは encode-rot13 での判定である。そして上と同様なので、単に
+    ble/string#isupper もしくは ble/string#islower を使えば良い。
+
+      ./lib/keymap.vi.sh:93:[[ $ch == [a-z] ]]
+
+    これも ble/string#isupper を用いれば良い。
+
+      ./src/edit.sh:745:[[ $c == [A-Z] ]]
+
+    以下はそれぞれ a または A を除くアルファベットという物だった。範囲の指定の
+    仕方を工夫して予期せぬ一致を回避する事にした。範囲指定を修正した。但し、
+    LC_COLLATE を調整しない限りは diacritical mark のついている変な物も原理上範
+    囲に含まれてしまうが、そもそも一致対象の文字列は declare -p の出力なので変
+    な文字が含まれている可能性は排除して良い。
+
+      ./src/util.sh:515:[b-zA-Z]
+      ./src/util.sh:523:[a-zB-Z]
+
+    これはそもそも使用文脈が限られているので小文字しかチェックしていなかったが
+    大文字が混入しても良いもの。ややこしいので A-Z0-9 も許容する事にする。
+
+      ./src/util.sh:3403:[12])(-[a-z]+)?$'; [[ $msleep_type =~ $rex ]]
+      ./ble.pp:2131:[-a-z0-9]
+
+    これは今回の問題箇所。外側で LC_COLLATE を調整する事で対策した。
+
+      ./src/util.sh:7194:[[ $1 != *[a-z]* ]]
+
+    これらは blehook において lowercase letter が含まれる hook 名は private
+    hook として既定で除外する機能の為に使われている物である。blehook でも
+    LC_COLLATE の調整を行う事にした。
+
+      ./src/util.hook.sh:140:[[ $pat == *[a-z]* || $flags == *a* ]]
+      ./src/util.hook.sh:141:[a-z]
+      ./src/util.hook.sh:164:[[ $pat == *[a-z]* || $flags == *a* ]]
+      ./src/util.hook.sh:165:[a-z]
+      ./src/util.hook.sh:209:[[ $flags == *a* ]] || ble/array#remove-by-glob print '_ble_hook_h_*[a-z]
+
+    これは awk スクリプトに含まれる物だった。他の方法で小文字判定をする事にした。
+
+      ./lib/core-complete.sh:7115:[a-z]
+
+    これは https:// 等の URL 先頭のスキームを検出するのに使っている。大文字を含
+    んでいる物も一致させると C: 等の様な物も一致してしまって不都合である。なの
+    で、小文字に限定したい。然し毎回 LC_COLLATE 等を調整するのは面倒なので
+    ble/string#match-safe という関数を新しく追加する事にした。
+
+      ./lib/core-syntax.sh:1661:[a-z]
+      ./lib/core-syntax.sh:1729:[a-z]
+      ./lib/core-syntax.sh:1754:[a-z]
+
+    これは簡易判定に用いている物であって後でまたちゃんと判定し直しているので気
+    にしなくて良い。
+
+      ./lib/core-syntax.sh:3530:[a-z]+|^\[\[?|^[{}!]'; [[ $tail =~ $rex ]]
+
+    make_command.sh に関してはスクリプト全体で LC_COLLATE=C を設定すれば良い。
+
+      ./make_command.sh:235:[/[:space:]<>"'\''][a-z]\.txt|/dev/(pts/|pty)[0-9]
+      ./make_command.sh:303:[A-Z]
+      ./make_command.sh:491:[A-Z]
+      ./make_command.sh:492:[_A-Z0-9]
+      ./make_command.sh:493:[_A-Z0-9]
+      ./make_command.sh:494:[_A-Z0-9]
+      ./make_command.sh:496:[_A-Z0-9]
+      ./make_command.sh:497:[_A-Z0-9]
+      ./make_command.sh:617:[a-z]
+
+    実験用スクリプトについては気にしない
+
+      ./memo/D1341.locale-and-casematch.sh:7:[[ A == [a-z] ]]
+      ./memo/D1341.locale-and-casematch.sh:27:[[ A == [a-z] ]]
+      ./memo/D1760.fzf-completion-reduced.sh:10:[[a-z0-9.,:-]
+      ./memo/D1760.fzf-completion-reduced.sh:27:[[a-z0-9.,:-]
+      ./memo/benchmark/array-is-array.sh:84:[b-zA-Z]
+
+    これは LC_COLLATE=C を設定する事にした。subshell なので解除しなくて良い。設
+    定する時にはコマンドを何も指定せずに変数代入だけで LC_COLLATE=C 2>/dev/null
+    としてもエラーを抑制できない。代わりに export LC_COLLATE=C という形で指定す
+    る事にした。
+
+      ./lib/test-util.sh:920:[a-zX-Z]
+      ./lib/test-util.sh:921:[a-zX-Z]
+      ./lib/test-util.sh:922:[a-zX-Z]
+      ./lib/test-util.sh:929:[a-zX-Z]
+      ./lib/test-util.sh:930:[a-zX-Z]
+      ./lib/test-util.sh:931:[a-zX-Z]
+
+2023-12-17
+
+  * 2023-12-11 ble-import に関する説明を書く? (motivated by Dominiquini) [#D2102]
+    https://github.com/akinomyoga/blesh-contrib/issues/16
+
+    * ble-import -d の意味と、もし中の関数をすぐに使う必要があるのであれば、-d
+      を指定しないという事を何処かに書いておく (何処かに既に説明を書いた様な気
+      がしたが、改めて contrib README を見てみても -d についての説明は何処にも
+      書かれていない)。
+
+      取り敢えず書いた。分かりにくいかもしれないが。
+
+    * また ble/util/import/eval-after-load の interface を ble-import のオプショ
+      ンとして実装する可能性? 然し、これは変な気もする。つまり、オプション -H
+      script を指定する事で、指定した通常引数をロードする代わりに、ロードされた
+      時の付加動作を定義する事になっている。これは混乱の元の気がする。一方で、-q
+      はロードしたかどうかを判定する物になっているので、既に指定したファイル名
+      を必ずしもロードする訳では無い状況にはなっている。何れにしても、指定され
+      た引数はモジュール名という事になっているので或る意味一貫している。
+
+      これは mapfile と同様に -C callback というオプションとして実装する事にする。
+
+2023-12-16
+
+  * 2023-12-11 keymap.vi_test: テスト項目を ble/test を用いた物に書き換える [#D2101]
+
+    後 leave-command-layout を呼んでいるのに行が再描画されない。何故? どうも
+    ble/widget/vi-command:check-vi-mode/search を呼び出すと消える様だ。search
+    に使っている info が干渉して内容が消滅する等している可能性? 一応
+    ble/textarea#invalidate を enter-command-layout の後に実行すれば問題はない。
+    うーん。どうやら、search の途中で描画を実行してしまうのでその時点で
+    ble/textarea#invalidate の効果が消えてなくなってしまっているという事だろう。
+
+    そもそも通常のテストの一部として取り組む事はできないか?
+
+2023-12-13
+
+  * keymap/vi: text objects for brackets が omap でも変 (reported by Darukutsu) [#D2100]
+
+    恐らく真面目に実装していなかったという事? 最初に block.impl を導入したのは
+    441ed955 だがこの commit の段階では not yet implemented 等と書かれている。
+    とは言いつつ現在の処理が大体書かれている。
+
+    % ? no: という事を考えると暫定実装がそのまま残っていたという事だろうか?
+    %   ca0fc1ac まで行くと not yet implemented という文字列は消えてなくなって
+    %   いるが、実装に本質的な変更がある様には見えない。not yet implemented が
+    %   置き換わっているのは bd392394c だが、これは単に bell をまとめただけの様
+    %   に見える。余り本質的な変更ではない。そもそも not yet implemented と書い
+    %   ていたのは本体の処理ではなくて bell の部分だったので、妥当である。
+    %
+    %   → not yet implemented と書かれていたのは bell の処理であって本体の処理
+    %   についてではない。
+
+    ちゃんとした記録は残っていないが成立の経緯を考えると恐らく適当に最初に実装
+    したのがそのまま残っていただけ。ちゃんと振る舞いを観察して実装し直すという
+    事をするべき。先ずはテストから書く必要がある。
+
+    取り敢えず実装した。xmap の実装も含めて繰り返しが多いので整理する。未だ動い
+    ている。取り敢えずこれで良い事にする。
+
+  * docs: CONTRIBUTING の BNF に間違いがある [#D2099]
+
+    と思って修正したが他にも英語の間違いがある。これを機に全体的に Grammarly を
+    適用してみたら沢山の間違いがあるので修正する事にした。
+
+  * edit: undo が正しくできていない (reported by Darukutsu) [#D2098]
+    https://github.com/akinomyoga/ble.sh/issues/377#issuecomment-1852503847
+
+    記録の時点では問題はない。復元の時の読み取りも問題ない。然し、カーソル移動
+    を決定する為に文字列の変化していない部分を検出する上で、共通部分を除いた後
+    の文字列の内容がおかしい。と思ったら致命的な間違いをしている。何故今まで動
+    いている様に見えたのかが謎である。実際にこの処理の結果として使っているのは
+    共通接頭辞・共通接尾辞の長さだけなので大体問題なく動いていたという事だろう
+    か。
+
+    然し、そうだとしても echo 'fo'' になるのは謎である → 確認してみて分かった。
+    "echo 'fo" + "''" という結合の仕方をしている。やはりちゃんと今まで大体 undo
+    できていたのは不思議である。
+
+  * decode,syntax: quote `$#` in arguments properly [#D2097]
+
+    何故か裸の $# が残っていたのでちゃんと quote する。恐らく ${#...}  の形式及
+    び $((...)) の形式しかチェックしていなかったのが原因。他のパターンは取り敢
+    えずすぐには思いつかない。
+
+2023-12-12
+
+  * complete: suffix a space to non-filenames with compopt -o filenames (reported by Dominiquini) [#D2096]
+    https://github.com/akinomyoga/ble.sh/issues/378
+
+    一番最初の実装 (ce223f73) から action:file/complete はファイル名だけにしか
+    ' ' や '/' は付加していない。その後に progcomp の compopt -o filenames が指
+    定された時は候補を action:file/complete で処理する様になっていた。変更の歴
+    史の中でも一時的に「全てに空白をつける」みたいな時期はなかったみたいだ (そ
+    んな様な気もしたが気の所為か一時的に実験しただけという事だろうか)。
+
+    分からないが bash の振る舞いが、compopt -o filenames を指定していたとしても
+    非ファイル名に対して空白を挿入しているのでそれと同様になる様に修正する。こ
+    の修正をしただけでちゃんと期待通りに動く様になった。
+
+  * keymap/vi: text-object/block.impl を xmap に対応する (requested by Darukutsu) [#D2095]
+    https://github.com/akinomyoga/ble.sh/issues/377#issuecomment-1850082254
+
+    先ず初期状態として、現在のカーソル位置と他の端点の二つを考慮に入れる必要が
+    ある。
+
+    現在のカーソル位置を @ として他の端点を * とする。
+
+    (1) @ と * が同じ位置にある場合。取り敢えず [bbb(ccc)] を区切りとしてその中
+    から括弧の部分を探し出す振る舞いの様だ。気になったので確認したが取り敢えず
+    ib i( i) の間に違いはない。
+
+    | 引数がある場合には括弧の入れ子を考慮して外側に段々と広がる。1ib は ib と
+    | 同じ。後、 ( (foo) b@ar (baz) ) に対して ib を実行すると " bar " ではなく
+    | て外側の括弧の内側が選択される。つまり、現在の入れ子が一番外側でないので
+    | あれば、" bar " ではなくて一つ外の括弧を選択するという事。
+    |
+    | ? "(foo) b@ar (baz)" で "ib" すると baz が選択されるが、"(foo) (b@ar)
+    |   (baz)" で "2ib" だと baz が選択されるという事はないのか? → そういう事
+    |   はない。つまり、一番最初に現在の文脈が何らかの括弧の中にあるかを判定し
+    |   て、そうでなければ、次の括弧に行く。もしそうであれば現在位置が属する場
+    |   所を探す。
+    |
+    | 現在閉じていない括弧の文脈にある場合にはどう頑張っても何も起こらない。
+    |
+    | * 途中に改行があっても関係ない。'...' とは違って行ごとの処理ではない様で
+    |   ある。
+    |
+    | * 対応する始まりがない終わり括弧の直上にいる時には次の括弧に移動する。対
+    |   応する始まりがない括弧の前にいる時には失敗する。
+
+    ? todo: そもそも '...' だって実は改行は関係ない可能性もある? これは動作を確
+      認する必要がある → 改めて試してみたがやはり '...' に関しては行内で完結し
+      ている様である。
+
+    (2) _ble_edit_ind > _ble_edit_mark の場合について調べる。うーん。ルールはよ
+      く分からない。取り敢えず開始点 _ble_edit_mark で結構振る舞いが定まってい
+      る様に思われる。但し、_ble_edit_ind も微妙に振る舞いに影響を与える。
+
+    先ず mark より左側に開き括弧がある場合には全て忘れてその括弧に対応する部分
+    を囲む様になっている様に思われる。
+
+    (3) _ble_edit_ind < _ble_edit_mark の場合も色々試してみたが、 (2) の場合と
+    振る舞いに違いは全くない。単に _ble_edit_ind と _ble_edit_mark を swap して
+    処理すれば良い。
+
+2023-12-11
+
+  * vi: text-object:quote の振る舞いが xmap 内で正確ではない (reported by Darukutsu) [#D2094]
+    https://github.com/akinomyoga/ble.sh/issues/377#issuecomment-1849550762
+
+    vi_xmap for i' の振る舞いが異なるとの事。
+
+    これは実装していない奴ではないかと思ったが、実際に確認してみると実装されて
+    いる。単に手で規則を試した時の漏れという事の気がする。その他の微妙に異なる
+    状況に関してはちゃんと vim の振る舞いを再現できている。
+
+    ? no: 或いは vim の古い version と新しい version で振る舞いが違うという事な
+      のかもしれないと思ったが、Ubuntu 16.04 の vim 7.4 (少なくとも 2013年には
+      あった) の振る舞いを見る限りは、以前からそうであった。という事なのでやは
+      り見落としである。
+
+    修正は意外とコンパクトになった。
+
+    * テスト項目を追加する。と思ったが長らく動かしていなかった。そもそもテスト
+      が動かなくなっているかもしれない。と思って試しに走らせてみたらちょうど今
+      回振る舞いを修正した所でエラーになっている。
+
+      うーん。これは今回新しく修正した事によってテストが失敗する様になったのか?
+      →実際に master で試してみるとテストは全て通る。という事はテスト項目自体
+      が駄目だったという事になる。テスト項目を修正した。
+
+  * vi: text-object を別の文字に割り当てようとしている人がいる (requested by Darukutsu) [#D2093]
+    https://github.com/akinomyoga/ble.sh/issues/377
+
+    元々は text-object a も i も同じ一つの widget で処理していてユーザーのキー
+    入力が a か i かに応じて振る舞いを変更していた。然し、別の文字に
+    text-object を割り当てようとすると i でも a でもないのでエラーになってしま
+    う。
+
+    元の Vim script ではどうなっているのか確認したが noremap で設定している限り
+    は、実際に i や a がどう設定されているかどうかに関係なく、 i と指定すれば
+    inner text-object になるし a と指定すれば outer text-object になる。なので、
+    noremap を使っている限りは類似の問題は生じない。
+
+    仕方ないので今回は text-object widget を text-object-inner と
+    text-object-outer に分解する事にする。
+
+    実装を考え直した。text-object をそのまま引数を受け取る様に拡張する方が良い。
+    i と a の binding は分かりやすさの為にそれぞれ text-object-inner と
+    text-object-outer のままにしておくが、text-object.impl という widget を新設
+    するよりは元より text-object で引数に対応する事にして、
+    text-object-{inner,outer} はその widget を呼び出す様にする。こちらの方が無
+    駄な diff がなく良い。
+
+2023-12-08
+
+  * ble/array#*: nocasematch の時に _ble_local_script の ARR 置換が arr を誤爆 (reported by jkemp814) [#D2092]
+    https://github.com/akinomyoga/ble.sh/discussions/376
+
+    同様の処理をしている所は他にもある。態々 nocasematch を記録して外して置換を
+    してからまた復元するというのは面倒である。変数名を置換するだけで問題が発生
+    しなくなるのだから、全て変数名を置換するべきである。
+
+    これ迄は配列名は全て ARR に統一していた。三文字と短くてまた分かりやすいと思っ
+    ていたがこれは ble/array#* の arr 等にも一致している。NAME にしたが或いは
+    ANAMEの方が良かっただろうか。でも短い方が良いし、NAME は既に使われている。
+    ARR は配列名であるという事が分かりやすくて良いと考えていたが、改めて考えて
+    みればそこでそれを強調する強い理由も余りない気がする。
+
+    <ARR> という可能性も考えてみたがこれはこれで bash の文法的に読みにくくなっ
+    てしまうので避けたい。__1__ は別に短くないし _1_ だとやはり誤爆しそうである。
+    また _ で囲む方式にすると元々 _ で区切っている名前 (例えば _ble_xxx_ARR) な
+    どの _ と紛らわしいので避けたい。その他の証とししなさそうなランダムな文字列
+    を使うというのも却って分かりにくい気がする。色々考えるとやはり NAME ぐらい
+    で良い。
+
+    但し、NAME が他の NAME や name を衝突する場合には気を付けなければならない。
+    LAYER は NAMEにすると同じ script 内にある _VARNAMES を誤って置換してしまう
+    事になるので LNAME にする事にした。他により良い名前はあるだろうか。
+    LAYERNAME だと長いし、LAYERID は余り他で使っていない名前の付け方である。
+    LNAME ぐらいで我慢するのが良い気がする。
+
+    * 因みに、nocasematch が ${var/pat} の振る舞いに影響を与える様になったのは
+      bash-4.4 以降の様である。
+
+    * done: 序に _ble_script という変数名で実装していたのが一箇所だけあったので
+      を _ble_local_script に改名する事にした。他に code だとか script だとか使っ
+      ている箇所もあるがこれらは変数名に制限があるか或いはその変数名を直接用い
+      る訳ではなくて常に suffix や prefix がついている場合の様なので、変数名の
+      衝突などは考えなくて良い。
+
+    * done: opts 関連は注意するべきである。
+
+    * done: core-complete の compopt は諦めた。別にオプション名が大文字・小文字
+      で縮退するという事はない気がするし、今後勝手に追加する時には気をつける事
+      にすれば良い。
+
+    * ok: bash-preexec.bash の BP_INSTALL_STRING に関しては十分に複雑な文字列だ
+      し大文字・小文字が違う文字列で他の用途の物が混入するとも思われない。更に、
+      ここで修正しても仕方がない。upstream でも同時に修正を行う必要がある。然し
+      一方で upstream でこの様な実際に起こるとは思い難い状況の為に nocasematch
+      の保存復元をするコードが accept されるとは思えない。なのでこれは放置する
+      のが適当である様に思われる。
+
+      BP_PROMPT_COMMAND_PREFIX も同様の理由で考えない事にする。
+
+    * done: ble/cmdinfo/complete/yield-flag は流石にユーザーの指定したオプショ
+      ンの大文字・小文字を区別しないのは変なので対策する事にする。
+
+    * done: 置換で他に類似の物はないだろうか。記号しか来ないと分かっている箇所
+      は気にしなくて良い ($q や或いは文字の置換を行っている時の $a など)。'%d'
+      等で置換をしようとしている箇所も、元々の文字列に変な % が入ってこないとい
+      う事を前提にしている箇所の気がするので除外して良い。また変数の側で紛らわ
+      しい文字列が入っていないという事が保証できる場合も気にしなくて良い。
+
+    と此処まで修正して気づいたがそもそも nocasematch は adjust-bash-options で
+    調整しているなので、ランダムなタイミングで発生する事はない筈なのである。
+
+    何故この様な事が発生していたのかというとユーザーが自分で
+    ble/array#insert-before 云々を呼び出したからである。特に custom layer を自
+    分で定義して入れる事を提案したのでそれが問題になっている気がする。然し、そ
+    うだとしてもその設定は ble.sh の中で呼び出されるべきではないのか。何故変な
+    タイミングで ble/array#insert-before が呼び出されているのだろうか。
+
+    改めて各変更について適用するかどうかを選別しなければならない。
+
+    * 取り敢えず util.sh に関してはユーザーが通常の文脈で使用する可能性もあるの
+      で簡単に回避できる nocasematch の穴に関しては塞いでおく。ARR から NAME の
+      書き換えはそれに含まれるので、類似するものは他のファイルにも適用する。
+
+    * edit.sh での変更は棄却する。ble/textarea#* の関数なので外部で直接使うとは
+      考えられない。core-complete.sh の compopt の変更も棄却する。の一時的な
+      compopt は ble.sh の文脈の中でしか使わない。
+
+    * ok: keymap.vi に含まれている置換については何れも widget として実行される
+      場所で使われているので nocasematch に関しては気にしなくて良い。
+
+    * ble-bind に関しては adjust-bash-options した方が良いのではないか? 然し、
+      大体 ble-bind は何度も実行するので余り遅くなるのは嫌である。
+
+      オプション解析を自前で行っているが -d と -D 等を区別しなければならない筈
+      →と思って改めて確認してみた所 -d は後方互換性の為に残されているだけだった
+      ので現在のインターフェイスでは実は nocasematch であってもオプション解析に
+      関しては問題は発生しないはず。
+
+      % 一方で adjust-bash-options にもちゃんとカウントがあるのでカウンターの増
+      % 減程度の overhead しかないと言えばない。それよりも寧ろ read-arguments
+      % 関連のループの方が重いはずである。という事を考えると
+      % adjust-bash-options の呼び出しは無視できるぐらい軽いのではないか。
+      %
+      % 改めて確認してみると ble/base/.adjust-bash-options と
+      % ble/base/adjust-bash-options の二種類があって前者は毎回必ず処理を実行す
+      % る物で指定した変数に記録を行う。後者は現在の文脈を見て外側にいる時にの
+      % み処理を行うという物である。加えて様々の変数の記録・復元も行っている。
+      % 前者は ble/builtin/history で使われている。他の builtin でも前者が使わ
+      % れている。というか後者は元々あった状態が分からなくなってしまうので一時
+      % 的な待避には使えない。何処かに入れ子レベルをカウントして何かを待避する
+      % コードがあった様な気がするが、もしかすると別の処理だったかもしれない。
+      % 或いは、その運用は問題があるという事で現在の様なローカル変数を用いる方
+      % 法に変更したのだったかもしれない。
+      %
+      % 6a946f0a7 は .adjust-bash-options の処理を切り離して blehook に対して適
+      % 用している。うーん。実際に多くの .adjust-bash-options を追加しているの
+      % は 001c59588 である。然し、何れも既存の枠組みを置き換えたという訳ではな
+      % くて単に今までなかった物を追加した形になっている。
+      %
+      % ここでの問題は ble/base/.adjust-bash-options の処理を毎回完全に処理する
+      % と遅いのではないかという事である。既に外側で adjust 状態になっているの
+      % であれば改めてわざわざ処理をする必要もないのである。
+      %
+      % a. 例えば ble/base/.adjust-bash-options についても adjust しているかそ
+      %   うでないかを記録する変数を定義する? そしてその変数を毎回 local にして
+      %   stack 上に記録する? と思ったが local にすると一つ上の階層の記録を参照
+      %   できなくなるし、一つ上の階層の状態を引数で渡すとしても事前に別の変数
+      %   に状態をコピーして置かなければならない。subshell で unset -v して剥が
+      %   すのは重すぎる。という事を考えるとインターフェイス的に良くない気がす
+      %   る。
+      %
+      %   | local set shopt adjusted=$_ble_bash_options_adjusted _ble_bash_options_adjusted
+      %   | ble/base/.adjust-bash-options set shopt "$adjusted"
+      %   |
+      %   | ...
+      %   |
+      %   | ble/base/.restore-bash-options set shopt "$adjusted"
+      %
+      %   或いは、local も含めた呼び出しを変数に入れておいて eval させる? 然し、
+      %   それだと記録に用いる変数の変数名を指定できない。別々に記録する?
+      %
+      %   | local set shopt
+      %   | builtin eval -- "$_ble_bash_options_declare_adjusted"
+      %   | ble/base/.adjust-bash-options set shopt "$adjusted"
+      %   |
+      %   | ...
+      %   |
+      %   | ble/base/.restore-bash-options set shopt "$adjusted"
+      %
+      %   或いは set, shopt という変数名も固定にしてしまって全部文字列で記録す
+      %   る?
+      %
+      %   | builtin eval -- "$_ble_bash_options_adjust"
+      %   |
+      %   | ...
+      %   |
+      %   | builtin eval -- "$_ble_bash_options_restore"
+      %
+      %   これだと毎回 eval する分だけ遅くなるのではないかという懸念もあったが、
+      %   実のところ bash は $() に関しては毎回 parse している訳だし、eval の分
+      %   だけ処理を省略しても余り速度や効率に影響はない様な気もする。
+      %
+      %   →と思ったが実際に使用箇所を見てみると意外と set, shopt 以外の変数名
+      %   を使っている箇所がある。固定する事はできない? とも思ったが、良く考え
+      %   たら set shopt という単純な変数名を使う理由もな
+      %   い。_ble_bash_options_set 等長い変数名でも実は良い。或いは
+      %   _ble_bash_options_state という名前の配列にしてしまって、3つの値を其処
+      %   に全部格納してしまっても良いのである。
+      %
+      %   | local _ble_bash_options_old_adjusted=${_ble_bash_options_state[2]}
+      %   | local -a _ble_bash_options_state
+      %   | ble/base/.adjust-bash-options '_ble_bash_options_state[0]' '_ble_bash_options_state[1]' "$_ble_bash_options_old_adjusted"
+      %   |
+      %   | ...
+      %   |
+      %   | ble/base/.restore-bash-options '_ble_bash_options_state[0]' '_ble_bash_options_state[1]' "$_ble_bash_options_old_adjusted"
+      %
+      % b. やはりローカル変数を使うが、呼び出し元で adjust されているかどうかを
+      %   チェックして adjust していなかったら local 宣言と共に
+      %   .adjust-bash-options を呼び出す様にする。この方法だと呼び出し元が複雑
+      %   になり過ぎる気がする。実際に /.adjust-bash-options を呼び出している全
+      %   ての箇所でこれを実行する必要がある。また .restore-bash-options をする
+      %   かどうかを判定する為に .adjust-bash-options をしたかどうかをまた別の
+      %   変数に記録して置かなければならない気がする。
+      %
+      %   | local set shopt adjusted=
+      %   | if ble/base/.adjust-bash-options set shopt; then
+      %   |   local _ble_bash_options_adjusted=1
+      %   |   adjusted=1
+      %   | fi
+      %   |
+      %   | ...
+      %   |
+      %   | if [[ $adjusted ]]; then
+      %   |   ble/base/.restore-bash-options set shopt
+      %   | fi
+      %
+      %   この方法を取るのであれば a の方法の方が良い。
+      %
+      % c. 或いは local で被覆されるのが問題という事なのであれば配列にして記録
+      %   するというのでも良いかもしれない。然し、その場合には C-c 等で処理が中
+      %   断された時に adjust 状態が永続化してしまうという事である。これは致命
+      %   的である。local を使った時には何が起こっても local 変数が残留するとい
+      %   う事はないので問題にはならなかったが、グローバル変数だとその辺りの処
+      %   理もちゃんとしなければならない。
+      %
+      % * BASH_REMATCH 実装の観察。実際に count 方式で実装して何か問題が起こっ
+      %   たのだった様な気もする。然し、それが bash-options についてだったかど
+      %   うかは分からない。取り敢えずソースコードを見ると
+      %   _ble_bash_BASH_REMATCH_level が見つかる。これの編集履歴について確認し
+      %   てみる。689534de で導入されている。うーん。単に BASH_REMATCH の待避を
+      %   attach 時に入れ子で行って前に記録した結果が消滅するなどの問題が生じた
+      %   からレベルを導入したという事?
+      %
+      %   ? 何故単に adjusted=1 で判定しないのか? と思ったがこの方法は入れ子で
+      %     呼び出される場合に使えない。restore は一番最後の restore の呼び出し
+      %     で実際に発生する必要があるが、一番最後である事を判定する為には
+      %     count をする必要があるから。
+      %
+      %   ? この方法だと入れ子カウントが壊れた時に問題になるのではないかと思っ
+      %     たが、今のところは問題は発生していない様に思われる。そう思うとやは
+      %     り別にカウント方式でも大きな問題にはならないのかもしれない。
+      %
+      % * ble/base/xtrace/adjust も呼び出し毎に記録していて一番外側にいる時にだ
+      %   け処理をする様な実装になっている。然し、restore が実行されなかった時
+      %   などの例外的な状況には対応していない様に見える。
+      %
+      % どうにも判定しづらいのでそれぞれについて使用例を考えて使いやすさについ
+      % て考える事にする。
+      %
+      % d. よく考えたが各 frame で adjusted かどうかを記録しておく必要はない気
+      %   がする。何故なら一番外側以外は adjusted だから。という事を考えると、
+      %
+      %   | local set shopt
+      %   | local _ble_bash_options_adjsut_level=$((_ble_bash_options_adjsut_level+1))
+      %   | ble/base/.adjust-bash-options
+      %   | ...
+      %   | ble/base/.restore-bash-options
+      %
+      %   で良いのではないかという気がしてくる。何れにしても呼び出し元は書き直
+      %   さなければならないし、また複雑である。やはりマクロにしなければならな
+      %   いのだろうか。
+      %
+      %   この方法は単純に level++ level-- するよりは安全である様に思われる。一
+      %   方で色々宣言しなければならなくて大変である。或いは以下の様にしてしまっ
+      %   ても良いのかもしれない。
+      %
+      %   | local _ble_bash_shopt_state=$_ble_bash_shopt_state
+      %   | ble/base/.adjust-bash-options
+      %   |
+      %   | ...
+      %   |
+      %   | ble/base/.restore-bash-options
+      %
+      %   今まで local set shopt としていたのが上の様に自己代入する形に変化する
+      %   だけである。また set shopt に当たる変数を _ble_bash_shopt_state を配
+      %   列に昇格して記録してしまう事にすれば問題ない気がする。
+      %
+      % うーん。d の方針で実際に書き換えを実施してしまう事にする。
+      %
+      % ? 懸念は今まで使い分けていた set shopt と _ble_local_set
+      %   _ble_local_shopt と _ble_trap_set _ble_trap_shopt である。これらが衝
+      %   突する可能性はあるだろうか。先ず、set と _ble_local_set に関しては実
+      %   は後者に統一して良い筈である。というのも set というのは外部から変数名
+      %   を受け取る関数としては変数名の衝突の可能性があるから避けたくて、それ
+      %   で _ble_local_set を使っているだけの筈だからである。特に set と
+      %   _ble_local_set が両方とも local だったとしてどちらかを使い分けたり区
+      %   別したりする様な事はない筈である。_ble_trap_set についてはもう少し複
+      %   雑になる様な気もするが、考えてみれば ble/base/.adjust-bash-options は
+      %   現在の使い方だと必ず外側で宣言した変数をそのまま参照するだけであって、
+      %   それ以外の文脈で待避された変数を参照する事はない。という事を考えると、
+      %   ローカル変数に関してはこれらの変数名の選択にはそれ程の意味はないはず
+      %   なのである。単に他のユーザーが使っている変数名と衝突さえしなければ良
+      %   い。
+      %
+      % ? もうひとつの衝突の可能性に関してはグローバルに保存している状態とロー
+      %   カルで管理している変数で変数名を共有して良いのかという事である。先ず
+      %   ble/base/.adjust-bash-options を自身の処理の為に使っている諸々の関数
+      %   については、必ず自身から抜ける際に .restore を呼び出すので問題ない。
+      %
+      % x restore に失敗した場合 (restore が呼び出されなかった場合) に何が起こ
+      %   るか?
+      %
+      %   現在の実装だと restore に失敗した時にその状態が持続してしまって問題に
+      %   なるのではないか? つまり状態が解除されているのにも拘わらず
+      %   _ble_bash_shopt=0 という状態になっているので、次の呼び出しで restore
+      %   を実行しなければならない状況であっても restore が実行されないという事
+      %   になるのではないか? と思ったが、そもそも次のチェックポイントに到達す
+      %   る為には adjust が来てから restore が来なければならない。adjust が来
+      %   た時点で adjust 状態になっている事を期待するからその時点で解除するの
+      %   は変である。その後で restore を実行すれば良い。と思ったが、ここで問題
+      %   になるのは記録された set/shopt 状態が誤った物になるという事である。結
+      %   局 "restore し忘れた状態" を記録してそれを復元してしまうので本来の状
+      %   態は失われてしまう。ローカル変数に記録していた時点で消えてしまうので
+      %   ある。然し、それを言い出すと以前の実装でも同じ問題はあった。元々の状
+      %   態をローカル変数に記録しているのでそれの復元に失敗した時点で元々の状
+      %   態は失われてしまう。
+      %
+      %   うーん。でもグローバルの状態に関してはグローバル変数に記録していたの
+      %   で復元に失敗した時点で消えている訳ではない。問題は次に adjust した時
+      %   にそれが上書きされて消滅してなくなるという事である。
+      %
+      %   うーん。そもそも現在の様に呼び出し毎にちゃんと状態を記録して解除する
+      %   というデザインになっているのは builtin 関数たちはユーザーが自分のコー
+      %   ドで呼び出すからである。なので、その時その時の shopt/set の状態を記録
+      %   したい。そしてそれは ble.sh がグローバル状態として記録する物とは違う
+      %   かもしれない。そういう意味で記録する変数の変数名を変えていたのではな
+      %   かったか。と思ったが、もしそれが目的だとしたらやはり変数名は同じでも
+      %   良いのではないか?
+      %
+      %   ble.sh 文脈の中ではユーザーは勝手に set だとか shopt を変えないと期待
+      %   している。但し、一時的に (関数内で) set shopt を変更してから builtin
+      %   を呼び出す可能性があって、それで問題が起こる可能性がある? それに関し
+      %   ては現在の実装で対応できている。一方で restore に失敗した時に何が起こ
+      %   るのかは分からない。例えば C-c によって全 stack の状態が失われた時に
+      %   どの様にするべきか。先ずシェルの状態は内側の adjusted 状態で残る。
+      %
+      %   a もしこれが ble.sh 文脈だった場合にはグローバル変数に状態が記録され
+      %     ているので、それを使って復元ができるのではないか? 次に adjust が呼
+      %     び出された時点で adjust が行われているかどうかを判定して既に行われ
+      %     ている様であれば何もしない。_ble_bash_shopt には元々の値を代入する?
+      %     然し内側だと _ble_bash_shopt の元の値というのは分からない。
+      %
+      %   b これがユーザー文脈だったとしたら C-c 等のトラブルが起こった場合に中
+      %     途半端な状態で残ってしまうのは仕方がないと思う事にして良い気がする。
+      %     通常の builtin だったらそんな事は起こらないが、そもそも C-c にしろ
+      %     何にしろ中途半端な状態で中断して何か変な状態になった場合は仕方がな
+      %     い気がする。
+      %
+      %   何れにしても上の 2 つの項目は今までの実装でもそうだった。今回の実装で
+      %   特に新しい問題として発生する訳では無い。
+      %
+      % ? 元々 ble.sh の文脈の中でも nocasematch だとか set -uvx だとかを勝手に
+      %   変更した時に問題が発生しない様にこの様な設定にしたのではなかったか?
+      %   と思ったが、考えて見るにその様な状況は考えにくいしもし敢えてその様に
+      %   設定するのだとしたら影響範囲が最小限になる様にその場で注意する筈であ
+      %   る。寧ろ、set -vx を設定した場合には builtin の内部にも伝播していく事
+      %   を期待するのではないか? なので気にしなくて良い? やっぱり期待する実装
+      %   が良く分からない。
+      %
+      %   うーん。set -vx に関しては良いが set -eu に関しては実際にスクリプトが
+      %   停止する原因になり、かつ ble.sh の文脈の中であってもユーザーが一時的
+      %   に有効にする可能性はあるからやはりちゃんと待避しておく必要がある様に
+      %   思われる。そう思うとやはり ble-bind であっても毎回
+      %   adjust-bash-options による待避を実行しなければならない気がする。
+
+      結論としては builtins で個別に毎回 adjust-bash-options をしていたのは、ユー
+      ザーが内部で一時的に set -ue を実行して builtin 等を呼び出した時に ble で
+      実装した builtin が失敗するのを防ぐ為である。その為、一番外側で adjust は
+      既にしているから内部では adjust/restore はしないという実装にはできない。
+      なので処理の省略は行わない。
+
+      また、restore に失敗した時にどうなるのかに関しては現在の実装では其処まで
+      考えていない。restore に失敗したのであればその時点で状態が変わってしまっ
+      ても仕方がないと考えて、また、各 builtin は自身が呼び出された時の状態をちゃ
+      んと復元するという事に集中している。ユーザーコマンドの文脈に関しては、先
+      ず C-c は ble.sh が封じているのでそれで完全に restore 処理が抜けてしまう
+      という事は考えにくい。ちゃんと一番外側の restore は発動する様になっている。
+
+      今回の ble-bind に関しては
+
+      a nocasematch の待避だけ考える? set -eu 等に対する対策がちゃんとしている
+        のかは確認する必要がある、と思ったがそもそも今まで何も待避していなかっ
+        たのだからちゃんと対策はされていると考えるべきでは?
+
+      b 或いは nocasematch が設定されていたとしても動く様に設計する? 今の実装だ
+        と D を deprecated な d の試験よりも先にテストしているので、deprecated
+        behavior が誤って先に出てくる事はない。
+
+        と思ったが更に入れ子で呼び出している関数全てに nocasematch が適用される
+        事を考えるとやはり現実的でない気がする。全ての関数で nocasematch に左右
+        されない実装になっている事を確かめるのは大変だし、一回それを確認したと
+        しても全ての関数について将来的な変更でそれを毎回忘れずに確認するのは困
+        難である。という事を考えるとやはり少なくとも nocasematch は調整する必要
+        がある。
+
+      c 或いはやはり ble/base/.adjust-bash-options を呼び出して環境に問題がない
+        という事を保証した上で実行するべき? 実際に待避しているものは
+        nocasematch だけではない。動作に関係しそうな物が幾つもある。 -k は影響
+        が大きいし、+B もブレース展開を色々な所で使っているので危ない。実際にそ
+        の様な破壊的な設定にする人がいるのかは分からないが。
+
+      d 或いはそもそも変な環境で実行しているの悪いのだと突っぱねるのが良いのだ
+        ろうか。
+
+      e うーん。ble.sh 文脈の内側か外側かで振る舞いを変更するというのも手かもし
+        れない。つまり、_ble_bash_options_adjusted が設定されていたらわざわざ待
+        避などはしないという事。ble-bind は builtin ではないのでユーザーが無闇
+        に使う事を想定しなくても良いのではないかという事。と思ったが、ユーザー
+        が勝手に ble.sh の処理の内部で set -eu 等を設定してその上で ble-bind を
+        呼び出すという事もあるのではないか? その場合に設定を待避しない事によっ
+        て誤作動が起こったらどうするのか? やはり毎回待避・復元を実行するべきだ
+        ろうか?
+
+      分からないので overhead について確認しておく事にする。速度を測ってみる。
+
+      - 何もせずに adjust/restore をするのに 200-250us かかる。ble-bind -P | wc
+        とすると 2500 項目ある。例えば 2500 回呼び出すと 625ms の余計な時間がか
+        かる事になる。
+
+      - ble-bind を実際に読み出すと -f Q という単純な keyseq の場合には
+        adjust/restore なしの時には 500us で adjust/restore すると 670-770us に
+        なる。遅延は 170-270us ある。2500 項目における overhead は 425-675ms で
+        ある。
+
+      - ble-bind -f 'C-x q' self-insert の様な2文字の keyseq の場合には
+        adjust/restore なしの時は 570us で、adjust/restore ありでは 740-840us
+        である。overhead に関しては -f Q の時と全く同じである。
+
+      また nocasematch だけを保存・復元した場合についても確認する。段々複雑になっ
+      てきたので表にまとめる事にする。
+
+        |           | なし  | nocasematch    | adjust/restore    |
+        |:----------|:------|:---------------|:------------------|
+        | "Q"       | 500us |  500-540us     |  670-770us        |
+        |   遅延    |       |  +0-40us (8%)  |  +170-270us (54%) |
+        | "C-x q"   | 570us |  570-630us     |  740-840us        |
+        |   遅延    |       |  +0-60us (11%) |  +170-270us (47%) |
+
+      うーん。数項目ならば無視できる量の様に思われるが大量に定義する場合には
+      (例えば 100 項目) 20ms 程度の遅延になる。但し、これはより新しい計算機では
+      短くなる傾向にあると思われる。逆に言えば遅い計算機では遅延がもっと顕著に
+      なる様な気がする。悩ましい。
+
+      やはり adjust/restore の overhead は大きい。実際に必要になる状況が限られ
+      ているというのにちゃんと毎回 adjust/restore するのは割に合わない気がする。
+      ble.sh 文脈の中で勝手に nocasematch だとか set -eu して変な処理をするのは
+      それが悪いと判断するので良い気がする。
+
+      ∵そもそもそういう事をするスクリプトに限ってちゃんと設定を元に戻してくれ
+        るとは限らないし、そうだとすると何れにしても ble.sh は機能不全になるの
+        で ble-bind どころの話ではない。
+
+      ∵逆にちゃんと状態の復元をしてくれるのであれば外部フレームワークの関数を
+        その特殊な設定のままで呼び出す事に問題があるだろうという事は理解して然
+        るべきである。そうでなくても、問題はこちらの側にあるのではなくて呼び出
+        し元の特殊な環境設定にあるという事は理解してもらえるだろう。
+
+      という訳で e の方針で実装する事にする。
+
+    * ble/widget/display-shell-version は特別にユーザーの環境を質問する為に実行
+      してもらっているので、adjust は必要である。ble-bind と同様の対策をする事
+      にした。
+
+      ? reject: と思ったが、実は adjusted の状態に関係なく常に adjust しても良
+        いのでは? と思ったが、でも通常の文脈では直接呼び出そうとは思わないし、
+        元々 widget としては何の adjust も実行していなかったのだから、今さら
+        ble.sh 文脈の中でも adjust を実行するという必要もない。なので、やはり
+        ble-bind と同様に adjusted の外にいる時にだけ .adjust を実行する事にす
+        る。
+
+    * ble-color-setface, ble-color-defface, ble-face についても同様に対策を加え
+      た。何れも ble-bind と同様に [[ $_ble_bash_options_adjusted ]] のチェック
+      を入れたが入れ過ぎかもしれない。とは言いつつもしやはり冗長だと思うのであ
+      ればまた後で修正すれば良い。ble/base/.adjust-bash-options の呼び出しは少
+      ないし、特に [[ $_ble_bash_options_adjusted ]] のチェックを入れている行は
+      簡単に検出できるので後で入れ替えるのは簡単だろう。
+
+    ? no: もしかして restore-bash-options は source .blerc よりも前に行われる可
+      能性?  と思ったが別にそんな事はなかった。ble.pp の最後の最後に呼び 出され
+      ている cleun-up の内部で restore-bash-options は呼び出されている。
+
+      →なのでやはり ble.sh の設定を blerc の中に書いている限りは問題は起こらな
+      い筈なのである。貰った設定を見る限りは layer に直接介入しているのだから恐
+      らく contrib/layer/pattern.bash の設定を使ってみたという事なのではないか
+      という気がする。その説明は contrib/layer/pattern.bash の中にコメントとし
+      てある。其処ではちゃんと blerc と書いている。その他には特に設定は書いてい
+      ない。
+
+    * 他にも ${var#pat} 等に於いて nocasematch の影響が出てきそうな気もするが、
+      調べだすと再現がないので取り敢えずは考えない事にする。
+
+      うーん。実は ble から呼び出している ble-update, ble-reload, bleopt,
+      ble-sabbrev, ble-palette 辺りも本当は shell options を待避しなければなら
+      ない気がする。これは独立した項目として残す事にする。
+
+    --------
+
+    jkemp814 からの返事がないので、そもそもどういう状況で問題が発生しているか分
+    からない。取り敢えず jkemp814 の設定の再現を試みる。どうも pattern.bash を
+    使っている気がするので、それに関する設定を探してみる事にする。
+
+    https://github.com/akinomyoga/ble.sh/discussions/362 で例示されている。例え
+    ばこれを omb と一緒に組み合わせて使ったら何か問題が発生するだろうか。確認す
+    る。取り敢えず pattern の設定を直接 bashrc に記述したら問題は再現した。
+
+    x ok: また、対策を施した ble.sh で試しても未だ別の問題が発生している。と思っ
+      たが今回対策を行ったのは util.sh にある一般 utility だけである。つまり、
+      pattern.bash 自体には対策していない。更に対策するつもりもない。
+
+      これは気にしない事にする。
+
+2023-12-06
+
+  * reject: 自動アンインストール機能? (motivated by BeastOfCaerbannog) [#D2091]
+    https://askubuntu.com/questions/1493857/powershell-like-history-auto-suggestion-for-bash
+
+    これは毎回確認を取ってから削除していくのが良い気がする。
+
+    アンインストールのスクリプトは独立したファイルであるべき? でも ble.sh 自体
+    を開きながら bash が処理すると考えれば途中で unlink してもちゃんと動く筈。
+
+    と思ったが実装するのは結構面倒そうな気がする。
+
+    x 先ず初めに複数の場所に ble.sh がインストールされていてその内の一つだけを
+      削除したいという時にどうすれば良いのか? 何処にあるのかも分からない他の
+      ble.sh のコピーを見つけるのは困難である。という事を考えると現在の ble.sh
+      コピーに関連する物だけを削除するしかない。
+
+      ユーザーに尋ねるとしてもユーザーは尋ねられれば、他の ble.sh コピーに関係
+      なく削除しても良いと勘違いする可能性もある。
+
+    x また state 等の情報に関しては勝手に削除しない方が良い様に思われる。ユーザー
+      自身が記述した設定に関しても勝手に削除する訳にはいかない。.bashrc の中の
+      記述を勝手に修正するのも困難だし不自然である。結局勝手に削除しても良いと
+      思われるのは ble.sh 本体のディレクトリとキャッシュディレクトリと tmp ディ
+      レクトリである。
+
+    結局 ble.sh 本体のディレクトリを削除する事ぐらいしか安全に自動化できない。
+    インストールディレクトリを検出するぐらいならできるかもしれないが、堅牢に検
+    出できるかわからないしそれ程便利でもない様な気がする。
+
+    取り敢えず README は更新した。
+
+  * wiki,blerc: TAB で auto-complete を確定させる方法 (motivated by TehFunkWagnalls) [#D2090]
+    https://www.reddit.com/r/fishshell/comments/17xn8zs/comment/kbsrm2e/?utm_source=reddit&utm_medium=web2x&context=3
+
+    blerc.template には追記した。一方で wiki の方にはそもそもそういう事を書いて
+    ある記事はない。Edit の中に例として記述するべきか? Vim 関連に関しては vim
+    editing mode 用の記事に書かれている。そもそも Edit は Manual の一部なので具
+    体的な設定の例を載せるのも変な気がする。だとすれば新しい記事を作るべきだろ
+    うか? というか Q&A の頁があった気がする。Q&A のページに書き加えた。
+
+    ? 同時に Q&A にある設定例が blerc に反映されているか、及び逆はどうなのだろ
+      うか。確認してみると共有されている物は一個あったがそれ以外は全く共有され
+      ていない。
+
+      Q&A には複雑な物も含まれているので全てを blerc.template に転記するのは適
+      切でない気がする。取り敢えず RET で accept-line にするのは転記した。他は
+      blerc.template に入れる程のものでもない気がする。
+
+      一方で、blerc.template に含まれている物で Q&A に載せたら良さそうな物はあ
+      るか? →一つ転記した。一方で magic-slash 及び magic-space の無効化に関し
+      てはそういう Q&A がそうそう出てくるとも思えないので取り敢えずは転記しない
+      事にする。
+
+  * make: termux 内部でビルドできない (reported by rashil2000) [#D2089]
+    https://github.com/akinomyoga/ble.sh/issues/374
+
+    最初再現しなかったが pkg update を実行したら再現する様になった。背景: そも
+    そも gawk を入れたら pkg 的には 5.3.0 になっているのに type で見つかる gawk
+    は 5.1.1 になっているという矛盾があって、pkg info -a gawk としてみたら何故
+    か2つのパッケージがインストールされているという状態になっていた。それで pkg
+    update を実行したら無事に gawk 5.3.0 だけになった。
+
+    具体的に termux の中の make の中で変数にどういう値が入っているか確認してみ
+    た所、"type -p gawk" の実行結果としてエラーが出力されていた。どうやら sh が
+    何が別の物になっていて type -p gawk を認識していない様だ。エラーメッセージ
+    を見ると dash で実行した時と同様のエラーが発生している。
+
+    ? ここでの疑問点は sh が dash な他の環境では今まで問題が発生した事がないと
+      いう事である。自分で試してみた時も問題はなかったし、また、他に報告を受け
+      てもいない。巷の話題にも挙げられていない。さすがに Ubuntu でビルドに失敗
+      していたら誰かが書き込みをしている筈である。dash が使われる為の条件が何か
+      あるのだろうか。
+
+      例えば GNU make 自体が bash が見つかる場合には自動的に bash を使うのかも
+      しれない。然し、/usr/bin/bash に見つからなければ /bin/sh を使うという事な
+      のかもしれない?
+
+      →恐らく Ubuntu には既定で which が存在するので先に which が実行されて
+      type -p の方には行っていないという事の気がする。
+
+    * 因みに SHELL 変数は指定されていなかった。とは言いつつ、SHELL は絶対パスで
+      指定する物なので、bash の絶対パスが分からない時には使えない。command -V
+      も余計な出力を行うので使えない。
+
+    結局直接 bash を指定してコマンドを呼び出す事にした。既存の make_command.sh
+    の呼び出しと同様である。
+
+    ? which を使っているが、which こそ POSIX ではないし全ての環境にある訳ではな
+      い。と思ったが上記の様に Ubuntu の様な例もあるので現状の通り which を最初
+      に試みるというので問題はないだろう。
+
+    因みに https://github.com/starship/starship/pull/4902 については気づいてい
+    るだろうか。
+
+2023-11-22
+
+  * complete: 'x?' に対する補完設定読み取りに失敗する (reported by maheis) [#D2088]
+    https://github.com/akinomyoga/ble.sh/issues/371#issuecomment-1820927585
+
+    complete -p の出力の解析に失敗している。
+
+    ? reject: というか bash-5.2 以降では普通に eval すれば OK なのでは?
+
+      と思ったが解析コードを書き直すのが面倒なので既存のコードをできるだけ使う
+      事にする。
+
+      過去の記録を見ると #D1535 で議論している。この時には 5.2 は未だ登場してい
+      なくて 5.1 以下の振る舞いについて纏められている。5.2 では更に振る舞いが変
+      わった (というか patch を送った気がする) ので、それに応じて修正が必要とい
+      う事。
+
+    現在の処理では末尾のコマンド名を削除してから文字列的に -F の引数を抽出する
+    形になっているが、先ず、末尾のコマンド名の削除に失敗しているのでコマンド名
+    が -F の引数の中に混入している。更に、-F の引数の quoting が削除できていな
+    い。bash-5.2 以降では -F の引数やコマンド名も quote される様になったので実
+    は単純に eval すれば良い。
+
+    x ok: 更に関数定義の途中でもエラーが発生する。"x?() { echo [TAB]" 等を実行
+      している途中で以下のエラーメッセージが出る。
+
+        bash: _minimal 'x?()': コマンドが見つかりません
+
+      これも実は上の修正で直った。
+
+  * 2022-06-14 eterm: Emacs に実装されている M-x term 若しくは M-x ansi-term [#D2087]
+
+    端末実装が色々滅茶苦茶である。infocmp にて対応している事になっている機能で
+    も振る舞いが変である。
+
+    * 先ず、IL, DL は行の途中で実行するとおかしな事になる。IL はその位置に改行
+      を挿入して行を2つに分ける機能を持っている。DL は一方で emacs 内部で C-k
+      をするのと同じ機能である。即ちその位置以降の文字列を消去するか、行末にい
+      る場合には次の行と結合する。これは一応行頭に移動すれば問題ない気がする。
+
+    * RI に関しては端末の一番下にいる時に全体を scroll down し、端末の一番上に
+      いる時には何も実行しない。
+
+      > diff --git a/lib/init-term.sh b/lib/init-term.sh
+      > index d49cee5f..57f660e3 100644
+      > --- a/lib/init-term.sh
+      > +++ b/lib/init-term.sh
+      > @@ -102,7 +102,9 @@ function ble/init:term/initialize {
+      >    ble/init:term/define-cap.2 _ble_term_ind $'\n' ind:sf # $'\eD'
+      >    ble/init:term/define-cap   _ble_term_ri  ''    ri:sr  # $'\eM'
+      >    ble/init:term/define-cap   _ble_term_cr  $'\r' cr:cr
+      > -  if [[ $OSTYPE == msys && ! $_ble_term_CR ]]; then # msys-1.0
+      > +  if [[ ${TERM%%-*} == eterm ]]; then
+      > +    _ble_term_ri=
+      > +  elif [[ $OSTYPE == msys && ! $_ble_term_CR ]]; then # msys-1.0
+      >      [[ $_ble_term_cr ]] || _ble_term_cr=$'\e[G'
+      >      if [[ $TERM == cygwin ]]; then
+      >        [[ $_ble_term_ind == $'\eD' ]] && _ble_term_ind=$'\n'
+
+      2023-11-13 改めて試してみたら RI は動く様になっていた (GNU Emacs 28.2)。
+      然し、二回連続で実行したりすると振る舞いが変だ。例えば以下のコマンドの結
+      果が他の端末と異なる。他の端末では [1]..[4] が階段状に表示されるが、eterm
+      の内部では [4] だけしか表示されない。
+
+      $ printf $'\e[H[1]\eM[2]\eM[3]\eM[4]\n\n\n\n'
+
+      取り敢えず再び RI は有効化する。
+
+    * 2023-11-13 bracketed paste がちゃんと動かない。解除コードが認識されていな
+      い? 手動で ESC [201~ を入力するとまた制御が戻ってくる。
+
+      もっと調べてみるとどうやら bash の側の時点で \e[200~ や \e[201~ を受信で
+      きていない様だ。emacs の側で処理していて、それがちゃんと処理できていない
+      という事の気がする。
+
+      そうすると plain Bash でも動かないのではないか? →実際に plain Bash でも
+      問題になるという事を確認した。誰か報告していたりするか? 或いは、contra だ
+      けで起こっている可能性もある? → mintty でも同様の問題が発生する事を確認
+      した。
+
+      これは emacs の側のバグである。ble.sh の側で bracketed paste を off にし
+      ていたとしても \e[200~ が送られてくるので変な状態に突入する。
+
+    未だちゃんと動かない。これは後でちゃんと調べる必要がある。
+
+    2023-11-22 取り敢えず現在は動いている様な気がする。未だ変な振る舞いはあるが
+    これらは eterm の側のバグなので気にしない事にする。eterm のバグについては
+    wiki の方に纏める事にする。
+
+2023-11-16
+
+  * 2023-09-02 wiki: tmux の外側の端末が取得できていない [#D2086]
+    https://github.com/akinomyoga/ble.sh/issues/359
+
+    自分の手元でも問題は再現する。何処かの時点で tmux の振る舞いが変わったとい
+    う事なのだろうか。padparadscha の tmux 2.9a ではちゃんと動いている。
+    chatoyancy の tmux 3.3a では動いていない。これは tmux version の問題だろう
+    か。調べると 3.1, 3.2 では動いている。3.3 の CHANGES を見ていたら
+    passthrough sequence を既定で off にしたと書かれている。以下の commit
+
+    https://github.com/tmux/tmux/commit/eabbc80b75ef8e02653c2728d7f646fc6a8f558f
+
+    なので set -g allow-passthrough on にしてもらわないと外側の端末を検出する事
+    ができないのである。とは言いつつもし DECSCUSR をちゃんと tmux が外側に伝播
+    するのであれば問題は起きないはず。
+
+    * 結局これはユーザーに適切に設定してもらうしか方法はない。wiki に
+      allow-passthrough を設定する様に説明を書くしかない。然し一方で何処に書け
+      ば良いのかは謎である。端末検出について記述している箇所は今の所ない。
+      widget display-shell-version についても単に表内に現れるだけである。tmux
+      に対する言及も各項目で必要がある場所で行っているのみである。
+
+      ? reject: うーん。結局 --cursor の箇所で一緒に記述する事にする? と思った
+        が問題が起こるのは tmux-3.3 以降であって、一方で tmux 3.4 以降では単に
+        cursor-style を指定すれば良くて、tmux 3.3 では allow-passthrough と
+        cursor-style を両方指定したとしても結局動かない。
+
+    x と思ったが、どうもDECSCUSR に関しては 3.1でもちゃんと動いていない気がする。
+      微妙に外側にカーソル形状変更が伝わっているが一旦ブロックになると元に戻ら
+      ない。この振る舞いは遡っても変わらない (2.6 20170830 まで試した)。screen
+      の中では動いている。更に 3.3 になると次のコマンドラインに行ってもカーソル
+      形状は復元されなくなっている。
+
+      改めて確認してみると screen は DECSCUSR をちゃんと外側に伝播する様である。
+      2.9a 及び 3.1 で既にちゃんと伝播している。現在の 3.3a もちゃんと伝播して
+      いる。なので気にしなくて良いだろう。
+
+      うーん。現在の実装だと quote-passthrough DECSCUSR '' all でシーケンスを構
+      築して外側に送信している気がする。手動で実際に quote-passthrough でシーケ
+      ンスを構築して結果を送ってみるとちゃんと正しく DECSCUSR が適用されている
+      様に見える。screen も全く同じ筈なのに screen に関してはちゃんと動いている。
+      何が問題なのだろうか。
+
+      →何が問題なのか分かった。DECSCUSR(0) を送信すると勝手に tmux が、tmux が
+      既定だと思う 1 に変換してしまうのである。0 を指定したらちゃんと 0 として
+      記録しておいてそれを外側の term に送信する様にして欲しい物である。
+
+      実装を確認してみたが最初の実装[1]から 0 は個別に取り扱っている様に見える。
+      何故現在の実装ではそう振る舞っていない様に見えるのだろうか。因みに
+      tmux-1.7 の時点で DECSCUSR に対応していて、おそらく外側の端末にちゃんと伝
+      播している。現在の実装の設定部分[2]を見ても0だったらそのまま0になる気がす
+      る。改めて tmux の動作を確認するが 3.3a でも 3.1 でもやはり echo $'\E[3
+      q' してから echo $'\E[0 q' とすると block カーソルに変化してしまう。一方
+      で passthrough させれば contra は 0 に対して事前にユーザーが設定した物に
+      リセットする。それでも実装を見る限りは SCREEN_CURSOR_DEFAULT は 0 で
+      BLOCK とは区別されているような気がする。
+
+      [1] https://github.com/tmux/tmux/commit/3ea5e06bfb04278fa53885e551bc363a84bad8d1
+      [2] https://github.com/tmux/tmux/blob/bdf8e614af34ba1eaa8243d3a818c8546cb21812/input.c#L1639-L1643
+
+      最新の master でも同じ振る舞いである。具体的にソースを弄って内部状態を調
+      べてみる。どうも cstyle はちゃんと指定された物になっているが、mode が異な
+      る物になっている様である。flag 0x80 が立っている。これは何だろうか。
+      0x80 は MODE_CURSOR_BLINKING の様である。
+
+      うーん。分かった。[3] 明示的に s->default_cstyle に書き換えてから更新を行っ
+      ている。default_cstyle は何処で設定されているかというと、[4] で
+      cursor-style というオプションから設定されている。例えば自分の場合には
+      cursor-style を 4 辺りに設定しておけば良い。因みに cursor-style というオ
+      プションは[5]を受けて[5]で追加された物で、3.3 からしか使えない。
+
+      [3] https://github.com/tmux/tmux/blob/bdf8e614af34ba1eaa8243d3a818c8546cb21812/tty.c#L760
+      [4] https://github.com/tmux/tmux/blob/bdf8e614af34ba1eaa8243d3a818c8546cb21812/window.c#L1660-L1662
+      [5] https://github.com/tmux/tmux/pull/2960
+      [6] https://github.com/tmux/tmux/commit/57100376cc70739f53a1f8a4bacf192b8cdcd124
+
+      取り敢えず wiki にどの様に設定するべきかについて記述した。
+
+      x fixed: と思ったが cursor-style 4 を指定しても動かない。エラーが出る。
+        どうやら underline 等の文字列で指定する必要がある様だ。
+
+      x ok: ちゃんと underline と指定しても動かない。blinking block になってし
+        まう。うーん。何が悪いのだろう。やはり cursor-style は関係ないのだろう
+        か。
+
+        と思って master の tmux で試してみたらちゃんと動く。うーん。
+
+        試しに自前コンパイルの 3.3a についても動作を確認しておく事にする→動か
+        ない。という事は何処かで修正されたという事だろう。仕方がないので bisect
+        を手動で行う事にする。bisect したら d9f84854 で修正されていた。どうやら
+        単にバグだった様だ。なので実際に動く様になるのは 3.4 以降になる。
+
+      ? no: cursor-style に default (0) を指定する事もできる様になっている気が
+        する。然し元々既定で 0 なので default にしても変わらず、結局
+        blinking-block になってしまうのだろうか。或いは明示的に 0 を指定してお
+        けばちゃんと外側の端末に対して 0 を送ってくれるのだろうか。
+
+        →実際に default を指定してみたが blinking-block になってしまう。これが
+        意味する所は結局何処かで 0 はすり変わって1が出力されてしまうという事だ
+        ろう。
+
+        うーん。if (tty->cstyle != SCREEN_CURSOR_DEFAULT) という条件が満たされ
+        た時にのみ 0 が送信される事になっている様だ。うーん。つまり、0 は決して
+        送信されないという事? これはどういう事だろうか? → 確認してみたが完全に
+        dead code という訳でもない。何だかよく分からないが深入りはしない事にす
+        る。
+
+        何れにしても現在の cstyle が 0 であっても default_cstyle が 0 であって
+        も、実際に DECSCUSR(0) が出力される状況はとても限定されているという事。
+        特に default_cstyle が 0 の場合には何も出力されずに終わるという事。
+
+      wiki には underline 以外の指定例についても全て載せる事にした。3.3 ではな
+      く 3.4 が必要である事も記述した。set -g cursor-style default を指定しても
+      駄目な事も記述した。
+
+  * complete: " {," まで入力すると mandb 関連のエラーが表示される [#D2085]
+
+    エラーメッセージは以下の通り
+
+      bash: /home/murase/.mwg/src/ble.sh/out/cache.d/1000/complete.mandb/ja_JP.UTF-8/: ディレクトリです
+
+    これは何処から発生しているエラーだろうか。うーん。調べてみると
+    ble/complete/mandb/generate-cache でコマンド名をファイル名として生成したオ
+    プション一覧をキャッシュしている。そもそも空のコマンド名に対して補完が試み
+    られる理由が分からない…と思ったが "{," でも同様のエラーが発生する様なので
+    現在入力している単語がコマンド名だと思われていて "{,}" の展開結果が空文字列
+    だから空のコマンド名で mandb が呼びされているという事の気がする。
+
+    x と思ったら今度は BASH_ALIASES にて "誤った添字の配列" のエラーになる。こ
+      れらは ble/alias#* 関連について、空のコマンド名についてチェックしてから
+      BASH_ALIASES を確認すれば良い。修正した。動いている。
+
+  * complete(kubectl): 補完で hang する。timeout は 32s ある (reported by sebhoss) [#D2084]
+    https://github.com/akinomyoga/ble.sh/issues/353#issuecomment-1811985511
+
+    提供された補完設定を確認する限りは cobraV2 による補完設定の様である。実際に
+    binary を呼んでいる箇所を conditional-sync に置き換えれば十分だろう。binary
+    は words[0] を使って読み取っている。基本的には words[0] を置き換えるだけで
+    処理を摩り替える事ができるだろう。実装した。
+
+    動作確認も行った。kubectl に対しては確認していないが gh に対して gh を
+    sleep 5 に置き換える事によって遅い時の振る舞いのテストを行った。置き換える
+    前はちゃんと動いていて、置き換えた後も補完は動かないが block する事なく入力
+    する事ができる。OK
+
+2023-11-10
+
+  * contrib/integration/fzf-git: エラーメッセージが出る (reported by dgudim) [#D2083]
+
+    どうも fzf-git の一部の binding は自身を独立したシェルスクリプトとして起動
+    して何か処理を実行しようとする様である。元の fzf-git の repository を見ると
+    確かにそういう機能があって、それ自身で呼び出して使っている。使わない機能だ
+    と思って勝手に porting をスキップしたのが駄目だった。
+
+    取り敢えずそのままコピーして来て体裁を整える。
+
+    * 序に元からあった部分で自身のスクリプトの位置 __fzf_git を特定するのに使っ
+      ている readlink を自前の readlink に置き換える事にした。動いている。
+
+2023-11-08
+
+  * 2023-10-25 M-z zap-to-char に対する試みが help-bash に挙げられている [#D2082]
+
+    ble.sh でも直接対応する事にした。取り敢えずは対応した。
+
+    現状では M-z は fg になっているが悩ましい所である。取り敢えず fg の儘にして
+    置いて、自分の手元で使った感じで良さそうであれば置き換える事にする。うーん。
+    それならこの commit 自体を devel の中に保持して暫く使うのが良い気がする。
+
+2023-11-01
+
+  * 2023-10-04 ok: complete -I の補完は大丈夫だろうか [#D2081]
+
+    手元で確認した限りだとコマンド名の補完に用いられる様である → 改めて
+    core-complete.sh を確認してみたらちゃんと source:command に於いて候補を生成
+    する様になっていた。
+
+2023-11-01
+
+  * github: 寄付に関して (requested by gvlassis) [#D2080]
+    https://github.com/akinomyoga/ble.sh/issues/367
+
+    よく分からないが取り敢えず設定してみた。
+
+2023-10-29
+
+  * edit: [ble: exit] を off にしたいという要望 (requested by gvlassis) [#D2079]
+    https://github.com/akinomyoga/ble.sh/issues/366
+
+    編集し始めて気づいたが似たようなメッセージは他にも沢山ある。[ble:
+    detached], [ble: fc], [ble: auto-logout], [ble: reload], [ble: expand] 及び、
+    remaining jobs のメッセージもこれを使っている。これらを全て一括で off にす
+    るのは明らかに変だ。然し、一方で個別に on/off できる様にするほどの物なのか
+    というのも怪しい。
+
+    既に [ble: EOF] 及び [ble: elapsed ...] は設定で変更できる様になっている。
+
+    [ble: exit] は日常で頻繁に起こるという意味で特別だという事で、わざわざ表示
+    してなくても良いという考え方もある。そういう意味で exit だけ設定で off にで
+    きる様にするというのは手である。
+
+    * それとは別にこれらの mark のスタイルを一括で指定できる方法があっても良い
+      かもしれないとは思う。然し、interface は難しい。
+
+      a 全て [ble: %s] に置き換えるとしても、既に設定可能にしてある物についてど
+        う取り扱うのかは難しい。単に既定の設定と一致していたら [ble: %s] で設定
+        されている物を流用するという形で良いだろうか。
+
+      b 或いは関数で処理させる事にすれば、表示の理由に応じてユーザーは自由に表
+        示を有効化・無効化する事ができる。然し、そこまでして設定を変更できる様
+        にする程のものなのかという気もする。
+
+        或いは内部的には marker を instantiate する関数として実装しておいて必ず
+        その関数を通して実体化する様にする。もしユーザーが本当に一括で変更した
+        いのであればその関数を適宜置き換えてもらう事にする。というのが良い気が
+        する。
+
+      以前にその様な事を考えた事があるような気がするが取り敢えず note.txt の中
+      には記録は残っていない様だ。頭の中で考えただけで記録しなかったという事の
+      気もする。
+
+    取り合えず簡単に動作確認を行った。改めて動作確認を一つ一つ確認する必要があ
+    る気がする。
+
+    ? edit_marker が空の時の振る舞いについて確認する。
+
+      x fixed: [ble: fc] が空になってしまっている → うーん。fallback の文字列
+        がそもそも空になっていて、単に着色しただけになっていた。fallback として
+        既定の文字列を指定する事にした。
+
+2023-10-01
+
+  * canvas: Unicode 15.1.0 対応 [#D2078]
+
+    対応してみたのは良いが GraphemeCluster でテストが失敗する様になった。U+924
+    がどうも GraphemeClusterBreak では通常文字という事になっているが、test では
+    extend であるかの様な振る舞いを要求する様になっている。どういう事だろうか。
+
+    先ず GraphemeBreakProperty.txt に関しては 15.0.0 と 15.1.0 で変化はない。一
+    方で GraphemeBreakTest.txt に関しては大幅に追加されている。その中で U+924
+    に関しては combining とされている。と思ったが違った。どうも間に挟まっている
+    文字が何か新しい規則に組み込まれた様だ? 何やらおかしな property が割り当て
+    られている気がする。
+
+    Extend_ConjunctLinkingScripts_ConjunctLinker_ExtCccZwj
+
+    うーん。UAX #29 の変化を調べてみると実は 15.1.0 で新しく色々と追加されてい
+    るという事が分かった。これはまた対応に時間がかかりそうだ。
+
+    * InCB=Linker 及び InCB=Extend の直前で切れてしまうのではないか疑惑
+
+      現在の Unicode の定義だとInCB=Consonant | InCB=LinkerEx が離れるし、
+      InCB=LinkerEx | InCB=LinkerEx も離れるのではないか?
+
+      或いはちゃんと InCB=Linker や InCB=Extend は Extend でもあるのだろうか?
+      generate-table.sh では検出できていないから InCB={Linker,Extend} は何の
+      GraphemeClusterBreak も持っていないのではないかと疑われる。ZWJ も
+      InCB=Extend に含まれていそうなのに検出できていないのは何故?
+
+      →と思って改めて確かめて見た所、どうやらちゃんと検出して沢山エラーが発生
+      していた。改めて確認する必要がある。重複は Extend と ZWJ のみで発生してい
+      る。また、全ての InCB=Linker 及び InCB=Extend は同時に Extend または ZWJ
+      でもあった。特に ZWJ は InCB=Extend であった。つまり、以下の様な三種類に
+      分類する事ができる。
+
+      - Extend (1) InCB=None
+      - Extend (2) InCB=Extend
+      - Extend (3) InCB=Linker
+      - ZWJ        InCB=Extend
+
+    * 結局 GraphemeCluster の中に Indic_Conjunct_Break も埋め込まれた形になって
+      しまったので、IndicConjunctBreak のテーブルは最早不要の気がする。
+
+      * 既に実装した分について IndicConjunctBreak を参照しない形に書き換える→
+        書き換えた。簡単だった。
+
+      * 本当に GraphemeClusterBreak だけで実装できるのか確認する。実際に実装し
+        てみる。
+
+      * 以下はもう使わなくなった IndicConjunctBreak を取得するコード。
+
+        後で使いたくなった時の為に何処かに取っておいた方が良いだろうか。うーん。
+        然し、これはほぼ GraphemeCluster/c2break と実装は同じなので敢えて分かり
+        やすい所に取って置く必要もない。なので、ここに残しておくだけにする。
+
+        | #%< canvas.IndicConjunctBreak.sh
+        |
+        | function ble/unicode/IndicConjunctBreak {
+        |   local code=$1
+        |   ret=${_ble_unicode_IndicConjunctBreak[code]}
+        |   [[ $ret ]] && return 0
+        |   ((ret>_ble_unicode_IndicConjunctBreak_MaxCode)) && { ret=0; return 0; }
+        |
+        |   local l=0 u=${#_ble_unicode_IndicConjunctBreak_ranges[@]} m
+        |   while ((l+1<u)); do
+        |     ((_ble_unicode_IndicConjunctBreak_ranges[m=(l+u)/2]<=code?(l=m):(u=m)))
+        |   done
+        |
+        |   ret=${_ble_unicode_IndicConjunctBreak[_ble_unicode_IndicConjunctBreak_ranges[l]]:-0}
+        |   _ble_unicode_IndicConjunctBreak[code]=$ret
+        |   return 0
+        | }
+        |
+        | ## @fn ble/unicode/IndicConjunctBreak/get-left str index [opts]
+        | ##   @var[ret] InCB 参考特性の値を返します。
+        | ##   他は ble/unicode/GraphemeClusterBreak/s2break-left と同じです。
+        | function ble/unicode/IndicConjunctBreak/get-left {
+        |   local s=$1 i=$2 opts=$3
+        |   if [[ $opts != *:code:* ]]; then
+        |     local code
+        |     opts=$opts:code
+        |   fi
+        |   ble/unicode/GraphemeClusterBreak/s2break-left "$s" "$i" "$opts"; local ext=$?
+        |   ble/unicode/IndicConjunctBreak "$code"
+        |   return "$ext"
+        | }
+
+    2023-10-02 push してから気づいたが detection を更新するのを忘れていた。
+
+    2023-10-02 更に emoji table についても更新するのを忘れていた。但し、15.0 と
+    15.1 には本質的な違いは存在しない様だ。
+
+    2023-10-02 blerc.template を更新する。
+
+    2023-10-02 GraphemeCluster が legacy が extended かで conjunctCluster を処
+    理するかどうかも切り替えるべきでは→条件式を追加する事にした。
+
+  * ext/fzf: $() は blink-matching-paren on の時 `` より遅い [#D2077]
+    https://github.com/junegunn/fzf/commit/e0b29e437be458066fca4dab39b282dfc11466f6
+
+    という謎情報があるが GitHub のエラーで現在ページが見えない。
+
+    →これは単に fzf の実装が bind マクロを通じて実装されている為に、$() が実際
+    にマクロで入力される文字列の中に含まれていると blink-matching-paren on の時
+    に bash が sleep を挟んで一致する括弧の highlighting を実行するという話だっ
+    た。
+
+    そもそも ble.sh では blink-matching-paren に対応していないし、対応するとし
+    ても delay は入れない様にするだろうし、またマクロを通じた実装もできるだけ避
+    ける様にしたい (とは言いつつ bash-3.? with ble.sh で fzf key-bindings を使
+    おうとすると結局マクロによって文字列を入力する様になる)。
+
+  * canvas: ｼﾞｮﾝ 等の文字列の幅が端末と整合していない [#D2076]
+
+    "ｼﾞｮﾝ" 文字幅が正しく計算されていない。emacs はちゃんと処理できている様だ。
+    つまり、規則に従うと濁点は前の文字に吸収される事になっているが実際にはそう
+    ではないという事。これは規則の穴として処理するべき事の気がする。
+
+    →実際に ble/util/s2w で計測してみた所、幅3という事になっている。そもそも何
+    故そのような事になっているのだろうか。処理を確認する。うーん。grapheme
+    cluster として読み取っている。そしてその grapheme cluster の大きさを台字の
+    大きさをそのまま返す様にしているのが問題の様である。
+
+    ? そもそも他の端末では正しく実装できているのだろうか (もしくはどの様に実装
+      しているのか)
+
+      →うーん。他の端末ではちゃんと濁点も幅を持って描画されるし、論理的にも内
+      部では半角の幅を持って計算されている様である。更に言うならば行末での振る
+      舞いを見る限りは grapheme cluster としての認識もされていない。
+
+      xterm, terminology, lxterminal で確認した。可能な限り Unicode に書かれて
+      いる物をそのまま実装しようとしている kitty ですらも半角カナの濁点・半濁点
+      に関しては GraphemeCluster の Extend ではなく独立した文字として行折返し等
+      を処理している様だ。
+
+    つまり、そもそも grapheme cluster として取り扱わない様に修正するべきである。
+    念の為、濁点がどの様なカテゴリになっているのかについて確認する。
+    ble/unicode/GraphemeCluster/c2break の出力を確認すると濁点は
+    GraphemeClusterBreak Extend という事になっている。
+
+    [修正方法]
+
+    make/canvas.emoji.sh を確認してみると中で _ble_unicode_GraphemeClusterBreak
+    に値を設定しているので、これに倣って値を上書きして良いのではないかという気
+    がする。周辺の文字で Extend になっている文字の一覧を見ることができれば良い。
+    元にしているデータベースの方を先ずは確認する
+
+    * 元にしているデータの時点で Extend になっている。
+
+    * 半角カナ周辺では濁点と半濁点だけが Extend になっている様に見える。
+      FE20..FE2F に combining ligature というのがあるが、これは明示的に前の文字
+      を修飾する物なので、半角カナの様な特別な取り扱いは不要である。
+
+      →取り敢えず半角カナの濁点と半濁点だけを修正の対象とする事にする。
+
+    * recjt: もう一つ気づいた事は、元の GraphemeClusterProperty.txt では一緒に
+      GeneralCategory も表示していてカタカナの濁点・反濁点は Lm になっていて他
+      の Extend と異なっている。或いは、GeneralCategory が L? の時には特別扱い
+      して表を修正するという事も考えたがそれはやめておく事にする。
+
+      x 勝手に GraphemeClusterBreak を変更すると他の用途で参照した時に変更され
+        たデータベースを参照する事になって混乱の元である。
+
+      x Extend / L? が全て同様の取り扱いで良いのか分からない → と思ったが
+        "Extend # L" で検索してみると半角カナの濁点・反濁点しか存在しなかった。
+        そういう意味で GeneralCategory と組み合わせて判定しても良いのかもしれな
+        い、と思ったがそもそも処置が必要な文字が半角カナしか現状で存在しないの
+        であれば、無闇に将来追加されるかもしれない他の Extend # L? にも影響が出
+        る様な実装にするべきではない。
+
+    * 因みに make/canvas.emoji.sh の中で多くの端末で例外的な振る舞いとなってい
+      る 0x1F3F{B..F} の範囲の文字についても、この際、既定で修正を加える様にで
+      きないだろうか。
+
+    2023-10-01 手で弄る様にしたら Unicode の例から自動生成したテストが失敗する
+    様になってしまった。将来的な事を考えると端末毎に修正した
+    GraphemeClusterBreak を切り替えたりする事なども考えられるので、直接元の
+    GraphemeClusterBreak を弄るのも避けるべきだろうか。代わりに
+    _ble_unicode_GraphemeClusterBreak_custom という配列に修正した
+    GraphemeClusterBreak を記録する事にした。
+
+    x これにより多少 GraphemeClusterBreak を読み取る時間が伸びてしまうのではな
+      いかと思うが、ASCII に関しては処理をスキップして効率化しているので余り気
+      にしなくても良い気がする。
+
+2023-09-20
+
+  * complete: auto_complete 内容を入力しきっても auto_complete mode の中にいる [#D2075]
+
+    auto_complete 候補が全然ないのに何故か auto_complete mode に入っている気が
+    する? 何故? と思って改めて調べてみたが特に enter が呼び出されている気配はな
+    い。
+
+    提示された文字列が全てユーザーによって入力された時に auto_complete mode
+    から抜ける機能は実装されていないという事だろうか。うーん。然し、既に
+    auto_complete mode に入った状態だったのだからそのままでも良い気がする。と
+    思って実装を確認したら既に同じ状態になったら自動的に抜ける様に処理してい
+    る気がする。と思ったら実装が変だ。修正する事にする。
+
+    これは ble-0.3 にも影響するので独立した項目にしたほうが良い。
+
+2023-09-18
+
+  * layer: pattern で指定する layer に対するリクエスト (requested by johnalotoski) [#D2074]
+    https://github.com/akinomyoga/ble.sh/discussions/362
+
+    問題は効率よく実装できるかという事。部分更新ができれば良いが簡単かどうか分
+    からない。
+
+    また、一個のパターンもしくは有限個のパターンしか登録できないのは困る。
+
+    a 一つの layer で一つの pattern という事にして複数のlayer を登録する事を想
+      定するとますます遅くなる様な気がするし、またパターンを増やす毎に layer 定
+      義の clone をしなければならくなり、また記録対象に関しても prefix 等を使っ
+      て load/store しなければならくなり効率が悪くなり、管理が面倒になる。
+
+    b 一方で、一つの layer で複数の pattern に対応しようとすると実装が複雑にな
+      る。結局合成の処理は実装しなければならないし、部分更新を考えるのだったら
+      結局各 pattern について前回の一致を記録する必要がある。そうでなくても全部
+      記録してそれから調べるという事になる気がする。
+
+    またどうせ実装的には region の複数 region 対応と同じ様な実装になる様な気が
+    するので実装を共有する事ができる様な気がする。multi-range 的な base layer
+    として実装するのが良い気がする。だとすれば結局 store/load 的な事はしなけれ
+    ばならないので a の方針でも良いのではないかという事になってくる。
+
+    但し、実質的に a 的な実装になるとしても layer の配列に登録するのが面倒とい
+    う事を考えると b 的な内部インターフェイスにするというのは可能性としてありで
+    ある。その場合には複数 layer をまとめる機能として実装するのか sublayer 的な
+    物として実装するのか区別するのが良い。
+
+    * 入れ子の配色パターンを指定したり、一致の仕方によって色を切り替える事がで
+      きるようにしたり、より高度な指定を考えることはできるだろうか。
+
+      これを突き詰めていくと実質 parse に近い事ができてしまう様な気もするが、そ
+      うなった場合既存の構文解析の実装とどちらの方が良いのかという事にならない
+      か? と思ったが、さすがに既存の構文解析の方は無限の階層を作ることができる
+      し (単なる正規表現ではできない) 効率に関しても single pass (既存) と
+      multi pass (入れ子着色) なので既存の方法の方が速いだろう。
+
+    取り敢えず region の実装をコピーして観察してみるのが良い気がする。と思った
+    が、今回実装しようとしているのは部分更新も必要になってくるので単に region
+    の実装を一般化するだけでは全然足りない。やはり一から実装し直した方が良いの
+    ではないかという気もする。
+
+    ? うーん。正規表現を採用している限りは部分更新は不可能なのではないか。例え
+      ば a(.{9}x)? というパターンに対して、前回の文字列が a2a4a6a8a0z だったと
+      すると (0-1 2-3 4-5 6-7 8-9) という一致になる。z を x に書き換えると
+      dirty range は 10-11 だけであるが、最終的な一致は (0-11) にならなければな
+      らない。つまり、dirty range が幾ら後ろの方にあったとして、既に確定してい
+      る一致が幾つあったとしても、それらを上書きする形で新しい一致が現れる可能
+      性を常に排除できない。
+
+      正規表現の表現能力が高すぎるからだろうか。先ず、extglob の時にも同様の事
+      が当てはまる。
+
+      glob (extglob なし) の時にはどうだろうか。* の最長一致を考える事にすると
+      やはり問題は起こる気がする。但し、複数のパターンを跨いで遡らなければなら
+      ないという事はない。単一のパターンしか考えていないのであれば。然し、今後
+      の拡張性などを考えると単一の単純 glob パターンだけで着色を行うというのは
+      制限が大きすぎる。それにそんなに便利そうではない。
+
+      glob の最小一致という事にしておけば一度確定した一致は内容が変わらない限り
+      は安定である。これに関しては複数パターンを組み合わせたとしても論理的な問
+      題は生じなさそうである。一方で、複数パターンを組み合わせた実装にする為に
+      は「各位置についてそれぞれパターンを試して行く」か「全てのパターンについ
+      て最近接で次に現れる位置を計算して一番近い物から順に適用していく」などの
+      実装を行う必要が出てくる。前者は重すぎて駄目であり、後者は余りに複雑であ
+      る。
+
+      などの事を考えると、表現力においても実装の複雑さや効率においても、正規表
+      現を使うのが妥当と思われる。部分更新を諦める必要はあるがその方がすっきり
+      して良いのかもしれない。
+
+      取り敢えず単一正規表現の場合について考えれば良い。毎回先頭から末尾まで正
+      規表現で範囲を抽出する事にする。
+
+    * done: 先ずは着色範囲を決定する必要がある。
+
+      取り敢えず実装した。着色範囲を決定したら後は region を拡張する形で実装し、
+      一般化も行った。と言っても region との違いは各 selection に色を割り当てら
+      れるという事と、複数の selection が接している可能性があるという事。然し、
+      それだけだと速度的に遅くなってしまうかもしれないので、範囲決定について複
+      数 selection がある場合でもちゃんと各要素について検査する様にした。
+
+      動いている気がする。region も新しい枠組みの方に乗り換える事にした。少し修
+      正した。ちゃんと動いている気がする。
+
+    * done: later:{pattern} として実装した。これを呼び出して使う様にすれば良い。
+
+    * done: _ble_highlight_layer__list は _ble_highlight_layer_list に改名する。
+
+    * done: 使い方を簡単に base.pattern.bash の中にも記述する。例を config の中
+      に入れようかとも思ったが単純すぎるのでわざわざ登録する程でもないだろうか。
+
+    * done: base.pattern.bash から pattern.bash に変える
+
+      {pattern} という名前にしたがこれを継承して新しい layer を定義するという訳
+      でもないから pattern にした方が良い? と思ったが、ユーザーからは見えないだ
+      けで内部的にはこれから派生した layer を自動的に定義している。そういう意味
+      で {pattern} という名前は OK。
+
+      一方でファイル名が base.pattern.bash になっているが、これについては
+      pattern.bash で良いのではないかという気がする。ユーザーが明示的に自分で派
+      生する事は想定していないのだから。
+
+    * done: うーん。zsh syntax highlighting の highlighter を見たら pattern が
+      glob で regexp が正規表現を使った物である様だ。なので regexp に改名するべ
+      きではないだろうか。一方で glob を用いた実装についても考える余地がある。
+      但し、glob を用いた物は単に正規表現に変換して適用すれば良いだけの気がする
+      が。
+
+      https://github.com/zsh-users/zsh-syntax-highlighting/tree/master/highlighters
+      https://github.com/zsh-users/zsh-syntax-highlighting/tree/master/docs/highlighters
+
+      glob に関しては最長一致と最短一致の二種類が考えられる。色々考えると実装は
+      似た様な物になるだろうし一緒に実装してしまった方が良い気がする。
+
+      →結局 {pattern} で regexp/glob 全てに対応する事にした。
+
+    * done: 現在の実装だと regex を追加した順序が保たれないのではないか→これは
+      修正した。独立した配列に順番に記録する。
+
+    * done: auto_complete で仮挿入されている物に対してまで着色パターンが適用さ
+      れている。仮挿入部分に対しては一致するべきではないのではないか。仮挿入部
+      分を削除した物に対して選択範囲の決定を行って、その後で sel の中身を修正す
+      る事にする。
+
+      と思ってその様に実装してみたら更新されない事がある。どうやら
+      auto_complete で予想された内容と同じ内容しか入力していない場合には DMIN<0
+      になるので処理がスキップされてしまう。処理は前回の text の内容と一致する
+      時にのみスキップするべきなのである。その様に実装した。
+
+      →前回の text を記録していて問題になる可能性はあるか? もしそれで問題にな
+        るのであればその他のあらゆる情報の記録で問題が発生する可能性がある気が
+        するので気にしない事にする。
+
+    * done: やはり /initialize-vars と /declare は分離するべきでは?
+      /initialize-vars で VARNAMES がクリアされてしまうのは都合が悪い。といって
+      毎回全て構築するのも無駄な処理の気がする。
+
+2023-09-17
+
+  * memo: テストに使用した bashrc を独立させる [#D2073]
+
+    色々の試行錯誤が bashrc の中に溜まっていくが後で参照する為に、各議論項目に
+    対応する bashrc を残したい。各番号に割当を行う事にする。
+
+    また一つの番号で複数ファイル memo/ 以下にあるものについてはまとめたい。二つ
+    だと微妙だが三つ以上は全部まとめる事にする。note.txt や done.txt の中に参照
+    がある場合にはそれも更新する (といってもほんの少ししかなかった)。
+
+  * global: make scan したら問題が沢山出ている [#D2072]
+
+    久しぶりに実行したら問題が沢山あるので修正する。今まで test-*.sh を検査の対
+    象にしていなかったのを含めたのが原因の一つである。ble/test に指定しているコ
+    マンドの中では builtin の使用に対するチェックを省略する事にした。他に累積で
+    様々の見落としができていたので修正した。
+
+  * github: windows-latest で CI テストが失敗する問題 [#D2071]
+    https://github.com/akinomyoga/ble.sh/pull/363 test
+
+    symbolic link の振る舞いが変わってしまっている。手元の mingw を更新して振る
+    舞いを確認してみることにする。msys2 で pacman で最新版に更新する。エラーは
+    発生しない。という事は github のテスト環境だけで起こる問題なのだろうか。
+
+    * それとは別に interactive session で ble check bash すると履歴展開の振る舞
+      いで結果が異なる事に気付いた。これについても修正しなければならない。
+      interactive session と外で history -p の振る舞いが違うのだろうか。
+
+      $ export q=\' line='$'$q'\'$q'!!'$q'\'$q
+      $ bash -Hc 'builtin history -s histentry; builtin history -p "$line"'
+      $'\'!!'\'
+      $ bash -c 'builtin history -s histentry; builtin history -p "$line"'
+      $'\'histentry'\'
+      $ (set -H; builtin history -s histentry; builtin history -p "$line")
+      $'\'!!'\'
+      $ (set +H; builtin history -s histentry; builtin history -p "$line")
+      $'\'!!'\'
+      $ builtin history -s histentry; builtin history -p "$line"
+      $'\'!!'\'
+      $ set +H; builtin history -s histentry; builtin history -p "$line"; set -H
+      $'\'!!'\'
+
+      よく分からないが -H のコマンド実行の時にだけ問題が生じる様だ。他の文脈で
+      は -H をつけても外しても問題の振る舞いは見られない。
+
+      更に別の version も調べてみたら振る舞いは色々の様だ。
+
+      bash -c xxx  3.0 展開失敗; 3.1..dev 展開
+      bash -Hc xxx 3.0 展開失敗; 3.1..4.0 展開, 4.1..None
+      (xxx)        3.0 現在コマンドに展開; 3.1..4.0 展開; 4.1..None
+      (set +H;xxx) 3.0 現在コマンドに展開; 3.1..4.0 展開; 4.1..None
+
+      xxx = builtin history -s histentry; builtin history -p "$line"
+
+      Note: bash -c '(xxx)' および bash -Hc '(xxx)' はそれぞれ () のない場合と
+      振る舞いは同じだった。
+
+      然し、この振る舞いは現在観測している振る舞いと一致していない? と思ったが、
+      スクリプトとして実行する場合にはちゃんと動いているというという事はスクリ
+      プトとして実行している時は bash -c と一緒の振る舞いということで、これは自
+      然である。一方で、ble session で ble check した時に失敗するのは ble
+      session の中では常に展開されずに !! のままだということで、これも
+      consistent である。
+
+      さて、この振る舞いの違いが何処から来るのかについて確認したい。単に
+      interactive かどうかで判定するだけでは駄目である。 bash -Hc の時にも振る
+      舞いが変化する。逆に set +H の時に振る舞いが変わるという訳でもない。シェ
+      ルかサブシェルかでは切り替わらない様に見える。今の所分かっている条件は i
+      も H もない場合にのみ 4.1..dev で展開が発生する。
+
+    [原因]
+
+    | GitHub の blesh-test repository (private) を使ってまたテストを実行する事
+    | にした。どうもそもそも symbolic link 自体が作られていない気がする。find
+    | で見る限りは ln で作ったファイルが全て通常のファイルになってしまっている。
+    |
+    | 調べてみたが msys2 や Git for Windows 辺りで最近 symbolic link 周りが変更
+    | されたという話も見当たらない。
+    |
+    | a msys2 ではなくて Windows の ln ls readlink find 等のツールを拾ってしまっ
+    |   ている? と思って type -p でパスを確認してみたがちゃんと msys のを呼び出
+    |   している気がする。(そもそも windows のものを呼び出していたら、使い方が
+    |   違うので、別のエラーメッセージが発生しそうなものである)
+    |
+    | b 一方で Git for Windows の release note を見ると winsymlinks に加えて
+    |   sysfile または nativestrict を指定する必要がある様な感じに書かれている。
+    |   然し、sysfile を追加しても振る舞いに変化はない。
+    |   https://github.com/git-for-windows/build-extra/blob/main/ReleaseNotes.md
+    |
+    | c 或いは一旦システムを開始した後に個々のコマンドで振る舞いを変更したい場
+    |   合は MSYSTEM という環境変数を使えという話が以下のリンクで言及されていた。
+    |
+    |   https://github.com/msys2/MSYS2-packages/issues/3941#issuecomment-1680093862
+    |
+    |   これは最近のコメント (2023-08-16) だが最近変更でもあったのだろうか。其
+    |   処で MSYSTEM にも MSYS の値をコピーして試してみたが振る舞いに変化はない。
+    |
+    |   そもそもこの Issue の報告者は lnk を MSYS に指定している。
+    |
+    |   https://github.com/msys2/MSYS2-packages/issues/3941
+    |
+    |   これはどういう意味だろうか。試しに lnk を追加してみたがやはり振る舞いに
+    |   変化はない。
+    |
+    | d また Git for Windows の release note に戻ると winsymilnks:nativestrict
+    |   (NTFS junction を用いた物) についても言及されていたのでそれも試してみた
+    |   がやはり振る舞いは変わらない。
+    |
+    | 突然動かなくなったがこれはどういう事だろうか。取り敢えず test3.sh の中に
+    | は ble.sh の中で最近変更した物は含まれていない様に思われる。それに問題は
+    | 明らかに windows において ln がリンクを作れていない事によっている。その他
+    | の要素がこの振る舞いに影響しているとは思えない。念の為 windows-2019 で振
+    | る舞いが変わるかどうか確認する。
+    |
+    | e もう一つの可能性は MSYS はコロン区切りの筈だけれど、実際には何故か : が
+    |   入っていると winsymlinks はちゃんと動かない。そして、今までは MSYS が空
+    |   だったので問題が起こっていなかったが、新しく disable_pcon が追加された
+    |   事で正しく認識されなくなってしまった?
+    |
+    |   →実際に MSYS=winsymlinks を試してみたら動く様になった。謎である。lnk,
+    |   sysfile, nativestrict 等と組み合わせて指定してもちゃんと動く。
+    |   hello_world という存在しない設定を指定しても動く。何と
+    |   winsymlinks:disable_pcon の順番でもちゃんと動く。これが意味する所は
+    |   MSYS の winsymlinks が設定されているかどうかをチェックする部分のコード
+    |   が間違っているのではないかという事。念の為 disable_pcon:winsymlinks を
+    |   自分で代入した場合も試してみる。期待通り動かない。sysfile:winsymlinks
+    |   の場合でも動かない。
+    |
+    |   本体のテストの方は ble/path#append ではなくて ble/path#prepend を使えば
+    |   何とかなりそうだ。
+    |
+    |   一方で、手元の msys2 では disable_pcon を MSYS に設定していても別にテス
+    |   トは失敗しない。中では disable_pcon:winsymlinks の様な形になっている筈
+    |   である。
+    |
+    | 取り敢えず workaround は分かったが winsymlinks の指定位置で振る舞いが変化
+    | するのは理解できない。この振る舞いを制御しているのは何処だろうか。どうも
+    | Cygwin のソースの中自体に winsymlinks というのが隠れている?
+    |
+    | 実は CYGWIN 環境変数は : 区切りではなくて ' ' 区切りの可能性?
+
+    環境変数 MSYS (そして upstream の CYGWIN) は実はコロン区切りではなくて空白
+    区切りである。今までの GitHub workflow では MSYS が空だったので単に
+    winsymlinks が追加される形になって問題は発生していなかった。所が、最近 MSYS
+    として disable_pcon が既定で設定される様になった。ここで winsymlinks を追加
+    する為に : を使用した為にちゃんと winsymlinks が認識されなくなったのが問題
+    の原因であった。この為にそもそも全く symbolic links が作られなくなったのが
+    テストが失敗する様になった原因であった。
+
+2023-09-14
+
+  * bashbug: "convert-meta on" の時 job 関連の bash の警告が出る [#D2070]
+    Ref #D2069
+    Ref memo/D2070.bashrc
+
+    bash: DEBUG warning: mark_dead_jobs_as_notified: ndead (0) != js.j_ndead (1)
+
+    色々試してみたがどうも bash-bisect の中でビルドすると問題が発生しなくて、
+    bash-dev の中でビルドすると問題が発生する。何が悪いのだろうか。と思ったが、
+    そうではない。release ビルドにしているから問題が発生しないのである。という
+    事はそもそもこの問題がどこで発生するようになったのかも定かではない。もしか
+    すると bash-5.2 の時点でも問題として存在しているのかもしれない。
+
+    そもそもこのエラーはどのタイミングで発生するのだろうか。問題発生のテストケー
+    スを最小化する事は可能だろうか。
+
+    うーん。convert-meta が関係しているというのも何だか不思議な事である。単に
+    locale が間違っているという事で起きているのではない。locale が間違っていて
+    も convert-meta が off であればこのエラーは生じない。convert-meta on で
+    bind 関連の問題が生じている時に限ってこの警告が発生する。
+
+    最小ケースを作るか或いは bash に直接修正を入れるかのどちらかという事になる。
+    先ずエラーが検出されているのは mark_dead_jobs_as_notified (jobs.c:4858) で
+    あり、変数の値の不一致である。しかしこの不一致がどの時点で発生したのかとい
+    うのは明らかではない。更に、convert-meta の関連性は更に不明である。或いは
+    convert-meta がうまく行かない時の無限ループに関係があるのだろうか。意図的に
+    マクロの convert-meta を介した無限ループを作ってみたら readline: maximum
+    macro execution nesting level exceeded というメッセージが表示される。うーん。
+
+    ? マクロ無限ループのメッセージが出たらそれに対して vbell を出そうとしてそれ
+      で job のエラーが表示されているという可能性はあるだろうか。受け取った CSI
+      の数 (19) と比べてみようと思ったがそれよりは警告が出る回数 (14) は少ない
+      様である。visible-bell を潰してもやはり問題は出る。なので visible-bell は
+      関係ないだろう。
+
+    ? 次に確認するべきことは果たしてどのタイミングでメッセージが表示されている
+      のかという事。文字列の受信が始まってから問題が発生している様な気がする。
+      ble-decode/.hook -> ble-decode/EPILOGUE -> ble-edit/bind/.tail ->
+      ble/util/idle.do -> ble/complete/auto-complete.idle ->
+      ble/complete/auto-complete.impl ->
+      ble/complete/auto-complete/source:syntax ->
+      ble/complete/candidates/generate ->
+      ble/complete/candidates/generate-with-filter substr ->
+      ble/complete/source:command -> ble/complete/source:command/gen ->
+      ble/complete/source:command/gen.1 -> ble/util/conditional-sync
+
+      うーん。どうやら ble/util/assign の中で conditional-sync を実行しようとす
+      ると問題が生じる様子である。更に言うと locale は関係ない。
+
+    取り敢えず最小再現は以下まで小さくなった。この設定で C-t を二回押すと問題が
+    再現する。locale などは関係ない。
+
+      source out/ble.sh --norc --attach=none
+      builtin bind -x '"\C-t": v=${ sleep 0.1 & }'
+
+    以下が最小再現コードである。ble.sh と関係なく再現する。ここから少しでも減ら
+    そうとすると何か変な事が起こる。謎である。
+
+      enable -f /home/murase/opt/bash/dev/lib/bash/sleep sleep
+      function f1 {
+        for a; do :; done
+        builtin sleep 0.1
+      }
+      builtin bind -x '"\C-t": v=${ f1 a & }'
+
+      job error caused by funsub + bind + loadable builtin
+
+    これに関して言えば ble.sh の側でできる事はないし、そもそも bash-5.3 はリリー
+    スされていないし、問題はデバグ中に発生しただけで実際の構成では発生しないの
+    で気にしなくて良い。
+
+  * decode: "convert-meta on" in bash >= 5.2 with broken locale (reported by 3ximus) [#D2069]
+    https://github.com/akinomyoga/ble.sh/issues/361
+    Ref memo/D2069.bashrc
+
+    kalilinux で存在しない locale を使っていると left/right が使えない
+
+    そもそもこれは kalilinux 特有の問題なのだろうか。或いは locale が壊れていた
+    ら常に起こる問題なのだろうか。一つの可能性は locale が見つからない事によっ
+    て bash readline の meta 云々の設定が変わってしまって、それが理由で矢印キー
+    が認識されなくなっている可能性。
+
+    自分の手元の Arch で問題を再現することができた。起こっている現象としては
+    ESC (27) が全く受信できていないという事。ble/decode/.hook の呼び出しを直接
+    観察しても受信されていない。
+
+    * reject: 実行した初回の bind -spX の出力が違う C-? C-u C-w がちゃんと bind
+      されていない。然しこれは関係があるのだろうか。
+
+      --- debug.0.txt^I2023-09-14 06:09:29.718861055 +0900
+      +++ debug.1.txt^I2023-09-14 06:08:15.982192253 +0900
+      @@ -5,7 +5,7 @@
+       # arrow-key-prefix (not bound)
+       # backward-byte (not bound)
+       # backward-char (not bound)
+      -# backward-delete-char (not bound)
+      +"\C-?": backward-delete-char
+       # backward-kill-line (not bound)
+       # backward-kill-word (not bound)
+       # backward-word (not bound)
+      @@ -112,7 +112,7 @@
+       # undo (not bound)
+       # universal-argument (not bound)
+       # unix-filename-rubout (not bound)
+      -# unix-line-discard (not bound)
+      +"\C-u": unix-line-discard
+       # unix-word-rubout (not bound)
+       # upcase-word (not bound)
+       # vi-append-eol (not bound)
+      @@ -162,7 +162,7 @@
+       # vi-subst (not bound)
+       # vi-tilde-expand (not bound)
+       # vi-undo (not bound)
+      -# vi-unix-word-rubout (not bound)
+      +"\C-w": vi-unix-word-rubout
+       # vi-yank-arg (not bound)
+       # vi-yank-pop (not bound)
+       # vi-yank-to (not bound)
+
+      うーん。正常に動いている場合でも最初はこの様な状態になっている様なのでこ
+      れは関係ないという気がする。
+
+    起動した後に LANG='en_CA.UTF-8' を設定しても特に問題は発生しない。やはり起
+    動時の初回のプロンプトで問題が起こるという事なのだろうか。
+
+
+    * 更に手元の chatoyancy でも単に以下の bashrc で起動するだけで再現する。
+
+      LANG='en_XY.UTF-8'
+      source out/ble.sh --norc
+
+      更に bash-4.0..5.1 まで問題は発生しない。bash-5.2 で実行すると core dump
+      する。システムの bash で発生する。bash-dev でも同じ問題が発生している (そ
+      れに加えて job 関連の警告が locale によって出る)。
+
+      問題発生ケースの最小化について。これは bind 関係の問題だから bind を何と
+      か色々やる事で再現できないだろうか。しかし、一回コマンドを実行すると直る
+      事などを考えると単純ではない様に思われる。何らかの発生条件があるというこ
+      と。取り敢えず手動 attach した時にも再現するかどうかを確認する。
+
+      →手動 attach でも再現する。prompt の中で実行するとちゃんと受信できないと
+      かそういう事なのだろうか? と思ったがそれも変だ。一文字でも入力したら
+      prompt attach であっても PROMPT_COMMAND の外側に出てちゃんと bind の中で
+      処理をする様になるので。
+
+      という事を考えると、一回コマンドを実行すると問題が発生しなくなるという所
+      に重点を置いて調べるべきだろうか。
+
+      * 取り敢えず空のコマンドを実行しても問題は継続する。
+      * C-x C-v で表示を行っても問題は継続している。
+      * execute-command 経由でコマンドを実行すると直るが、これは普通にコマンド
+        として実行するのと同じ様なものであるので、新しいことがわかったとは言え
+        ない。
+
+        或いは具体的に bash の中で何が起こっているのか追跡するべきなのかも知れ
+        ない。特に keymap 関連の処理で受信された 27 がどの様に消えてしまうのか
+        を確認する。コマンドを実行すると直るという事はやはり keymap のデータ構
+        造が壊れているとかそういう事なのだろうか。或いは、コマンド実行時に戻し
+        きれていない何らかの設定が存在している?
+
+      * external-command を実行した時にどうなるかも確認する → 実は
+        external-command を実行した場合でも問題は再現しなくなる。
+      * ble/term/{leave,enter} の実行だけでも問題はなくなる。
+      * ble/term/rl-convert-meta/{leave,enter} で問題が解消する。
+
+        然し何故問題が発生するのだろうか。_ble_term_rl_convert_meta_adjusted の
+        値はちゃんと最初から 1 になっている。つまりどこかで adjust が実行された
+        筈ということ。PROMPT_COMMAND の内部から attach した時は readline の設定
+        が復元して戻ってしまうという事だろうか。
+
+        実際に振る舞いを確認してみると初回だけ convert-meta on になっていた。
+        bash-5.1 以下ではちゃんと off になっている。
+
+        prompt attach でも直 attach でも問題は発生する。つまり、attach のタイミ
+        ングで回避できる物ではない様に思われる。
+
+      うーん。これを回避する為には最初のキーの受信の時点で convert-meta off を
+      明示的に実行するべきだろうか。然しそうだとしても最初の最初のキーが 27 の
+      時にそれが欠けてしまうという問題が残る。或いは attach した直後に
+      convert-meta off を実行すれば問題はなくなるのだろうか? と思ったが実際に
+      attach の時に ble/term/enter を実行している筈なのでちゃんと convert-meta
+      off は実行されている筈である。
+
+      _ble_term_rl_convert_meta_adjusted の初期値は? → OK。ちゃんと空である。
+      つまり、1 が設定されていた時点で何処かでちゃんと convert-meta off が実行
+      されていたという事。それにも関わらず convert-meta が何らかのタイミングで
+      on になってしまう。
+
+      ? 特に、手動 attach をした場合でも問題が再現するというのは変だ。更にわかっ
+        た事は、ble-bind -f C-t ... を実行していると手動 attach では問題が発生
+        しなくなるが、prompt attach では問題が継続するという事。ble-bind を実行
+        しているかしていないかで変わるというのも不思議な挙動である。
+
+      ? もうひとつ不思議なのは convert-meta 絡みなのに LANG=C の時には問題が生
+        じていないという事。locale の初期化に失敗した時にだけ勝手に
+        convert-meta on になるという事なのだろうか。
+
+      readline 最初の locale の初期化の際にエラーが起こると convert-meta を設定
+      するという動作になっているのだろうか。その時点で convert-meta を off に戻
+      す必要があるが、readline が最初に受け取った byte というのが消滅するのであ
+      ればそれをスクリプトの設定の側から検出する事ができない。最初に受け取った
+      文字を見て勝手に 27 が前に存在していたという事を推測するのは堅牢でない。
+      ユーザーが入力した文字を勘違いする可能性がある。
+
+      a bash に対する修正要求をする? 或いは過去に convert-meta を設定したのであ
+        れば後で bash が勝手に convert-meta を変更するのは変だという事にはなら
+        ないか。例えば convert-meta の状態を内部的には auto on off の３つにして
+        おいて、既定値は auto で、ユーザーから一回でも指定があったら on/off に
+        して、locale 失敗時には auto の場合にのみ convert-meta を再設定する。
+
+        或いは、auto on off は保持しておいて、内部的な既定値を locale 失敗時に
+        設定する。auto の時には内部的な既定値を参照する。という具合の実装に
+        bash が変更してくれれば問題は解決する。
+
+      b 別の方法としては readline の locale の初期化を強制的に実行する方法を考
+        える。その後であれば勝手に convert-meta が設定される事もないだろう。
+
+        と思ったが本当だろうか。普通に開始したとしても壊れた locale を設定した
+        直後は readline の振る舞いが変になるのではないか → 少なくともユーザー
+        コマンドとして LANG=en_ZZ.utf8 などの値を設定しても特に振る舞いが壊れる
+        という事もないようだ。
+
+        a read -e xxx </dev/null 等として強制的に readline の locale の初期化を
+          済ませられないかと思って試してみたが振る舞いに変化はなかった。と思っ
+          たが、よく考えたら read -e は ble.sh が上書きして subshell の内部で自
+          前の read loop で実行するので何れにしても readline は呼び出さない様に
+          なっている
+
+        b 今度は builtin read -e xxx </dev/null として見たがそれでも駄目。
+
+        c builtin read -e xxx <<< yyy としてみても駄目。一応変数 xxx には期待し
+          た文字列が格納されている。 -e を指定しても読み取り元が tty でなければ
+          readline は初期化されないという事なのかもしれない。
+
+        d 今度は builtin read -et 0.1 xxx としてみたらどうやら動く様になった。
+          builtin read -et 0.000001 でもちゃんと動く。builtin read -et 0.000001
+          </dev/tty でも動く。
+
+          但し、ble-bind -f ... で何かを設定しないとちゃんとは動かない。
+          ble-bind -f を指定する事によって何かが初期化されてそれとの順番との兼
+          ね合いだろうか。うーん。builtin read -et 0.000001 よりも前に ble-bind
+          -f を実行している必要がある。順番を逆にするとやはり問題が発生する。
+          ble-bind の中の何らかの操作が関係しているのだろうと思って調べてみると、
+          単に ble/decode/initialize だった。然し、ble/decode/initialize が
+          bash の振る舞いに影響を与えるというのも不思議といえば不思議である。更
+          に調べると _ble_decode_initialize_inputrc=none だと
+          ble/decode/initialize を呼び出しても問題が継続する。diff にすると収ま
+          る。ble/builtin/bind/read-user-settings を呼び出すと収まる。
+          ble/builtin/bind/read-user-settings/.reconstruct を呼び出すと収まる。
+          然し、ble/builtin/bind/read-user-settings/.collect を呼び出しても収ま
+          らない。不思議だ。と思ったら、.reconstruct の中で呼び出している
+          LC_ALL= LC_CTYPE=C ble/bin/awk なのかもしれない → これだった。単に
+          LC_ALL= LC_CTYPE=C で何かのコマンドを呼び出せばよかった様だ。
+
+        e 今度は builtin read -et 0 xxx とした場合には動かない
+
+      うーん。遅延で手動で attach する場合には、最初から convert-meta on になっ
+      ていて、自分で convert-meta off に設定してから ble-attach すれば問題は生
+      じない。
+
+      まとめると最初のプロンプトを表示した後に locale の初期化とそれに応じた
+      convert-meta の設定が行われる様である(本当か?)。
+
+      存在しない locale が設定されている時に何処かのタイミングで convert-meta
+      on に設定されるのが問題である。
+
+      ? convert-meta on が設定されている時に ESC (もしくは ESC [ の組み合わせ)
+        が完全に消滅するのは何故なのか。
+
+        | 別の形で受信される等の事も起こっていない。素直に考えると M-[ という組
+        | み合わせの文字に変換されても良い気がするのに、それすらも受信されない。
+        |
+        | 実は bash-5.1 以下では M-[ という形で受信できている可能性もある? と思っ
+        | て確かめてみたが bash-5.1 以下では最初から convert-meta off になって
+        | いた。やはり convert-meta on の時には ESC [ が受信ができない状態になっ
+        | ていると考えるべき。
+        |
+        | 取り敢えず bash のソースコードを調べてみると convert-meta on の時はど
+        | うも M-[ を ESC [ に分解する機能なのではないかという気がする。だとす
+        | ると、そもそも ble/decode/.hook で 27 を受信できないという問題は独立
+        | の様な気がする。何故振る舞いが変わるのだろうか。そもそも本当に
+        | convert-meta は bash の _rl_convert_meta_chars_to_ascii に対応してい
+        | るのだろうか? → bind.c を確認してみる限りはちゃんと対応している筈。
+        |
+        | 参照している箇所を少しずつ潰して行った所
+        | _rl_function_of_keyseq_internal での取り扱いが振る舞いに影響を与えて
+        | いる様だ (然し blame で見る限りこの部分は 12 年間変更されていないので
+        | 他の部分の変更が波及してここでの振る舞いに変化をもたらしていると考え
+        | られる)。うーん。readline.c の中の convert_meta を参照している所
+        | (_rl_dispatch_subseq) も同時に振る舞いに影響を与えている。どちらか一
+        | 方だけ潰しても問題は発生しない。両方をコメントあうとした時に問題が生
+        | じなくなる。
+        |
+        | →分かった気がする。ble.sh は isolated ESC を区別する為に ESC ... を
+        | C0 9B ... に変換して受信している。この時 convert-meta on だと C0 が変
+        | な風に分解されてしまう (というか無限ループになる?)。結果として何も受
+        | 信できずに終わるということの気がする。
+        |
+        | つまり "ESC [" → "C0 9B [" → "ESC @ 9B [" → "C0 9B @ 9B [" → …
+        | という具合に無限ループになって恐らく中断されて何も受信できないという
+        | 事になっている。
+
+        ble.sh は isolated ESC と区別する為に ESC [ を C0 9B [ に変換している。
+        一方で C0 は convert-meta の時には ESC @ に分解される
+        (_rl_dispatch_subseq)。ESC @ は isolated ESC と区別する為に C0 9B @ に
+        変換される。というのを繰り返して先頭の文字に対して無限の展開が起こって
+        しまう。恐らくこれが強制的に中断される結果として ESC [ が全く受信されな
+        いのだろうと思われる。_rl_function_of_keyseq_internal の中でも同様にし
+        て C0 が ESC @ に分解される事によって振る舞いが変になっている。
+
+    取り敢えず半ば偶然ではあるが workaround が見つかったのでそれを実装する事に
+    する。これは ble.pp の環境確認の段階で実行するのが良さそうである。
+
+  * make uninstall を提供するべきではないか [#D2068]
+
+    そしてそれはそんなに難しくないはず。インストール対象は全て変数に入っている。
+    ただし、INSDIR, PREFIX 等の変数を指定した時には、インストール時と全く同じ設
+    定を覚えておく必要がある。然し、変数に依存するとしても対応するのは自然の気
+    がする。
+
+  * prompt: prompt ruler の位置は elapsed marker よりも後であるべきでは (motivated by U-Labs) [#D2067]
+    https://www.youtube.com/watch?v=OS3I1cCCw_Q
+
+    * ok: というか printf EOF などに対する振る舞いもちゃんとしているのだろうか?
+      → これは試してみた所ちゃんと処理されている。
+
+    これは ble-edit/exec/.adjust-eol の中で 呼び出しているのが問題である。呼び
+    出し箇所を変更することにした。 ble-edit/exec/.adjust-eol は一箇所でしか呼び
+    出されていないのでその呼出元に移動すれば十分である。
+
 2023-08-26
 
   * menu: append-arg で対応する項目がない時 bell (motivated by bkerin) [#D2066]
     https://github.com/akinomyoga/ble.sh/issues/354
+
+    2023-09-14 色々考えたがやはり bell を鳴らすのを既定の動作とする事にした。
 
 2023-08-17
 

@@ -87,10 +87,10 @@ function ble/keymap:vi/string#encode-rot13 {
   local -a buff=() ch
   for ((i=0;i<${#text};i++)); do
     ch=${text:i:1}
-    if [[ $ch == [A-Z] ]]; then
+    if ble/string#isupper "$ch"; then
       ch=${_ble_util_string_upper_list%%"$ch"*}
       ch=${_ble_util_string_upper_list:(${#ch}+13)%26:1}
-    elif [[ $ch == [a-z] ]]; then
+    elif ble/string#islower "$ch"; then
       ch=${_ble_util_string_lower_list%%"$ch"*}
       ch=${_ble_util_string_lower_list:(${#ch}+13)%26:1}
     fi
@@ -511,7 +511,7 @@ function ble/keymap:vi/update-mode-indicator {
   # ないので mc の中では imap に対しては mode indicator は表示しない様にする。
   if [[ $_ble_edit_integration_mc_precmd_stop && $keymap == vi_imap ]]; then
     ble/edit/info/clear
-    return
+    return 0
   fi
 
   ble/edit/info/default ansi "$str" # 6ms
@@ -2036,7 +2036,7 @@ function ble/keymap:vi/operator:filter {
     _ble_keymap_vi_cmap_before_command=ble/keymap:vi/commandline/before-command.hook
     _ble_keymap_vi_cmap_cancel_hook=ble/keymap:vi/operator:filter/cancel.hook
     _ble_syntax_lang=bash
-    _ble_highlight_layer__list=(plain syntax region overwrite_mode)
+    _ble_highlight_layer_list=(plain syntax region overwrite_mode)
     return 147
   fi
 }
@@ -4610,7 +4610,18 @@ function ble/keymap:vi/text-object/word.impl {
   fi
 }
 
+## @fn ble/keymap:vi/text-object:quote/is-closing-quote index
+##   @var[in] quote
+function ble/keymap:vi/text-object:quote/is-closing-quote {
+  local index=${1:-$_ble_edit_ind}
+  [[ ${_ble_edit_str:index:1} == "$quote" ]] || return 1
+  local ret
+  ble-edit/content/find-logical-bol "$index"; local bol=$ret
+  ble/string#count-char "${_ble_edit_str:bol:_ble_edit_ind-bol}" "$quote"
+  ((ret%2==1))
+}
 ## @fn ble/keymap:vi/text-object:quote/.next [index]
+##   @var[in] quote
 ##   @var[out] ret
 function ble/keymap:vi/text-object:quote/.next {
   local index=${1:-$((_ble_edit_ind+1))} nl=$'\n'
@@ -4620,6 +4631,7 @@ function ble/keymap:vi/text-object:quote/.next {
   return 0
 }
 ## @fn ble/keymap:vi/text-object:quote/.prev [index]
+##   @var[in] quote
 ##   @var[out] ret
 function ble/keymap:vi/text-object:quote/.prev {
   local index=${1:-_ble_edit_ind} nl=$'\n'
@@ -4681,6 +4693,8 @@ function ble/keymap:vi/text-object:quote/.expand-xmap-range {
     ((beg++,end--))
   fi
 }
+## @fn ble/keymap:vi/text-object:quote/.xmap
+##   @var[in] quote
 function ble/keymap:vi/text-object:quote/.xmap {
   # 複数行に亘る場合は失敗
   local min=$_ble_edit_ind max=$_ble_edit_mark
@@ -4698,10 +4712,15 @@ function ble/keymap:vi/text-object:quote/.xmap {
   if ((_ble_edit_ind==_ble_edit_mark)); then
     ble/keymap:vi/text-object:quote/.prev "$((_ble_edit_ind+1))" ||
       ble/keymap:vi/text-object:quote/.next "$((_ble_edit_ind+1))" || return 1
-    local beg=$ret
-    ble/keymap:vi/text-object:quote/.next "$((beg+1))" || return 1
-    local end=$ret
-
+    if ble/keymap:vi/text-object:quote/is-closing-quote; then
+      local end=$ret
+      ble/keymap:vi/text-object:quote/.prev "$end" || return 1
+      local beg=$ret
+    else
+      local beg=$ret
+      ble/keymap:vi/text-object:quote/.next "$((beg+1))" || return 1
+      local end=$ret
+    fi
     ble/keymap:vi/text-object:quote/.expand-xmap-range "$inclusive"
     _ble_edit_mark=$beg
     _ble_edit_ind=$((end-1))
@@ -4750,39 +4769,201 @@ function ble/keymap:vi/text-object:quote/.xmap {
   fi
 }
 
+## @fn ble/keymap:vi/text-object:block/.prev-matching-lparen [index [depth]]
+function ble/keymap:vi/text-object:block/.prev-matching-lparen {
+  local index=${1:-$_ble_edit_ind} goal_count=${2:-1}
+
+  local p=$index count=0
+  while ble/string#last-index-of-chars "$_ble_edit_str" "$rparen$lparen" "$p"; do
+    p=$ret
+    if [[ ${_ble_edit_str:ret:1} == "$lparen" ]]; then
+      ((++count==goal_count)) && return 0
+    else
+      ((--count))
+    fi
+  done
+  ret=$count
+  return 1
+}
+
+## @fn ble/keymap:vi/text-object:block/.next-matching-rparen [index [depth]]
+##   @var[out] ret
+##     The position of the right paren is stored when the function succeeded.
+##     The nesting level of the current context relative to the end of the
+##     string is stored when the function failed.
+function ble/keymap:vi/text-object:block/.next-matching-rparen {
+  local index=${1:-$_ble_edit_ind} goal_count=${2:-1}
+
+  local p=$index count=0
+  while ble/string#index-of-chars "$_ble_edit_str" "$rparen$lparen" "$p"; do
+    p=$((ret+1))
+    if [[ ${_ble_edit_str:ret:1} == "$rparen" ]]; then
+      ((++count==goal_count)) && return 0
+    else
+      ((--count))
+    fi
+  done
+  ret=$count
+  return 1
+}
+
+## @fn ble/keymap:vi/text-object:block/.next-matching-lparen [index [depth]]
+function ble/keymap:vi/text-object:block/.next-matching-lparen {
+  local index=${1:-$_ble_edit_ind} goal_count=${2:-1}
+
+  local p=$index count=0
+  while ble/string#index-of-chars "$_ble_edit_str" "$rparen$lparen" "$p"; do
+    p=$((ret+1))
+    if [[ ${_ble_edit_str:ret:1} == "$rparen" ]]; then
+      ((++count==goal_count)) && { ret=$count; return 1; }
+    else
+      ((count+1==goal_count)) && return 0
+      ((--count))
+    fi
+  done
+  ret=$count
+  return 1
+}
+
+## @fn ble/keymap:vi/text-object:block/.expand-one-level p1
+##   @var[ref] beg end
+function ble/keymap:vi/text-object:block/.expand-one-level {
+  local p1=$1 beg1= end1= ret
+  ble/keymap:vi/text-object:block/.prev-matching-lparen "$p1" && beg1=$ret
+  ble/keymap:vi/text-object:block/.next-matching-rparen "$p1" && end1=$ret
+  if [[ $beg1 && $end1 ]]; then
+    beg=$beg1 end=$end1
+  elif [[ $beg1 || $end1 ]]; then
+    return 1
+  fi
+}
+
+## @fn ble/keymap:vi/text-object:block/.get-outer-range beg end
+##   @var[out] outer_beg outer_end
+function ble/keymap:vi/text-object:block/.outer-range {
+  outer_beg=$1 outer_end=$2
+  if [[ $type == i* ]]; then
+    case ${_ble_edit_str::outer_beg} in
+    (*"$lparen"$'\n') ((outer_beg-=2)) ;;
+    (*"$lparen") ((outer_beg--)) ;;
+    esac
+    case ${_ble_edit_str:outer_end+1} in
+    ($'\n'"$rparen"*) ((outer_end+=2)) ;;
+    ("$rparen"*) ((outer_end++)) ;;
+    esac
+  fi
+}
+
+## @fn ble/keymap:vi/text-object:block/.search-block min max L R [opts]
+##   @var[out] beg end
+function ble/keymap:vi/text-object:block/.search-block {
+  local ret p1=$1 p2=$2 L=$3 R=$4 opts=$5
+  [[ ${_ble_edit_str:p1:1} == "$L" ]] && ((p1++))
+  if ble/keymap:vi/text-object:block/.prev-matching-lparen "$p1" "$arg"; then
+    # We first attempt to search for "a surrounding pair (...)" at the
+    # specified level of $arg.
+    beg=$ret
+    ble/keymap:vi/text-object:block/.next-matching-rparen "$p1" "$arg" || return 1
+    end=$ret
+
+    if [[ :$opts: == *:reject-empty-here:* ]]; then
+      ((beg+1<end)) || return 1
+    fi
+
+    if [[ :$opts: == *:check-expand:* ]]; then
+      # If the new range is essentially identical (or a prefix) to the current
+      # selection, we try to capture the range upper by one level.
+      local outer_beg outer_end
+      ble/keymap:vi/text-object:block/.outer-range "$p1" "$p2"
+      if ((outer_beg==beg&&outer_end>=end)); then
+        [[ $type == i* ]] && ((p1--))
+        ble/keymap:vi/text-object:block/.expand-one-level "$outer_beg" || return 1
+      fi
+    fi
+  elif ((ret<=0&&arg==1)); then
+    # When we fail to find "the surrounding pair (...)" at the top level, we
+    # next try "the next pair (...)".  This is attempted only when the
+    # specified level is arg=1.
+    p1=$1
+    [[ ${_ble_edit_str:p1:1} == "$R" ]] && ((p1++))
+    ble/keymap:vi/text-object:block/.next-matching-lparen "$p1" || return 1
+    beg=$ret
+    ble/keymap:vi/text-object:block/.next-matching-rparen "$((beg+1))" || return 1
+    end=$ret
+    # Note: In Vim, ((beg+1<end)) check does not seem to be performed here.
+    # See also the next Note in the code comment below.
+
+    if [[ :$opts: == *:check-expand:* ]]; then
+      if [[ $type == i* ]]; then
+        local outer_end=$p2
+        case ${_ble_edit_str:outer_end+1} in
+        ($'\n'"$rparen"*) ((outer_end+=2)) ;;
+        ("$rparen"*) ((outer_end++)) ;;
+        esac
+        ((outer_end<end)) || return 1
+      fi
+    fi
+  else
+    return 1
+  fi
+  return 0
+}
+
+## @fn ble/keymap:vi/text-object:block/.xmap
+##   @var[in] lparen rparen
+##   @var[in] arg
+function ble/keymap:vi/text-object:block/.xmap {
+  if ((_ble_edit_ind==_ble_edit_mark)); then
+    local beg end p=$_ble_edit_ind
+    ble/keymap:vi/text-object:block/.search-block "$p" "$p" "$lparen" "$rparen" reject-empty-here || return 1
+
+    # i, a に応じて適切に範囲を決定する
+    if [[ $type == i* ]]; then
+      # Note: When ((beg + 1 == end)) with "the next pair (...)", the mark and
+      # the index is reversed in Vim 9.0.  This might be a bug of Vim because
+      # when ((beg + 1 == end)), the text object fails for "the surrounding
+      # pair (...)"  but this check seems skipped for "the next pair (...)".
+      # Nevertheless, ble.sh follows Vim's behavior.
+      ((beg++,end--))
+      [[ ${_ble_edit_str:beg:1} == $'\n' ]] && ((beg++))
+    fi
+    _ble_edit_mark=$beg
+    _ble_edit_ind=$end
+    return 0
+  else
+    local min=$_ble_edit_mark max=$_ble_edit_ind
+    ((min<max)) || local min=$max max=$min
+    ble/keymap:vi/text-object:block/.search-block "$min" "$max" "$rparen" "$lparen" reject-empty-here:check-expand || return 1
+
+    if [[ $type == i* ]]; then
+      ((beg++,end--))
+      [[ ${_ble_edit_str:beg:1} == $'\n' ]] && ((beg++))
+    fi
+    _ble_edit_mark=$beg
+    _ble_edit_ind=$end
+    return 0
+  fi
+}
+
 function ble/keymap:vi/text-object/block.impl {
   local arg=$1 flag=$2 reg=$3 type=$4
   local ret paren=${type:1} lparen=${type:1:1} rparen=${type:2:1}
-  local axis=$_ble_edit_ind
-  [[ ${_ble_edit_str:axis:1} == "$lparen" ]] && ((axis++))
-
-  local count=$arg beg=$axis
-  while ble/string#last-index-of-chars "$_ble_edit_str" "$paren" "$beg"; do
-    beg=$ret
-    if [[ ${_ble_edit_str:beg:1} == "$lparen" ]]; then
-      ((--count==0)) && break
+  if [[ $_ble_decode_keymap == vi_[xs]map ]]; then
+    if ble/keymap:vi/text-object:block/.xmap; then
+      ble/keymap:vi/adjust-command-mode
+      return 0
     else
-      ((++count))
+      ble/widget/vi-command/bell
+      return 1
     fi
-  done
-  if ((count)); then
+  fi
+
+  local beg end p=$_ble_edit_ind
+  if ! ble/keymap:vi/text-object:block/.search-block "$p" "$p" "$lparen" "$rparen"; then
     ble/widget/vi-command/bell
     return 1
   fi
-
-  local count=$arg end=$axis
-  while ble/string#index-of-chars "$_ble_edit_str" "$paren" "$end"; do
-    end=$((ret+1))
-    if [[ ${_ble_edit_str:end-1:1} == "$rparen" ]]; then
-      ((--count==0)) && break
-    else
-      ((++count))
-    fi
-  done
-  if ((count)); then
-    ble/widget/vi-command/bell
-    return 1
-  fi
+  ((end++))
 
   local linewise=
   if [[ $type == *i* ]]; then
@@ -4792,10 +4973,7 @@ function ble/keymap:vi/text-object/block.impl {
     ((beg<end)) && ble-edit/content/bolp "$beg" && ble-edit/content/eolp "$end" && linewise=1
   fi
 
-  if [[ $_ble_decode_keymap == vi_[xs]map ]]; then
-    _ble_edit_mark=$beg
-    ble/widget/vi-command/exclusive-goto.impl "$end"
-  elif [[ $linewise ]]; then
+  if [[ $linewise ]]; then
     ble/widget/vi-command/linewise-range.impl "$beg" "$end" "$flag" "$reg" goto_bol
   else
     ble/widget/vi-command/exclusive-range.impl "$beg" "$end" "$flag" "$reg"
@@ -5082,11 +5260,16 @@ function ble/keymap:vi/text-object.hook {
   return 0
 }
 
-function ble/keymap:vi/.check-text-object {
-  local n=${#KEYS[@]}; ((n&&n--))
-  ble-decode-key/ischar "${KEYS[n]}" || return 1
+function ble/keymap:vi/.attempt-text-object {
+  local c=${1:-}
+  if [[ ! $c ]]; then
+    # If the type is not specified, it is determined from the last key the user
+    # input (i or a). This is for the backward compatibility.
+    local n=${#KEYS[@]}; ((n&&n--))
+    ble-decode-key/ischar "${KEYS[n]}" || return 1
+    local ret; ble/util/c2s "${KEYS[n]}"; c=$ret
+  fi
 
-  local ret; ble/util/c2s "${KEYS[n]}"; local c=$ret
   [[ $c == [ia] ]] || return 1
 
   [[ $_ble_keymap_vi_opfunc || $_ble_decode_keymap == vi_[xs]map ]] || return 1
@@ -5097,9 +5280,17 @@ function ble/keymap:vi/.check-text-object {
 }
 
 function ble/widget/vi-command/text-object {
-  ble/keymap:vi/.check-text-object && return 0
+  ble/keymap:vi/.attempt-text-object "$@" && return 147
   ble/widget/vi-command/bell
   return 1
+}
+
+function ble/widget/vi-command/text-object-outer {
+  ble/widget/vi-command/text-object a
+}
+
+function ble/widget/vi-command/text-object-inner {
+  ble/widget/vi-command/text-object i
 }
 
 #------------------------------------------------------------------------------
@@ -5729,8 +5920,8 @@ function ble-decode/keymap:vi_omap/define {
   ble-bind -f 'C-[' vi_omap/cancel
   ble-bind -f 'C-c' vi_omap/cancel
 
-  ble-bind -f a   vi-command/text-object
-  ble-bind -f i   vi-command/text-object
+  ble-bind -f a   vi-command/text-object-outer
+  ble-bind -f i   vi-command/text-object-inner
 
   # 範囲の種類の変更 (vim o_v o_V)
   ble-bind -f v      vi_omap/switch-to-charwise
@@ -7589,8 +7780,8 @@ function ble-decode/keymap:vi_xmap/define {
 
   ble-bind -f '"' vi-command/register
 
-  ble-bind -f a vi-command/text-object
-  ble-bind -f i vi-command/text-object
+  ble-bind -f a vi-command/text-object-outer
+  ble-bind -f i vi-command/text-object-inner
 
   ble-bind -f 'C-\ C-n' vi_xmap/cancel
   ble-bind -f 'C-\ C-g' vi_xmap/cancel
@@ -7990,7 +8181,7 @@ function ble-decode/keymap:vi_imap/define-meta-bindings {
   ble-bind -f 'M-C-e'     'shell-expand-line'
   ble-bind -f 'M-&'       'tilde-expand'
   ble-bind -f 'C-M-g'     'bell'
-  ble-bind -c 'M-z'       'fg'
+  ble-bind -f 'M-z'       'zap-to-char'
 
   #----------------------------------------------------------------------------
   # from ble-decode/keymap:safe/bind-common
@@ -8126,7 +8317,7 @@ function ble/keymap:vi/async-commandline-mode {
 
   # syntax, highlight
   _ble_syntax_lang=text
-  _ble_highlight_layer__list=(plain region overwrite_mode)
+  _ble_highlight_layer_list=(plain region overwrite_mode)
 }
 
 function ble/widget/vi_cmap/accept {
