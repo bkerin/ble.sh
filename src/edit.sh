@@ -94,8 +94,39 @@ bleopt/declare -v undo_point end
 ##
 bleopt/declare -n edit_forced_textmap 1
 
-bleopt/declare -n edit_magic_expand history:sabbrev
-bleopt/declare -v edit_magic_opts   ''
+bleopt/declare -v edit_magic_expand history:sabbrev
+bleopt/declare -v edit_magic_opts ''
+
+## @bleopt edit_magic_accept
+##   @opt sabbrev
+##   @opt alias
+##   @opt history
+##     These enable the corresponding expansions on accept-line.  The history
+##     expansion is equivalent to the shell's history expansion and performed
+##     when "history" is specified here, or the shell option `set -H` (or `set
+##     -o histexpand`) is specified.
+##
+##   @opt history-inline
+##     By default, the result of the history expansion is not applied to the
+##     command line, but it is printed in the form "[ble: expand] <expanded
+##     command>" mimicking the behavior of Bash/Readline.  When this option is
+##     specified, the result of the history expansion replaces the content of
+##     the command line.
+##   @opt verify
+##     When any expansion (except for the history expansion) is performed and
+##     the command line is changed, we update the change in the command line.
+##     We cancel accept-line and let the user continue to edit the command
+##     line.  This is similar to "shopt -s histverify" for the shell's history
+##     expansions.  For the history expansion, "shopt -s histverify" is
+##     referenced instead.
+##   @opt verify-syntax
+##     If this option is specified, when any expansions change the command, the
+##     syntax check for the resulting command is performed.  If the expanded
+##     result is not a complete shell command, the command execution is
+##     canceled so the user can modify the expanded command.  This implies
+##     "history-inline".
+##
+bleopt/declare -v edit_magic_accept 'verify-syntax'
 
 function ble/edit/use-textmap {
   ble/textmap#is-up-to-date && return 0
@@ -194,6 +225,8 @@ function bleopt/check:internal_exec_type {
     return 1
   fi
 }
+
+bleopt/declare -v internal_exec_int_trace ''
 
 ## @bleopt internal_suppress_bash_output (内部使用)
 ##   bash 自体の出力を抑制するかどうかを指定します。
@@ -851,7 +884,7 @@ function ble/prompt/unit#update/.update-dependencies {
       local ble_prompt_unit_processing=1
       "${_ble_util_set_declare[@]//NAME/ble_prompt_unit_mark}" # WA #D1570 checked
     elif ble/set#contains ble_prompt_unit_mark "$unit"; then
-      ble/util/print "ble/prompt: FATAL: detected cyclic dependency ($unit required by $ble_prompt_unit_parent)" >&"$_ble_util_fd_stderr"
+      ble/util/print "ble/prompt: FATAL: detected cyclic dependency ($unit required by $ble_prompt_unit_parent)" >&"$_ble_util_fd_tui_stderr"
       return 1
     fi
     local ble_prompt_unit_parent=$unit
@@ -1501,11 +1534,17 @@ function ble/prompt/.instantiate {
     x=0 y=0 g=0 lc=32 lg=0
     esc=$expanded
   elif
+    local ret g0=0
+    if ble/string#match ":$opts:" ':g0=([^:]+):'; then
+      ((g0=BASH_REMATCH[1]))
+    elif ble/string#match ":$opts:" ':face0=([^:]+):'; then
+      ble/color/face2g "${BASH_REMATCH[1]}" && g0=$ret
+    fi
     local rows=${prompt_rows:-${LINES:-25}}
     local cols=${prompt_cols:-${COLUMNS:-80}}
     local color=$_ble_color_g2sgr_version
     local bleopt=$bleopt_char_width_mode,$bleopt_char_width_version,$bleopt_emoji_version,$bleopt_emoji_opts
-    trace_hash=$opts#$rows,$cols,$color#$bleopt#$expanded
+    trace_hash=$opts#$rows,$cols,$color,$g0#$bleopt#$expanded
     [[ $trace_hash != "$trace_hash0" ]]
   then
     local trace_opts=$opts:prompt
@@ -1680,6 +1719,7 @@ function ble/prompt/unit:_ble_prompt_term_status/update {
 function ble/prompt/unit:_ble_prompt_status/update {
   ble/prompt/unit/add-hash '$bleopt_prompt_status_align'
   ble/prompt/unit/add-hash '$bleopt_prompt_status_line'
+  ble/prompt/unit/add-hash '$((_ble_faces[_ble_faces__prompt_status_line]))'
   local ps=$bleopt_prompt_status_line
   local cols=$COLUMNS; ((_ble_term_xenl||cols--))
   local trace_opts=confine:relative:measure-bbox:noscrc:face0=prompt_status_line
@@ -1756,7 +1796,7 @@ if ble/is-function ble/util/idle.push; then
       builtin exit 0 &>/dev/null
       builtin exit 0 &>/dev/null' pre-flush
     return 1 # exit に失敗した時
-  } >&"$_ble_util_fd_stdout" 2>&"$_ble_util_fd_stderr"
+  } >&"$_ble_util_fd_tui_stdout" 2>&"$_ble_util_fd_tui_stderr"
   function ble/prompt/timeout/check {
     [[ $_ble_edit_lineno == "$_ble_prompt_timeout_lineno" ]] && return 0
     _ble_prompt_timeout_lineno=$_ble_edit_lineno
@@ -2519,6 +2559,15 @@ function ble-edit/content/toggle-arg {
   fi
 }
 
+function ble/keymap:generic/get-arg {
+  if [[ $_ble_decode_keymap == vi_[noxs]map ]]; then
+    local ARG FLAG REG
+    ble/keymap:vi/get-arg "$1"
+    arg=$ARG
+  else
+    ble-edit/content/get-arg "$1"
+  fi
+}
 function ble/keymap:generic/clear-arg {
   if [[ $_ble_decode_keymap == vi_[noxs]map ]]; then
     ble/keymap:vi/clear-arg
@@ -2762,7 +2811,7 @@ function ble-edit/attach/TRAPWINCH {
   ((_ble_edit_attached)) && [[ $_ble_term_state == internal ]] &&
     ! ble/edit/is-command-layout && ! ble/util/is-running-in-subshell ||
       return 0
-  ble/application/onwinch 2>&"$_ble_util_fd_stderr"
+  ble/application/onwinch 2>&"$_ble_util_fd_tui_stderr"
 }
 
 ## called by ble-edit/attach
@@ -3759,7 +3808,6 @@ function ble/widget/do-lowercase-version {
   local flag=$((KEYS[n]&_ble_decode_MaskFlag))
   local char=$((KEYS[n]&_ble_decode_MaskChar))
   if ((65<=char&&char<=90)); then
-    ble/decode/widget/skip-lastwidget
     ble/decode/widget/redispatch-by-keys "$((flag|char+32))" "${KEYS[@]:1}"
   else
     return 125
@@ -3949,7 +3997,7 @@ function ble/edit/display-version/check:starship {
   ble/function#get-source-and-lineno starship_precmd || return 1
 
   # get starship path
-  local sed_script='s/^[[:space:]]*PS1="\$(\(.\{1,\}\) prompt .*)";\{0,1\}$/\1/p'
+  local starship sed_script='s/^[[:space:]]*PS1="\$(\(.\{1,\}\) prompt .*)";\{0,1\}$/\1/p'
   ble/util/assign-array starship 'declare -f starship_precmd | ble/bin/sed -n "$sed_script"'
   if ! ble/bin#has "$starship"; then
     { builtin eval -- "starship=$starship" && ble/bin#has "$starship"; } ||
@@ -4066,14 +4114,6 @@ function ble/edit/display-version/check:gitstatus {
 function ble/edit/display-version/check:zoxide {
   ble/is-function __zoxide_hook || return 1
 
-  # get starship path
-  local sed_script='s/^[[:space:]]*PS1="\$(\(.\{1,\}\) prompt .*)";\{0,1\}$/\1/p'
-  ble/util/assign-array starship 'declare -f starship_precmd | ble/bin/sed -n "$sed_script"'
-  if ! ble/bin#has "$starship"; then
-    { builtin eval -- "starship=$starship" && ble/bin#has "$starship"; } ||
-      { starship=starship; ble/bin#has "$starship"; } || return 1
-  fi
-
   local path=
   ble/util/assign path 'type -P zoxide 2>/dev/null'
   [[ $path ]] || return 1
@@ -4087,6 +4127,23 @@ function ble/edit/display-version/check:zoxide {
   local integ=
   ble/util/import/is-loaded contrib/integration/zoxide && integ=$label_integration
   ble/edit/display-version/add-line "${sgrF}zoxide${sgr0}, version $sgrV$version$sgr0 ($path)$integ"
+}
+function ble/edit/display-version/check:atuin {
+  # Atuin supported Bash in 7b5c3d543, where `_atuin_precmd` was defined.  The
+  # function name has been changed to `__atuin_precmd` in commit 31653ed99.
+  ble/is-function _atuin_precmd || ble/is-function __atuin_precmd || return 1
+
+  local path=
+  ble/util/assign path 'type -P atuin 2>/dev/null'
+  [[ $path ]] || return 1
+
+  local version=
+  ble/util/assign-array version '\command atuin --version'
+  [[ $version ]] || return 1
+  version=${version#atuin }
+  version=${version#v}
+
+  ble/edit/display-version/add-line "${sgrF}atuin${sgr0}, version $sgrV$version$sgr0 ($path)"
 }
 function ble/widget/display-shell-version {
   ble-edit/content/clear-arg
@@ -4136,6 +4193,7 @@ function ble/widget/display-shell-version {
   ble/edit/display-version/check:sbp
   ble/edit/display-version/check:gitstatus
   ble/edit/display-version/check:zoxide
+  ble/edit/display-version/check:atuin
 
   # locale
   local q=\'
@@ -4197,6 +4255,29 @@ function ble/widget/re-read-init-file {
   _ble_builtin_bind_keymap=
 }
 
+_ble_edit_rlfunc_history=()
+_ble_edit_rlfunc_history_edit=()
+_ble_edit_rlfunc_history_dirt=()
+_ble_edit_rlfunc_history_index=0
+function ble/widget/execute-named-command/accept.hook {
+  local ret rlfunc error=
+  ble/string#split-words rlfunc "$1"
+  if ble/util/assign error 'ble/builtin/bind/rlfunc2widget "$_ble_decode_keymap" "$rlfunc" 2>&1'; then
+    ble/decode/widget/dispatch "$ret" "${rlfunc[@]:1}"
+  elif [[ $error ]]; then
+    ble/widget/bell "$error"
+  fi
+}
+function ble/widget/execute-named-command {
+  ble/edit/async-read-mode 'ble/widget/execute-named-command/accept.hook'
+  _ble_edit_async_read_before_widget=ble/edit/async-read-mode/empty-cancel.hook
+  ble/history/set-prefix _ble_edit_rlfunc
+  _ble_edit_PS1='!'
+  # _ble_syntax_lang=bash
+  # _ble_highlight_layer_list=(plain region overwrite_mode)
+  return 147
+}
+
 # **** mark, kill, copy ****                                       @widget.mark
 
 function ble/widget/overwrite-mode {
@@ -4233,18 +4314,65 @@ function ble/widget/exchange-point-and-mark {
   local m=$_ble_edit_mark p=$_ble_edit_ind
   _ble_edit_ind=$m _ble_edit_mark=$p
 }
+
 function ble/widget/@marked {
-  if [[ $_ble_edit_mark_active != S ]]; then
-    _ble_edit_mark=$_ble_edit_ind
+  local index=$_ble_edit_ind
+  ble/decode/widget/dispatch "$@"
+  if ((_ble_edit_ind!=index)); then
+    _ble_edit_mark=$index
     _ble_edit_mark_active=S
+    ble/decode/keymap/push selection
   fi
-  ble/decode/widget/dispatch "$@"
 }
-function ble/widget/@nomarked {
-  if [[ $_ble_edit_mark_active == S ]]; then
+
+function ble/widget/selection/exit-default {
+  ble/decode/keymap/pop
+  ble/decode/widget/redispatch
+  local ext=$?
+  [[ $_ble_edit_mark_active == S && $_ble_decode_keymap != selection ]] &&
     _ble_edit_mark_active=
-  fi
-  ble/decode/widget/dispatch "$@"
+  return "$ext"
+}
+
+function ble-decode/keymap:selection/bind-shift {
+  local marked=${1:+$1 }
+
+  ble-decode/keymap:safe/.bind 'S-C-f'     "${marked}forward-char"
+  ble-decode/keymap:safe/.bind 'S-right'   "${marked}forward-char"
+  ble-decode/keymap:safe/.bind 'S-C-b'     "${marked}backward-char"
+  ble-decode/keymap:safe/.bind 'S-left'    "${marked}backward-char"
+
+  ble-decode/keymap:safe/.bind 'S-C-right' "${marked}forward-cword"
+  ble-decode/keymap:safe/.bind 'M-F'       "${marked}forward-cword"
+  ble-decode/keymap:safe/.bind 'M-S-f'     "${marked}forward-cword"
+  ble-decode/keymap:safe/.bind 'S-C-left'  "${marked}backward-cword"
+  ble-decode/keymap:safe/.bind 'M-B'       "${marked}backward-cword"
+  ble-decode/keymap:safe/.bind 'M-S-b'     "${marked}backward-cword"
+
+  ble-decode/keymap:safe/.bind 'M-S-right' "${marked}forward-sword"
+  ble-decode/keymap:safe/.bind 'M-S-left'  "${marked}backward-sword"
+
+  ble-decode/keymap:safe/.bind 'S-C-a'     "${marked}beginning-of-line"
+  ble-decode/keymap:safe/.bind 'S-home'    "${marked}beginning-of-line"
+  ble-decode/keymap:safe/.bind 'S-C-e'     "${marked}end-of-line"
+  ble-decode/keymap:safe/.bind 'S-end'     "${marked}end-of-line"
+
+  ble-decode/keymap:safe/.bind 'S-C-p'     "${marked}backward-line"
+  ble-decode/keymap:safe/.bind 'S-up'      "${marked}backward-line"
+  ble-decode/keymap:safe/.bind 'S-C-n'     "${marked}forward-line"
+  ble-decode/keymap:safe/.bind 'S-down'    "${marked}forward-line"
+
+  ble-decode/keymap:safe/.bind 'S-C-home'  "${marked}beginning-of-text"
+  ble-decode/keymap:safe/.bind 'S-C-end'   "${marked}end-of-text"
+
+  ble-decode/keymap:safe/.bind 'M-S-m'     "${marked}non-space-beginning-of-line"
+  ble-decode/keymap:safe/.bind 'M-M'       "${marked}non-space-beginning-of-line"
+}
+
+function ble-decode/keymap:selection/define {
+  ble-bind -f __default__ 'selection/exit-default'
+  ble-bind -f __line_limit__ nop
+  ble-decode/keymap:selection/bind-shift
 }
 
 ## @fn ble/widget/.process-range-argument P0 P1; p0 p1 len ?
@@ -4451,8 +4579,7 @@ function ble/widget/yankpop/cancel {
 }
 function ble/widget/yankpop/exit-default {
   ble/widget/yankpop/exit
-  ble/decode/widget/skip-lastwidget
-  ble/decode/widget/redispatch-by-keys "${KEYS[@]}"
+  ble/decode/widget/redispatch
 }
 function ble-decode/keymap:yankpop/define {
   ble-decode/keymap:safe/bind-arg yankpop/exit-default
@@ -4570,10 +4697,9 @@ function ble/widget/insert-arg.impl {
 
       local entry; ble/history/get-edited-entry "$index"
       builtin history -s -- "$entry"
-      local hist_expanded
-      if ble-edit/hist_expanded.update '!!:'"$nth" &&
-          [[ $hist_expanded != "$original" ]]; then
-        hit=1 lastarg=$hist_expanded
+      local ret
+      if ble/edit/histexpand '!!:'"$nth" && [[ $ret != "$original" ]]; then
+        hit=1 lastarg=$ret
         ble/util/declare-print-definitions hit lastarg
         break
       fi
@@ -4642,8 +4768,7 @@ function ble/widget/lastarg/cancel {
 }
 function ble/widget/lastarg/exit-default {
   ble/widget/lastarg/exit
-  ble/decode/widget/skip-lastwidget
-  ble/decode/widget/redispatch-by-keys "${KEYS[@]}"
+  ble/decode/widget/redispatch
 }
 function ble/highlight/layer:region/mark:insert/get-face {
   face=region_insert
@@ -4844,6 +4969,11 @@ function ble/widget/quoted-insert.hook {
     local -a KEYS; KEYS=("$char")
     ble/widget/self-insert
   else
+    if ((${#CHARS[@]}==0)); then
+      local ret
+      ble/decode/keys2chars "${KEYS[@]}"
+      local -a CHARS; CHARS=("${ret[@]}")
+    fi
     local -a KEYS; KEYS=("${CHARS[@]}")
     ble/widget/batch-insert
   fi
@@ -5725,26 +5855,33 @@ function ble/widget/backward-line {
 ## @fn ble/edit/word:uword/setup
 ## @fn ble/edit/word:sword/setup
 ## @fn ble/edit/word:fword/setup
-##   @var[out] word_set word_sep
+##   @var[out] word_class word_set word_sep
 function ble/edit/word:eword/setup {
-  word_set='a-zA-Z0-9'; word_sep="^$word_set"
+  word_class=set2 word_set='a-zA-Z0-9' word_sep="$_ble_term_IFS"
 }
 function ble/edit/word:cword/setup {
-  word_set='_a-zA-Z0-9'; word_sep="^$word_set"
+  word_class=set2 word_set='_a-zA-Z0-9' word_sep="$_ble_term_IFS"
 }
 function ble/edit/word:uword/setup {
-  word_sep="$_ble_term_IFS"; word_set="^$word_sep"
+  word_class=set word_sep="$_ble_term_IFS" word_set="^$word_sep"
 }
 function ble/edit/word:sword/setup {
-  word_sep=$'|&;()<> \t\n'; word_set="^$word_sep"
+  word_class=set word_sep=$'|&;()<> \t\n' word_set="^$word_sep"
 }
 function ble/edit/word:fword/setup {
-  word_sep="/$_ble_term_IFS"; word_set="^$word_sep"
+  word_class=set word_sep="/$_ble_term_IFS" word_set="^$word_sep"
 }
 
 ## @fn ble/edit/word/skip-backward set
 ## @fn ble/edit/word/skip-forward set
-##   @var[in,out] x
+##   @param[in] set
+##     A set of characters to find.
+##   @var[ref] x
+##     A position to start searching is specified.  The resulting position is
+##     returned.  If the search fails, the value is unmodified.
+##   @return
+##     This function succeeds when the current position is moved. Or otherwise,
+##     it fails.
 function ble/edit/word/skip-backward {
   local set=$1 head=${_ble_edit_str::x}
   head=${head##*[$set]}
@@ -5754,6 +5891,76 @@ function ble/edit/word/skip-forward {
   local set=$1 tail=${_ble_edit_str:x}
   tail=${tail%%[$set]*}
   ((x+=${#tail},${#tail}))
+}
+
+## @fn ble/edit/word/class:set2/find-*
+##   This set of functions define the word class `set'.
+##
+##   @var[ref] x
+##   @return
+##     The same as ble/edit/word/skip-backward.
+##
+##   @var[in] word_type
+##     Fixed to "set"
+##   @var[in] word_set
+##     A set of characters that consists in words.
+##   @var[in] word_sep
+##     A set of characters that are not a part of words.
+##
+function ble/edit/word/class:set/find-backward-word {
+  ble/edit/word/skip-backward "$word_set"
+}
+function ble/edit/word/class:set/find-backward-space {
+  ble/edit/word/skip-backward "$word_sep"
+}
+function ble/edit/word/class:set/find-forward-word {
+  ble/edit/word/skip-forward "$word_set"
+}
+function ble/edit/word/class:set/find-forward-space {
+  ble/edit/word/skip-forward "$word_sep"
+}
+
+## @fn ble/edit/word/class:set2/find-*
+##   This set of functions define the word class `set2'.  These functions
+##   handles two types of words.  The primary type of words consist of a
+##   specific set of non-space characters specified by `word_set'.  The
+##   secondary type of words consist of the other non-space characters.  The
+##   secondary type of words are defined by a set of characters that are not
+##   contained in neither `word_set` nor `word_sep`.
+##
+##   @var[ref] x
+##   @return
+##     The same as ble/edit/word/skip-backward.
+##
+##   @var[in] word_type
+##     Fixed to "set2"
+##   @var[in] word_set
+##     A set of characters in the primary type of words.  This set needs to be
+##     a positive set, i.e., not starting with ! or ^ for the negative
+##     character sets.
+##   @var[in] word_sep
+##     A set of characters that are not in any words.  This set needs to be a
+##     positive set.
+##
+function ble/edit/word/class:set2/find-backward-word {
+  ble/edit/word/skip-backward "!$word_sep"
+}
+function ble/edit/word/class:set2/find-backward-space {
+  case ${_ble_edit_str::x} in
+  (*[$word_sep]) return 1 ;;
+  (*[$word_set]) ble/edit/word/skip-backward "!$word_set" ;;
+  (*?) ble/edit/word/skip-backward "$word_set$word_sep" ;;
+  esac
+}
+function ble/edit/word/class:set2/find-forward-word {
+  ble/edit/word/skip-forward "!$word_sep"
+}
+function ble/edit/word/class:set2/find-forward-space {
+  case ${_ble_edit_str:x} in
+  ([$word_sep]*) return 1 ;;
+  ([$word_set]*) ble/edit/word/skip-forward "!$word_set" ;;
+  (?*) ble/edit/word/skip-forward "$word_set$word_sep" ;;
+  esac
 }
 
 ## @fn ble/edit/word/locate-backward x arg
@@ -5768,10 +5975,10 @@ function ble/edit/word/skip-forward {
 function ble/edit/word/locate-backward {
   local x=${1:-$_ble_edit_ind} arg=${2:-1}
   while ((arg--)); do
-    ble/edit/word/skip-backward "$word_set"; c=$x
-    ble/edit/word/skip-backward "$word_sep"; b=$x
+    ble/edit/word/class:"$word_class"/find-backward-word; c=$x
+    ble/edit/word/class:"$word_class"/find-backward-space; b=$x
   done
-  ble/edit/word/skip-backward "$word_set"; a=$x
+  ble/edit/word/class:"$word_class"/find-backward-word; a=$x
 }
 ## @fn ble/edit/word/locate-forward x arg
 ##   右側の単語の範囲を特定します。
@@ -5785,10 +5992,10 @@ function ble/edit/word/locate-backward {
 function ble/edit/word/locate-forward {
   local x=${1:-$_ble_edit_ind} arg=${2:-1}
   while ((arg--)); do
-    ble/edit/word/skip-forward "$word_set"; s=$x
-    ble/edit/word/skip-forward "$word_sep"; t=$x
+    ble/edit/word/class:"$word_class"/find-forward-word; s=$x
+    ble/edit/word/class:"$word_class"/find-forward-space; t=$x
   done
-  ble/edit/word/skip-forward "$word_set"; u=$x
+  ble/edit/word/class:"$word_class"/find-forward-word; u=$x
 }
 
 ## @fn ble/edit/word/forward-range arg
@@ -5830,7 +6037,7 @@ function ble/widget/word.impl {
   local operator=$1 direction=$2 wtype=$3
 
   local arg; ble-edit/content/get-arg 1
-  local word_set word_sep; ble/edit/word:"$wtype"/setup
+  local word_class word_set word_sep; ble/edit/word:"$wtype"/setup
 
   local x=$_ble_edit_ind y=$_ble_edit_ind
   ble/function#try ble/edit/word/"$direction"-range "$arg"
@@ -5861,41 +6068,38 @@ function ble/widget/word.impl {
 
 function ble/widget/transpose-words.impl1 {
   local wtype=$1 arg=$2
-  local word_set word_sep; ble/edit/word:"$wtype"/setup
+  local word_class word_set word_sep; ble/edit/word:"$wtype"/setup
   if ((arg==0)); then
     local x=$_ble_edit_ind
-    ble/edit/word/skip-forward "$word_set"
-    ble/edit/word/skip-forward "$word_sep"; local e1=$x
-    ble/edit/word/skip-backward "$word_sep"; local b1=$x
+    ble/edit/word/class:"$word_class"/find-forward-word
+    ble/edit/word/class:"$word_class"/find-forward-space; local e1=$x
+    ble/edit/word/class:"$word_class"/find-backward-space; local b1=$x
     local x=$_ble_edit_mark
-    ble/edit/word/skip-forward "$word_set"
-    ble/edit/word/skip-forward "$word_sep"; local e2=$x
-    ble/edit/word/skip-backward "$word_sep"; local b2=$x
+    ble/edit/word/class:"$word_class"/find-forward-word
+    ble/edit/word/class:"$word_class"/find-forward-space; local e2=$x
+    ble/edit/word/class:"$word_class"/find-backward-space; local b2=$x
   else
     local x=$_ble_edit_ind
-    ble/edit/word/skip-backward "$word_set"
-    ble/edit/word/skip-backward "$word_sep"; local b1=$x
-    ble/edit/word/skip-forward "$word_sep"; local e1=$x
+    ble/edit/word/class:"$word_class"/find-backward-word
+    ble/edit/word/class:"$word_class"/find-backward-space; local b1=$x
+    ble/edit/word/class:"$word_class"/find-forward-space; local e1=$x
     if ((arg>0)); then
       x=$e1
-      ble/edit/word/skip-forward "$word_set"; local b2=$x
-      while ble/edit/word/skip-forward "$word_sep" || return 1; ((--arg>0)); do
-        ble/edit/word/skip-forward "$word_set"
+      ble/edit/word/class:"$word_class"/find-forward-word; local b2=$x
+      while ble/edit/word/class:"$word_class"/find-forward-space || return 1; ((--arg>0)); do
+        ble/edit/word/class:"$word_class"/find-forward-word
       done; local e2=$x
     else
       x=$b1
-      ble/edit/word/skip-backward "$word_set"; local e2=$x
-      while ble/edit/word/skip-backward "$word_sep" || return 1; ((++arg<0)); do
-        ble/edit/word/skip-backward "$word_set"
+      ble/edit/word/class:"$word_class"/find-backward-word; local e2=$x
+      while ble/edit/word/class:"$word_class"/find-backward-space || return 1; ((++arg<0)); do
+        ble/edit/word/class:"$word_class"/find-backward-word
       done; local b2=$x
     fi
   fi
 
   ((b1>b2)) && local b1=$b2 e1=$e2 b2=$b1 e2=$e1
-  if ! ((b1<e1&&e1<=b2&&b2<e2)); then
-    ble/widget/.bell
-    return 1
-  fi
+  ((b1<e1&&e1<=b2&&b2<e2)) || return 1
 
   local word1=${_ble_edit_str:b1:e1-b1}
   local word2=${_ble_edit_str:b2:e2-b2}
@@ -5915,15 +6119,9 @@ function ble/widget/transpose-words.impl {
 function ble/widget/filter-word.impl {
   local xword=$1 filter=$2
 
-  # determine arg
-  if [[ $_ble_decode_keymap == vi_nmap ]]; then
-    local ARG FLAG REG; ble/keymap:vi/get-arg 1
-    local arg=$ARG
-  else
-    local arg; ble-edit/content/get-arg 1
-  fi
+  local arg; ble/keymap:generic/get-arg 1
 
-  local word_set word_sep; ble/edit/word:"$xword"/setup
+  local word_class word_set word_sep; ble/edit/word:"$xword"/setup
   local x=$_ble_edit_ind s t u
   ble/edit/word/locate-forward "$x" "$arg"
   if ((x==t)); then
@@ -6025,7 +6223,7 @@ function ble-edit/exec/register {
     ble/edit/leave-command-layout
     return 1
   fi
-  local command_id=$((++_ble_edit_CMD)) # Exposed to blehook exec_register
+  local command_id=$((_ble_edit_CMD++)) # Exposed to blehook exec_register
   local lineno=$((_ble_edit_LINENO+1))  # Exposed to blehook exec_register
   ble/array#push _ble_edit_exec_lines "$command_id,$lineno:$command"
   blehook/invoke exec_register "$command"
@@ -6266,7 +6464,10 @@ function ble/exec/time#restore-TIMEFORMAT {
     builtin unset -v 'TIMEFORMAT[0]'
   fi
   local tot usr sys dummy
-  IFS=' ' ble/bash/read tot usr sys dummy < "$_ble_exec_time_TIMEFILE"
+  while IFS=' ' ble/bash/read tot usr sys dummy; do
+    # redirection error があるとエラーメッセージが混入する。
+    ble/string#match "$tot" '^[0-9.ms]+$' && break
+  done < "$_ble_exec_time_TIMEFILE"
   ((_ble_exec_time_tot=10#0${tot//[!0-9]}))
   ((_ble_exec_time_usr=10#0${usr//[!0-9]}))
   ((_ble_exec_time_sys=10#0${sys//[!0-9]}))
@@ -6283,7 +6484,7 @@ function ble/exec/time/times.parse-time {
   local msc=$((10#0${BASH_REMATCH[3]#?}))
   ((ret=(min*60+sec)*1000+msc))
   return 0
-} 2>&"$_ble_util_fd_stderr"
+} 2>&"$_ble_util_fd_tui_stderr"
 function ble/exec/time/times.start {
   builtin times >| "$_ble_exec_time_TIMES"
 }
@@ -6374,7 +6575,7 @@ function ble/exec/time#start {
       local -a hist=()
       local i
       for i in {00..99}; do
-        { builtin eval -- "$script" 2>&"$_ble_util_fd_stderr"; } 2>| "$_ble_exec_time_TIMEFILE"
+        { builtin eval -- "$script" 2>&"$_ble_util_fd_tui_stderr"; } 2>| "$_ble_exec_time_TIMEFILE"
         ble/exec/time#restore-TIMEFORMAT
         local beg=${_ble_exec_time_EPOCHREALTIME_beg//[!0-9]}
         local end=${_ble_exec_time_EPOCHREALTIME_end//[!0-9]}
@@ -6431,12 +6632,13 @@ function ble/exec/time#start {
     (printf) ;;
     (uptime|SECONDS)
       # これらの原点は unix epoch でないので補正する。
-      ble/util/assign _ble_exec_time_CLOCK_base 'ble/bin/date +%s000000'
-      local ret; ble/util/clock
+      local ret
+      ble/util/time; _ble_exec_time_CLOCK_base=${ret}000000
+      ble/util/clock
       ((_ble_exec_time_CLOCK_base-=ret*1000)) ;;
     (date)
       # どうせファイルコマンドを使うのであればより精度の良い物を使う。
-      if ble/util/assign ret 'ble/bin/date +%6N' 2>/dev/null && [[ $ret ]]; then
+      if ble/util/assign ret 'ble/bin/date +%6N' 2>/dev/null && ble/string#match "$ret" '^[0-9]+$'; then
         function ble/exec/time#start {
           ble/exec/time/times.start
           _ble_exec_time_CLOCK_beg=
@@ -6633,17 +6835,21 @@ function ble-edit/exec:gexec/.TRAPDEBUG {
     local depth=${#BLE_TRAP_FUNCNAME[*]}
     if ((depth>=1)) && ! ble/string#match "${BLE_TRAP_FUNCNAME[*]}" '^ble-edit/exec:gexec/\.|(^| )ble/builtin/trap/\.handler'; then
       # 関数内にいるが、ble-edit/exec:gexec/. の中ではない時
-      local source=${_ble_term_setaf[5]}${BLE_TRAP_SOURCE[0]}
-      local sep=${_ble_term_setaf[6]}:
-      local lineno=${_ble_term_setaf[2]}${BLE_TRAP_LINENO[0]}
-      local func=${_ble_term_setaf[6]}' ('${_ble_term_setaf[4]}${BLE_TRAP_FUNCNAME[0]}${1:+ $1}${_ble_term_setaf[6]}')'
-      ble/util/print "${_ble_term_setaf[9]}[SIGINT]$_ble_term_sgr0 $source$sep$lineno$func$_ble_term_sgr0" >&"$_ble_util_fd_stderr"
+      if [[ ${bleopt_internal_exec_int_trace-} ]]; then
+        local source=${_ble_term_setaf[5]}${BLE_TRAP_SOURCE[0]}
+        local sep=${_ble_term_setaf[6]}:
+        local lineno=${_ble_term_setaf[2]}${BLE_TRAP_LINENO[0]}
+        local func=${_ble_term_setaf[6]}' ('${_ble_term_setaf[4]}${BLE_TRAP_FUNCNAME[0]}${1:+ $1}${_ble_term_setaf[6]}')'
+        ble/util/print "${_ble_term_setaf[9]}[SIGINT]$_ble_term_sgr0 $source$sep$lineno$func$_ble_term_sgr0" >&"$_ble_util_fd_tui_stderr"
+      fi
       _ble_builtin_trap_postproc[_ble_trap_sig]="{ return $_ble_edit_exec_TRAPDEBUG_INT || break; } &>/dev/null"
     elif ((depth==0)) && ! ble/string#match "$_ble_trap_bash_command" '^ble-edit/exec:gexec/\.'; then
       # 一番外側で、ble-edit/exec:gexec/. 関数ではない時
-      local source=${_ble_term_setaf[5]}global
-      local sep=${_ble_term_setaf[6]}:
-      ble/util/print "${_ble_term_setaf[9]}[SIGINT]$_ble_term_sgr0 $source$sep$_ble_term_sgr0 $_ble_trap_bash_command" >&"$_ble_util_fd_stderr"
+      if [[ ${bleopt_internal_exec_int_trace-} ]]; then
+        local source=${_ble_term_setaf[5]}global
+        local sep=${_ble_term_setaf[6]}:
+        ble/util/print "${_ble_term_setaf[9]}[SIGINT]$_ble_term_sgr0 $source$sep$_ble_term_sgr0 $_ble_trap_bash_command" >&"$_ble_util_fd_tui_stderr"
+      fi
       _ble_builtin_trap_postproc[_ble_trap_sig]="break &>/dev/null"
     fi
 
@@ -6746,11 +6952,13 @@ function ble-edit/exec:gexec/.TRAPINT {
   local ext=130
   ((_ble_bash>=40300)) || ext=128 # bash-4.2 以下は 128
   if [[ $_ble_attached ]]; then
-    ble/util/print "$_ble_term_bold^C$_ble_term_sgr0" >&2
+    if [[ ${bleopt_internal_exec_int_trace-} ]]; then
+      ble/util/print "$_ble_term_bold^C$_ble_term_sgr0" >&"$_ble_util_fd_tui_stderr"
+    fi
     _ble_edit_exec_TRAPDEBUG_INT=$ext
     ble-edit/exec:gexec/.TRAPDEBUG/trap
   else
-    _ble_builtin_trap_postproc="{ return $ext || break; } 2>&$_ble_util_fd_stderr"
+    _ble_builtin_trap_postproc="{ return $ext || break; } 2>&$_ble_util_fd_tui_stderr"
   fi
 }
 function ble-edit/exec:gexec/.TRAPINT/reset {
@@ -6760,10 +6968,10 @@ function ble-edit/exec:gexec/invoke-hook-with-setexit {
   local -a BLE_PIPESTATUS
   BLE_PIPESTATUS=("${_ble_edit_exec_PIPESTATUS[@]}")
   ble-edit/exec/.setexit "$_ble_edit_exec_lastarg"
-  LINENO=$_ble_edit_LINENO \
+  LINENO=${_ble_edit_LINENO:-${BASH_LINENO[${#BASH_LINENO[@]}-1]}} \
     BASH_COMMAND=$_ble_edit_exec_BASH_COMMAND \
     blehook/invoke "$@"
-} >&"$_ble_util_fd_stdout" 2>&"$_ble_util_fd_stderr"
+} >&"$_ble_util_fd_tui_stdout" 2>&"$_ble_util_fd_tui_stderr"
 
 function ble-edit/exec:gexec/.TRAPERR {
   if [[ $_ble_attached ]]; then
@@ -6882,7 +7090,7 @@ function ble-edit/exec:gexec/.prologue {
   ble/util/joblist.clear
   ble-edit/exec:gexec/invoke-hook-with-setexit internal_PREEXEC "$_ble_edit_exec_BASH_COMMAND"
   ble-edit/exec:gexec/invoke-hook-with-setexit PREEXEC "$_ble_edit_exec_BASH_COMMAND"
-  ble-edit/exec/print-PS0 >&"$_ble_util_fd_stdout" 2>&"$_ble_util_fd_stderr"
+  ble-edit/exec/print-PS0 >&"$_ble_util_fd_tui_stdout" 2>&"$_ble_util_fd_tui_stderr"
 
   ble/exec/time#start
   ble/base/restore-BASH_REMATCH
@@ -6919,6 +7127,14 @@ function ble-edit/exec:gexec/.save-lastarg {
   builtin eval -- "$_ble_bash_FUNCNEST_adjust"
   ble/base/adjust-bash-options
   ble/exec/time#adjust-TIMEFORMAT
+
+  # Note: We here update the file descriptors for the user commands.  The file
+  # descriptors may be changed by the `exec` buitlin.  Note that stdout (1) and
+  # stderr (2) are redirected to /dev/null to suppress "set -x" messages in
+  # this context.  Instead, we use 4 and 5 because stdout and stderr are copied
+  # to 4 and 5, respectively, by the caller.
+  ble/fd/save-external-standard-streams 0 4 5
+
   return "$_ble_edit_exec_lastexit"
 }
 function ble-edit/exec:gexec/.epilogue {
@@ -6947,14 +7163,13 @@ function ble-edit/exec:gexec/.epilogue {
   ble/base/adjust-BASH_REMATCH
   ble-edit/adjust-IGNOREEOF
   ble-edit/adjust-READLINE
-  ble-edit/adjust-PS1
   ble/exec/time#restore-TIMEFORMAT
   ble/exec/time#end
   ble/util/reset-keymap-of-editing-mode
   ble-edit/exec/.adjust-eol
   _ble_edit_exec_inside_prologue=
 
-  ble/util/buffer.flush >&"$_ble_util_fd_stderr"
+  ble/util/buffer.flush >&"$_ble_util_fd_tui_stderr"
   ble-edit/exec:gexec/invoke-hook-with-setexit POSTEXEC "$_ble_edit_exec_BASH_COMMAND"
 
   local msg=
@@ -6966,6 +7181,10 @@ function ble-edit/exec:gexec/.epilogue {
       msg=$ret
     fi
   fi
+
+  # This needs to be performed after POSTEXEC and ERREXEC because the user
+  # hooks might want to access PS1 and PROMPT_COMMAND.
+  ble-edit/adjust-PS1
 
   if ble/exec/time#mark-enabled; then
     if local ret; ble/edit/marker#get-config exec_elapsed_mark; then
@@ -7063,8 +7282,8 @@ function ble-edit/exec:gexec/.setup {
       # Note #D0465: 実際のコマンドと save-lastarg を同じ eval の中に入れている
       #   のは、同じ eval の中でないと $_ が失われてしまうから (特に eval を出
       #   る時に eval の最終引数になってしまう)。
-      buff[ibuff++]='{ ble-edit/exec:gexec/.save-lastarg; } &>/dev/null' # Note: &>/dev/null は set -x 対策 #D0930
-      buff[ibuff++]='" 2>&"$_ble_util_fd_stderr"; } 2>| "$_ble_exec_time_TIMEFILE"'
+      buff[ibuff++]='{ ble-edit/exec:gexec/.save-lastarg; } 4>&1 5>&2 &>/dev/null' # Note: &>/dev/null は set -x 対策 #D0930
+      buff[ibuff++]='" 0<&"$_ble_util_fd_cmd_stdin" 1>&"$_ble_util_fd_cmd_stdout" 2>&"$_ble_util_fd_cmd_stderr"; } 2>| "$_ble_exec_time_TIMEFILE"'
       buff[ibuff++]='{ ble-edit/exec:gexec/.epilogue; } 3>&2 &>/dev/null'
 
       # ※直接 $cmd と書き込むと文法的に破綻した物を入れた時に
@@ -7235,27 +7454,32 @@ function ble/widget/discard-line {
   ble/textarea#render
 }
 
-function ble/edit/hist_expanded/.core {
-  ble/builtin/history/option:p "$command"
+function ble/edit/histexpand/run {
+  local shopt=$-
+  set -H
+  ble/builtin/history/option:p "$command"; local ext=$?
+  [[ $shopt == *H* ]] || set +H
+  return "$ext"
 }
-function ble-edit/hist_expanded/.expand {
-  ble/edit/hist_expanded/.core 2>/dev/null; local ext=$?
+function ble/edit/histexpand/.impl {
+  ble/edit/histexpand/run 2>/dev/null; local ext=$?
   ((ext)) && ble/util/print "$command"
   ble/util/put :
   return "$ext"
 }
 
-## @var[out] hist_expanded
-function ble-edit/hist_expanded.update {
+## @fn ble/edit/histexpand str
+##   @var[out] ret
+function ble/edit/histexpand {
   local command=$1
-  if [[ ! -o histexpand || ! ${command//[ 	]} ]]; then
-    hist_expanded=$command
+  if [[ ! ${command//[ 	]} ]]; then
+    ret=$command
     return 0
-  elif ble/util/assign hist_expanded 'ble-edit/hist_expanded/.expand'; then
-    hist_expanded=${hist_expanded%$_ble_term_nl:}
+  elif ble/util/assign ret 'ble/edit/histexpand/.impl'; then
+    ret=${ret%$_ble_term_nl:}
     return 0
   else
-    hist_expanded=$command
+    ret=$command
     return 1
   fi
 }
@@ -7307,6 +7531,20 @@ function ble/widget/accept-line/.is-mc-init {
 function ble/widget/accept-line {
   ble/decode/widget/keymap-dispatch "$@"
 }
+
+## @fn ble/widget/default/accept-line/.prepare-verify new_str new_ind
+##   @var[in] old_str old_ind
+function ble/widget/default/accept-line/.prepare-verify {
+  local new_str=$1 new_ind=$2
+  ble-edit/content/reset-and-check-dirty "$old_str"
+  _ble_edit_ind=$old_ind
+  _ble_edit_line_disabled=1 ble/widget/.insert-newline keep-info
+  ble-edit/content/reset-and-check-dirty "$new_str"
+  _ble_edit_ind=$new_ind
+  _ble_edit_mark=0
+  _ble_edit_mark_active=
+  return 0
+}
 function ble/widget/default/accept-line {
   # 文法的に不完全の時は改行挿入
   # Note: mc (midnight commander) が改行を含むコマンドを書き込んでくる #D1392
@@ -7331,28 +7569,75 @@ function ble/widget/default/accept-line {
     return 0
   fi
 
-  # 履歴展開
-  local hist_expanded
-  if ! ble-edit/hist_expanded.update "$command"; then
-    ble/widget/.internal-print-command \
-      'ble/edit/hist_expanded/.core 1>/dev/null' pre-flush # エラーメッセージを表示
-    shopt -q histreedit &>/dev/null || ble/widget/.newline/clear-content
-    return "$?"
+  local is_line_expanded=
+  local orig_str=$_ble_edit_str orig_ind=$_ble_edit_ind
+
+  # 静的略語展開
+  if [[ :$bleopt_edit_magic_accept: == *:sabbrev:* ]]; then
+    local old_str=$_ble_edit_str old_ind=$_ble_edit_ind
+    if ble/complete/sabbrev/expand; then
+      if [[ :$bleopt_edit_magic_accept: == *:verify:* ]]; then
+        ble/widget/default/accept-line/.prepare-verify "$_ble_edit_str" "$_ble_edit_ind"
+        return 0
+      fi
+      command=$_ble_edit_str
+      is_line_expanded=1
+    elif (($?==147)); then
+      return 147 # We entered menu-complete
+    fi
   fi
 
-  local hist_is_expanded=
-  if [[ $hist_expanded != "$command" ]]; then
-    if shopt -q histverify &>/dev/null; then
-      _ble_edit_line_disabled=1 ble/widget/.insert-newline keep-info
-      ble-edit/content/reset-and-check-dirty "$hist_expanded"
-      _ble_edit_ind=${#hist_expanded}
-      _ble_edit_mark=0
-      _ble_edit_mark_active=
-      return 0
+  # エイリアス展開
+  if [[ :$bleopt_edit_magic_accept: == *:alias:* ]]; then
+    local old_str=$_ble_edit_str old_ind=$_ble_edit_ind
+    if ble/complete/alias/expand; then
+      if [[ :$bleopt_edit_magic_accept: == *:verify:* ]]; then
+        ble/widget/default/accept-line/.prepare-verify "$_ble_edit_str" "$_ble_edit_ind"
+        return 0
+      fi
+      command=$_ble_edit_str
+      is_line_expanded=1
+    fi
+  fi
+
+  # 履歴展開
+  if [[ -o histexpand || :$bleopt_edit_magic_accept: == *:history:* ]]; then
+    local old_str=$_ble_edit_str old_ind=$_ble_edit_ind
+    if local ret; ble/edit/histexpand "$command"; then
+      local expanded=$ret
+    else
+      ble/widget/.internal-print-command \
+        'ble/edit/histexpand/run 1>/dev/null' pre-flush # エラーメッセージを表示
+      shopt -q histreedit &>/dev/null || ble/widget/.newline/clear-content
+      return "$?"
     fi
 
-    command=$hist_expanded
-    hist_is_expanded=1
+    if [[ $expanded != "$command" ]]; then
+      if shopt -q histverify &>/dev/null; then
+        ble/widget/default/accept-line/.prepare-verify "$expanded" "${#expanded}"
+        return 0
+      fi
+
+      is_line_expanded=1
+      command=$expanded
+      if [[ :$bleopt_edit_magic_accept: == *:history-inline:* ]]; then
+        ble-edit/content/reset-and-check-dirty "$command"
+        _ble_edit_ind=${#command}
+      fi
+    fi
+  fi
+
+  if [[ $is_line_expanded && :$bleopt_edit_magic_accept: == *:verify-syntax:* ]]; then
+    if [[ $command != "$_ble_edit_str" ]]; then
+      ble-edit/content/reset-and-check-dirty "$command"
+      _ble_edit_ind=${#command}
+    fi
+    ble-edit/content/update-syntax
+    if ! ble/syntax:bash/is-complete; then
+      local old_str=$orig_str old_ind=$orig_ind
+      ble/widget/default/accept-line/.prepare-verify "$_ble_edit_str" "$_ble_edit_ind"
+      return 0
+    fi
   fi
 
   # 実行を登録
@@ -7362,8 +7647,10 @@ function ble/widget/default/accept-line {
   # 編集文字列を履歴に追加
   ble/history/add "$command"
 
+  local show_expanded
+  [[ $command != "$_ble_edit_str" ]] && show_expanded=1
   _ble_edit_CMD=$old_cmd ble/widget/.newline # #D1800 register
-  if [[ $hist_is_expanded ]]; then
+  if [[ $show_expanded ]]; then
     local ret
     ble/edit/marker#instantiate 'expand' non-empty
     ble/util/buffer.print "$ret $command"
@@ -8031,17 +8318,26 @@ function ble/widget/history-end {
     ble/widget/.bell
   fi
 }
+function ble/widget/history-goto {
+  local arg; ble-edit/content-get-arg 1
+  if ((--arg<0)); then
+    ble/history/initialize
+    ((arg+=_ble_history_COUNT))
+  fi
+  ble-edit/history/goto "$arg"
+}
 
 ## @widget history-expand-line
 ##   @exit 展開が行われた時に成功します。それ以外の時に失敗します。
 function ble/widget/history-expand-line {
   ble-edit/content/clear-arg
-  local hist_expanded
-  ble-edit/hist_expanded.update "$_ble_edit_str" || return 1
-  [[ $_ble_edit_str == "$hist_expanded" ]] && return 1
+  local ret
+  ble/edit/histexpand "$_ble_edit_str" || return 1
+  local expanded=$ret
+  [[ $_ble_edit_str == "$expanded" ]] && return 1
 
-  ble-edit/content/reset-and-check-dirty "$hist_expanded"
-  _ble_edit_ind=${#hist_expanded}
+  ble-edit/content/reset-and-check-dirty "$expanded"
+  _ble_edit_ind=${#expanded}
   _ble_edit_mark=0
   _ble_edit_mark_active=
   return 0
@@ -8054,14 +8350,15 @@ function ble/widget/history-and-alias-expand-line {
 ##   @exit 展開が行われた時に成功します。それ以外の時に失敗します。
 function ble/widget/history-expand-backward-line {
   ble-edit/content/clear-arg
-  local prevline=${_ble_edit_str::_ble_edit_ind} hist_expanded
-  ble-edit/hist_expanded.update "$prevline" || return 1
-  [[ $prevline == "$hist_expanded" ]] && return 1
+  local prevline=${_ble_edit_str::_ble_edit_ind} ret
+  ble/edit/histexpand "$prevline" || return 1
+  local expanded=$ret
+  [[ $prevline == "$expanded" ]] && return 1
 
   local ret
-  ble/string#common-prefix "$prevline" "$hist_expanded"; local dmin=${#ret}
+  ble/string#common-prefix "$prevline" "$expanded"; local dmin=${#ret}
 
-  local insert; ble-edit/content/replace-limited "$dmin" "$_ble_edit_ind" "${hist_expanded:dmin}"
+  local insert; ble-edit/content/replace-limited "$dmin" "$_ble_edit_ind" "${expanded:dmin}"
   ((_ble_edit_ind=dmin+${#insert}))
   _ble_edit_mark=0
   _ble_edit_mark_active=
@@ -8765,8 +9062,10 @@ function ble/widget/isearch/exit.impl {
 }
 function ble/widget/isearch/exit-with-region {
   ble/widget/isearch/exit.impl
-  [[ $_ble_edit_mark_active ]] &&
+  if [[ $_ble_edit_mark_active ]]; then
     _ble_edit_mark_active=S
+    ble/decode/keymap/push selection
+  fi
 }
 function ble/widget/isearch/exit {
   ble/widget/isearch/exit.impl
@@ -8793,8 +9092,7 @@ function ble/widget/isearch/cancel {
 }
 function ble/widget/isearch/exit-default {
   ble/widget/isearch/exit-with-region
-  ble/decode/widget/skip-lastwidget
-  ble/decode/widget/redispatch-by-keys "${KEYS[@]}"
+  ble/decode/widget/redispatch
 }
 function ble/widget/isearch/accept-line {
   if ((${#_ble_util_fiberchain[@]})); then
@@ -9296,8 +9594,7 @@ function ble/widget/nsearch/exit {
 }
 function ble/widget/nsearch/exit-default {
   ble/widget/nsearch/.exit
-  ble/decode/widget/skip-lastwidget
-  ble/decode/widget/redispatch-by-keys "${KEYS[@]}"
+  ble/decode/widget/redispatch
 }
 function ble/widget/nsearch/cancel {
   if ((${#_ble_util_fiberchain[@]})); then
@@ -9383,18 +9680,22 @@ function ble-decode/keymap:safe/bind-common {
   ble-decode/keymap:safe/.bind 'M-S-y'     'yank-pop backward'
   ble-decode/keymap:safe/.bind 'M-Y'       'yank-pop backward'
 
+  # CUA cut/copy/paste
+  ble-decode/keymap:safe/.bind 'S-delete'  'kill-region-or kill-backward-uword'
+  ble-decode/keymap:safe/.bind 'C-insert'  'copy-region-or copy-backward-uword'
+  ble-decode/keymap:safe/.bind 'S-insert'  'yank'
+
   # spaces
   ble-decode/keymap:safe/.bind 'M-\'       'delete-horizontal-space'
 
+  ble-decode/keymap:selection/bind-shift @marked
+
   # charwise operations
-  ble-decode/keymap:safe/.bind 'C-f'       '@nomarked forward-char'
-  ble-decode/keymap:safe/.bind 'C-b'       '@nomarked backward-char'
-  ble-decode/keymap:safe/.bind 'right'     '@nomarked forward-char'
-  ble-decode/keymap:safe/.bind 'left'      '@nomarked backward-char'
-  ble-decode/keymap:safe/.bind 'S-C-f'     '@marked forward-char'
-  ble-decode/keymap:safe/.bind 'S-C-b'     '@marked backward-char'
-  ble-decode/keymap:safe/.bind 'S-right'   '@marked forward-char'
-  ble-decode/keymap:safe/.bind 'S-left'    '@marked backward-char'
+  ble-decode/keymap:safe/.bind 'C-f'       'forward-char'
+  ble-decode/keymap:safe/.bind 'C-b'       'backward-char'
+  ble-decode/keymap:safe/.bind 'right'     'forward-char'
+  ble-decode/keymap:safe/.bind 'left'      'backward-char'
+
   ble-decode/keymap:safe/.bind 'C-d'       'delete-region-or delete-forward-char'
   ble-decode/keymap:safe/.bind 'delete'    'delete-region-or delete-forward-char'
   ble-decode/keymap:safe/.bind 'C-?'       'delete-region-or delete-backward-char'
@@ -9404,14 +9705,10 @@ function ble-decode/keymap:safe/bind-common {
   ble-decode/keymap:safe/.bind 'C-t'       'transpose-chars'
 
   # wordwise operations
-  ble-decode/keymap:safe/.bind 'C-right'   '@nomarked forward-cword'
-  ble-decode/keymap:safe/.bind 'C-left'    '@nomarked backward-cword'
-  ble-decode/keymap:safe/.bind 'M-right'   '@nomarked forward-sword'
-  ble-decode/keymap:safe/.bind 'M-left'    '@nomarked backward-sword'
-  ble-decode/keymap:safe/.bind 'S-C-right' '@marked forward-cword'
-  ble-decode/keymap:safe/.bind 'S-C-left'  '@marked backward-cword'
-  ble-decode/keymap:safe/.bind 'M-S-right' '@marked forward-sword'
-  ble-decode/keymap:safe/.bind 'M-S-left'  '@marked backward-sword'
+  ble-decode/keymap:safe/.bind 'C-right'   'forward-cword'
+  ble-decode/keymap:safe/.bind 'C-left'    'backward-cword'
+  ble-decode/keymap:safe/.bind 'M-right'   'forward-sword'
+  ble-decode/keymap:safe/.bind 'M-left'    'backward-sword'
   ble-decode/keymap:safe/.bind 'M-d'       'kill-forward-cword'
   ble-decode/keymap:safe/.bind 'M-h'       'kill-backward-cword'
   ble-decode/keymap:safe/.bind 'C-delete'  'delete-forward-cword'
@@ -9424,12 +9721,8 @@ function ble-decode/keymap:safe/bind-common {
   ble-decode/keymap:safe/.bind 'M-C-h'     'copy-backward-sword'
   ble-decode/keymap:safe/.bind 'M-BS'      'copy-backward-sword'
 
-  ble-decode/keymap:safe/.bind 'M-f'       '@nomarked forward-cword'
-  ble-decode/keymap:safe/.bind 'M-b'       '@nomarked backward-cword'
-  ble-decode/keymap:safe/.bind 'M-F'       '@marked forward-cword'
-  ble-decode/keymap:safe/.bind 'M-B'       '@marked backward-cword'
-  ble-decode/keymap:safe/.bind 'M-S-f'     '@marked forward-cword'
-  ble-decode/keymap:safe/.bind 'M-S-b'     '@marked backward-cword'
+  ble-decode/keymap:safe/.bind 'M-f'       'forward-cword'
+  ble-decode/keymap:safe/.bind 'M-b'       'backward-cword'
 
   ble-decode/keymap:safe/.bind 'M-c'       'capitalize-eword'
   ble-decode/keymap:safe/.bind 'M-l'       'downcase-eword'
@@ -9437,33 +9730,20 @@ function ble-decode/keymap:safe/bind-common {
   ble-decode/keymap:safe/.bind 'M-t'       'transpose-ewords'
 
   # linewise operations
-  ble-decode/keymap:safe/.bind 'C-a'       '@nomarked beginning-of-line'
-  ble-decode/keymap:safe/.bind 'C-e'       '@nomarked end-of-line'
-  ble-decode/keymap:safe/.bind 'home'      '@nomarked beginning-of-line'
-  ble-decode/keymap:safe/.bind 'end'       '@nomarked end-of-line'
-  ble-decode/keymap:safe/.bind 'S-C-a'     '@marked beginning-of-line'
-  ble-decode/keymap:safe/.bind 'S-C-e'     '@marked end-of-line'
-  ble-decode/keymap:safe/.bind 'S-home'    '@marked beginning-of-line'
-  ble-decode/keymap:safe/.bind 'S-end'     '@marked end-of-line'
-  ble-decode/keymap:safe/.bind 'M-m'       '@nomarked non-space-beginning-of-line'
-  ble-decode/keymap:safe/.bind 'M-S-m'     '@marked non-space-beginning-of-line'
-  ble-decode/keymap:safe/.bind 'M-M'       '@marked non-space-beginning-of-line'
-  ble-decode/keymap:safe/.bind 'C-p'       '@nomarked backward-line' # overwritten by bind-history
-  ble-decode/keymap:safe/.bind 'up'        '@nomarked backward-line' # overwritten by bind-history
-  ble-decode/keymap:safe/.bind 'C-n'       '@nomarked forward-line'  # overwritten by bind-history
-  ble-decode/keymap:safe/.bind 'down'      '@nomarked forward-line'  # overwritten by bind-history
+  ble-decode/keymap:safe/.bind 'C-a'       'beginning-of-line'
+  ble-decode/keymap:safe/.bind 'C-e'       'end-of-line'
+  ble-decode/keymap:safe/.bind 'home'      'beginning-of-line'
+  ble-decode/keymap:safe/.bind 'end'       'end-of-line'
+  ble-decode/keymap:safe/.bind 'M-m'       'non-space-beginning-of-line'
+  ble-decode/keymap:safe/.bind 'C-p'       'backward-line' # overwritten by bind-history
+  ble-decode/keymap:safe/.bind 'up'        'backward-line' # overwritten by bind-history
+  ble-decode/keymap:safe/.bind 'C-n'       'forward-line'  # overwritten by bind-history
+  ble-decode/keymap:safe/.bind 'down'      'forward-line'  # overwritten by bind-history
   ble-decode/keymap:safe/.bind 'C-k'       'kill-forward-line'
   ble-decode/keymap:safe/.bind 'C-u'       'kill-backward-line'
 
-  ble-decode/keymap:safe/.bind 'S-C-p'     '@marked backward-line'
-  ble-decode/keymap:safe/.bind 'S-up'      '@marked backward-line'
-  ble-decode/keymap:safe/.bind 'S-C-n'     '@marked forward-line'
-  ble-decode/keymap:safe/.bind 'S-down'    '@marked forward-line'
-
-  ble-decode/keymap:safe/.bind 'C-home'    '@nomarked beginning-of-text'
-  ble-decode/keymap:safe/.bind 'C-end'     '@nomarked end-of-text'
-  ble-decode/keymap:safe/.bind 'S-C-home'  '@marked beginning-of-text'
-  ble-decode/keymap:safe/.bind 'S-C-end'   '@marked end-of-text'
+  ble-decode/keymap:safe/.bind 'C-home'    'beginning-of-text'
+  ble-decode/keymap:safe/.bind 'C-end'     'end-of-text'
 
   # macros
   ble-decode/keymap:safe/.bind 'C-x ('     'start-keyboard-macro'
@@ -9474,6 +9754,8 @@ function ble-decode/keymap:safe/bind-common {
   # Note: vi では C-] は sabbrev-expand で上書きされる
   ble-decode/keymap:safe/.bind 'C-]'       'character-search-forward'
   ble-decode/keymap:safe/.bind 'M-C-]'     'character-search-backward'
+
+  ble-decode/keymap:safe/.bind 'M-x'       'execute-named-command'
 }
 function ble-decode/keymap:safe/bind-history {
   ble-decode/keymap:safe/.bind 'C-r'       'history-isearch-backward'
@@ -9482,10 +9764,10 @@ function ble-decode/keymap:safe/bind-history {
   ble-decode/keymap:safe/.bind 'M->'       'history-end'
   ble-decode/keymap:safe/.bind 'C-prior'   'history-beginning'
   ble-decode/keymap:safe/.bind 'C-next'    'history-end'
-  ble-decode/keymap:safe/.bind 'C-p'       '@nomarked backward-line history'
-  ble-decode/keymap:safe/.bind 'up'        '@nomarked backward-line history'
-  ble-decode/keymap:safe/.bind 'C-n'       '@nomarked forward-line history'
-  ble-decode/keymap:safe/.bind 'down'      '@nomarked forward-line history'
+  ble-decode/keymap:safe/.bind 'C-p'       'backward-line history'
+  ble-decode/keymap:safe/.bind 'up'        'backward-line history'
+  ble-decode/keymap:safe/.bind 'C-n'       'forward-line history'
+  ble-decode/keymap:safe/.bind 'down'      'forward-line history'
   ble-decode/keymap:safe/.bind 'prior'     'history-search-backward' # bash-5.2
   ble-decode/keymap:safe/.bind 'next'      'history-search-forward'  # bash-5.2
   ble-decode/keymap:safe/.bind 'C-x C-p'   'history-search-backward'
@@ -9658,16 +9940,33 @@ function ble/widget/vi-editing-mode {
 _ble_edit_read_accept=
 _ble_edit_read_result=
 function ble/widget/read/accept {
-  _ble_edit_read_accept=1
-  _ble_edit_read_result=$_ble_edit_str
-  # [[ $_ble_edit_read_result ]] &&
-  #   ble/history/add "$_ble_edit_read_result" # Note: cancel でも登録する
-  ble/decode/keymap/pop
+  if [[ $_ble_edit_async_read_prefix ]]; then
+    local prefix=$_ble_edit_async_read_prefix
+    local hook=${prefix}_accept_hook; hook=${!hook}
+    ble/util/set "${prefix}_accept_hook" ''
+    ble/util/set "${prefix}_cancel_hook" ''
+    ble/util/set "${prefix}_before_widget" ''
+
+    local ret
+    ble/edit/async-read-mode/accept
+    [[ ! $hook ]] || "$hook" "$ret"
+  else
+    _ble_edit_read_accept=1
+    _ble_edit_read_result=$_ble_edit_str
+    # [[ $_ble_edit_read_result ]] &&
+    #   ble/history/add "$_ble_edit_read_result" # Note: cancel でも登録する
+    ble/decode/keymap/pop
+  fi
 }
 function ble/widget/read/cancel {
-  local _ble_edit_line_disabled=1
-  ble/widget/read/accept
-  _ble_edit_read_accept=2
+  if [[ $_ble_edit_async_read_prefix ]]; then
+    local hook=${_ble_edit_async_read_prefix}_cancel_hook
+    ble/util/set "${_ble_edit_async_read_prefix}_accept_hook" "${!hook}"
+    ble/widget/read/accept
+  else
+    ble/widget/read/accept
+    _ble_edit_read_accept=2
+  fi
 }
 function ble/widget/read/delete-forward-char-or-cancel {
   if [[ $_ble_edit_str ]]; then
@@ -9687,6 +9986,12 @@ function ble/widget/read/__line_limit__.edit {
 function ble/widget/read/__line_limit__ {
   ble/widget/__line_limit__ read/__line_limit__.edit
 }
+function ble/widget/read/__before_widget__ {
+  if [[ $_ble_edit_async_read_prefix ]]; then
+    local hook=${_ble_edit_async_read_prefix}_before_widget
+    builtin eval -- "${!hook}"
+  fi
+}
 
 function ble-decode/keymap:read/define {
   local ble_bind_nometa=
@@ -9694,7 +9999,8 @@ function ble-decode/keymap:read/define {
   ble-decode/keymap:safe/bind-history
   # ble-decode/keymap:safe/bind-complete
 
-  ble-bind -f __line_limit__ read/__line_limit__
+  ble-bind -f __before_widget__ read/__before_widget__
+  ble-bind -f __line_limit__    read/__line_limit__
 
   ble-bind -f 'C-c' read/cancel
   ble-bind -f 'C-\' read/cancel
@@ -9826,6 +10132,12 @@ function ble/builtin/read/.loop {
   #   対策として failglob を外す。サブシェルの中なので影響はない筈。
   # ref #D1090
   shopt -u failglob
+
+  # Note: 外側で async-read の読み取りの途中の場合には read widgets の振る舞い
+  # が修正されている。この read の読み取りでは、外側の async-read の処理はした
+  # くないので、async-read mode を無効にする。これは subshell なので外側に影響
+  # はない。
+  _ble_edit_async_read_prefix=
 
   local ret; ble/canvas/panel/save-position; local pos0=$ret
   ble/builtin/read/.set-up-textarea || return 1
@@ -10014,6 +10326,128 @@ function ble/builtin/read {
   builtin eval -- "$__ble_command"
 }
 function read { ble/builtin/read "$@"; }
+
+## @fn ble/edit/async-read-mode hook prefix keymap
+##   Set up the async-read mode
+##   @param[in] hook
+##     The name of the callback function called when the edit is complete.
+##   @param[in,opt] prefix
+##   @param[in,opt] keymap
+##
+##   @var[out] _ble_edit_async_read_prefix
+##     This variable is set to PREFIX.
+##   @var[out] PREFIX_accept_hook
+##     This variable is set to HOOK.  After setting up the async-read mode by
+##     calling ble/edit/async-read-mode, one can dynamically overwrite the
+##     variable with a function name.
+##   @var[out] PREFIX_cancel_hook
+##     This variable is set to an empty string.  After setting up the
+##     async-read mode, one can set a callback that is called on the
+##     cancellation of the edit.
+##   @var[out] PREFIX_before_widget
+##     This variable is set to an empty string.  After setting up the
+##     async-read mode, one can set a callback that is called before processing
+##     any widget from the "read" keymap.  When the value
+##     "ble/edit/async-read-mode/empty-cancel.hook" is set, the input can be
+##     canceled by pressing [backspace].
+##   @var[in] PREFIX_history*
+##     These variables store the history of the accepted strings.  After
+##     setting up the async-read mode, one may change the history prefix by
+##     calling "ble/history/set-prefix <new-prefix>".
+##
+_ble_edit_async_read_prefix=
+_ble_edit_async_read_accept_hook=
+_ble_edit_async_read_cancel_hook=
+_ble_edit_async_read_before_widget=
+_ble_edit_async_read_history=()
+_ble_edit_async_read_history_edit=()
+_ble_edit_async_read_history_dirt=()
+_ble_edit_async_read_history_index=0
+function ble/edit/async-read-mode {
+  local hook=$1 prefix=${2:-_ble_edit_async_read} keymap=${3:-read}
+  ble/util/assert '[[ ! $_ble_edit_async_read_prefix ]]' 'it is already inside the async-read mode.' || return 1
+  _ble_edit_async_read_prefix=$prefix
+
+  # 既定の設定
+  ble/util/set "${prefix}_accept_hook" "$hook"
+  ble/util/set "${prefix}_cancel_hook" ''
+
+  # 記録
+  ble/textarea#render
+  ble/textarea#save-state "$prefix"
+  ble/util/save-vars "$prefix" _ble_canvas_panel_focus
+  ble/util/set "${prefix}_history_prefix" "$_ble_history_prefix"
+
+  # 初期化
+  ble/decode/keymap/push "$keymap"
+  ble/edit/info/default text ''
+
+  # set up textarea
+  _ble_textarea_panel=1
+  _ble_canvas_panel_focus=1
+  ble/textarea#invalidate
+
+  # set up edit/prompt
+  _ble_edit_PS1=$PS2
+  _ble_prompt_ps1_data=(0 '' '' 0 0 0 32 0 '' '')
+
+  # set up edit
+  # Note: ble/widget/.newline/clear-content の中で ble-edit/content/reset が呼
+  # び出され、更に _ble_edit_dirty_observer が呼び出さる。
+  # ble/keymap:vi/mark/shift-by-dirty-range が呼び出されないよう
+  # に、_ble_edit_dirty_observer=() より後である必要がある。
+  _ble_edit_dirty_observer=()
+  ble/widget/.newline/clear-content
+  _ble_edit_arg=
+
+  # set up edit/undo
+  ble-edit/undo/clear-all
+
+  # set up edit/history
+  ble/history/set-prefix "$prefix"
+
+  # set up syntax, highlight
+  _ble_syntax_lang=text
+  _ble_highlight_layer_list=(plain region overwrite_mode)
+  return 147
+}
+
+function ble/edit/async-read-mode/accept {
+  local prefix=$_ble_edit_async_read_prefix
+  ble/util/assert '[[ $prefix ]]' 'it is not inside the async-read mode.' || return 1
+
+  ret=$_ble_edit_str
+  [[ $ret ]] && ble/history/add "$ret" # Note: cancel でも登録する
+
+  # 消去
+  local -a DRAW_BUFF=()
+  ble/canvas/panel#set-height.draw "$_ble_textarea_panel" 0
+  ble/canvas/bflush.draw
+
+  # 復元
+  ble/textarea#restore-state "$prefix"
+  ble/textarea#clear-state "$prefix"
+  ble/util/restore-vars "$prefix" _ble_canvas_panel_focus
+  [[ $_ble_edit_overwrite_mode ]] && ble/util/buffer "$_ble_term_civis"
+  local old_history_prefix_ref=${prefix}_history_prefix
+  ble/history/set-prefix "${!old_history_prefix_ref}"
+
+  ble/decode/keymap/pop
+  _ble_edit_async_read_prefix=
+}
+
+## @arr _ble_edit_async_read_is_cancel_key
+##   コマンドラインが空の時にキャンセルに使うキーの辞書です。
+_ble_edit_async_read_is_cancel_key[63|_ble_decode_Ctrl]=1  # C-?
+_ble_edit_async_read_is_cancel_key[127]=1                  # DEL
+_ble_edit_async_read_is_cancel_key[104|_ble_decode_Ctrl]=1 # C-h
+_ble_edit_async_read_is_cancel_key[8]=1                    # BS
+function ble/edit/async-read-mode/empty-cancel.hook {
+  if [[ ! $_ble_edit_str ]] && ((_ble_edit_async_read_is_cancel_key[KEYS[0]])); then
+    ble/widget/read/cancel
+    ble/decode/widget/suppress-widget
+  fi
+}
 
 #------------------------------------------------------------------------------
 # **** command-help ****                                          @command-help
@@ -10273,7 +10707,7 @@ if [[ $bleopt_internal_suppress_bash_output ]]; then
   _ble_edit_io_fname2=$_ble_base_run/$$.stderr
 
   function ble-edit/bind/stdout.on {
-    exec 2>&"$_ble_util_fd_stderr"
+    exec 2>&"$_ble_util_fd_tui_stderr"
   }
   function ble-edit/bind/stdout.off {
     ble/util/buffer.flush >&2

@@ -52,14 +52,14 @@ function ble/keymap:vi_test/check {
   local str_expect=$fin
   local str_result=$_ble_edit_str
 
-  ble/test --display-code="$title" ret="$ind_expect" stdout="$str_expect[EOF]" \
+  ble/test --depth=1 --display-code="$title" ret="$ind_expect" stdout="$str_expect[EOF]" \
            code:'ret=$ind_result; ble/util/put "$str_result[EOF]"'
   local ext=$?
 
   # restore states
   case $_ble_decode_keymap in
   (vi_[ixo]map)
-    ble-decode-key "$((_ble_decode_Ctrl|99))" &>/dev/null ;;
+    ble-decode-key "$((_ble_decode_Ctrl|99))" &>/dev/null ;; # C-c
   esac
 
   return "$ext"
@@ -124,6 +124,7 @@ function ble/keymap:vi_test/section:cw {
 
 # / ? n N
 function ble/keymap:vi_test/section:search {
+  local -a _ble_util_buffer=()
   ble/test/start-section "ble/keymap.vi/search" 10
   ble/keymap:vi_test/check A1a '@:ech@o abc abc abc' '/ a b c RET'       '@:echo @abc abc abc'
   ble/keymap:vi_test/check A1b '@:ech@o abc abc abc' '/ a b c RET n'     '@:echo abc @abc abc'
@@ -136,6 +137,7 @@ function ble/keymap:vi_test/section:search {
   ble/keymap:vi_test/check A3b '@:echo abc @abc abc' '? a b c RET' '@:echo @abc abc abc'
   ble/keymap:vi_test/check A3c '@:echo abc a@bc abc' '? a b c RET' '@:echo abc @abc abc'
   ble/test/end-section
+  ble/textarea#invalidate
 }
 
 # <C-a>, <C-x>
@@ -179,6 +181,8 @@ function ble/keymap:vi_test/section:macro {
   ble/test/start-section "ble/keymap.vi/macro" 1
   ble/keymap:vi_test/check A1 '@:@123' 'q a A SP h e l l o @ESC q @ a' '@:123 hello hell@o'
   ble/test/end-section
+
+  ble/function#pop ble/util/is-stdin-ready
 }
 
 function ble/keymap:vi_test/section:surround {

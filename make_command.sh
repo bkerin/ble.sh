@@ -180,7 +180,7 @@ function sub:scan/grc-source {
   grc "${options[@]}" "$@"
 }
 function sub:scan/list-command {
-  local -a options=(--color --exclude=./{test,memo,ext,wiki,contrib,[TD]????.*} --exclude=\*.{md,awk})
+  local -a options=(--color --exclude=./{test,memo,ext,wiki,[TD]????.*} --exclude=\*.{md,awk})
 
   # read arguments
   local flag_exclude_this= flag_error=
@@ -241,7 +241,7 @@ function sub:scan/a.txt {
       \Z^[[:space:]]*#Zd
       \ZDEBUG_LEAKVARZd
       \Z\[\[ -t 4 && -t 5 ]]Zd
-      \Z^ble/fd#alloc .*Zd
+      \Z^if ble/fd#alloc .*Zd
       \Zbuiltin read -et 0.000001 dummy </dev/ttyZd
       g'
 }
@@ -268,8 +268,25 @@ function sub:scan/bash300bug {
 
 }
 
-function sub:scan/bash301bug-array-element-length {
+function sub:scan/bash301bug {
   echo "--- $FUNCNAME ---"
+  # bash-3.1, 3.2 では 10 以上の fd は既に使われている場合、リダイレクトに失敗
+  # する。
+  grc ' [0-9]{2}&?[<>]' --exclude=./{test,ext} --exclude=./make_command.sh --exclude=ChangeLog.md --color |
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+      /^#/d
+      /#D0857/d
+      / [0-9]{2}[<>]&-/d
+      g'
+
+  # bash-3.1 では 10 以上の fd は >&- 等で閉じる事ができない。
+  grc ' ([0-9]{2}|\$[a-zA-Z_0-9]+)&?[<>]&-' --exclude=./{test,ext} --exclude=./make_command.sh --exclude=ChangeLog.md --color |
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+      /^#/d
+      /#D2164/d
+      g'
+
+  # array-element-length
   # bash-3.1 で ${#arr[index]} を用いると、
   # 日本語の文字数が変になる。
   grc '\$\{#[[:alnum:]]+\[[^@*]' --exclude={test,ChangeLog.md} --color |
@@ -344,6 +361,14 @@ function sub:scan/bash502-patsub_replacement {
 function sub:scan/gawk402bug-regex-check {
   echo "--- $FUNCNAME ---"
   grc --color '\[\^?\][^]]*\[:[^]]*:\].[^]]*\]' --exclude={test,ext,\*.md} | grep -Ev '#D1709 safe'
+}
+function sub:scan/nawk-bug {
+  echo "--- $FUNCNAME ---"
+  # Note (#D2162): nawk in Solaris 2.11 does not support regular expression
+  # starting with "=" in the form /=.../.  This is probably because the lexer
+  # in Solaris 2.11 nawk is confused with the division-assignment operator
+  # "/=".
+  grc --color --exclude={test,ext,\*.md} '(g?sub|match)\(.*/=| !?~ /='
 }
 
 function sub:scan/assign {
@@ -426,6 +451,7 @@ function sub:scan/WA-localvar_inherit {
   grc 'local [^;&|()]*"\$\{[_a-zA-Z0-9]+\[@*\]\}"' |
     sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
       \Ztest_command='\''ble/bin/stty -echo -nl -icrnl -icanon "\$\{_ble_term_stty_flags_enter\[@]}" size'\''Zd
+      /#D1566/d
       g'
 }
 
@@ -459,6 +485,7 @@ function sub:scan/word-splitting-number {
       \Z \$\{\#[_a-zA-Z0-9]+\[@\]\} -gt 0 \]\]Zd
       \Zcase \$\? inZd
       \Zcase \$\(\(.*\)\) inZd
+      \Z#D1835Zd
       g'
 }
 
@@ -484,6 +511,7 @@ function sub:scan/check-readonly-unsafe {
 
       # other frameworks & integrations
       /^__bp_blesh_invoking_through_blesh$/d
+      /^__bp_imported$/d
       /^BP_PROMPT_COMMAND_.*$/d
 
       # common variables
@@ -533,7 +561,7 @@ function sub:scan {
   # builtin return break continue : eval echo unset は unset しているので大丈夫のはず
 
   #sub:scan/builtin 'history'
-  sub:scan/builtin 'echo' --exclude=./lib/keymap.vi_test.sh --exclude=./ble.pp |
+  sub:scan/builtin 'echo' --exclude=./ble.pp |
     sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
       \Z\bstty[[:space:]]+echoZd
       \Zecho \$PPIDZd
@@ -595,7 +623,14 @@ function sub:scan {
 
   #sub:scan/assign
   sub:scan/builtin 'trap' |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+    sed -E 'h;s/'"$_make_rex_escseq"'//g
+
+      # Exceptions in each file
+      \Z^\./contrib/integration/bash-preexec\.bash:[0-9]+:.*\btrap -p? DEBUG\bZd
+      \Z^\./contrib/integration/bash-preexec\.bash:[0-9]+:.*\[\[ \$trap_string == "trap -- Zd
+      \Z^\./contrib/snake\.sh:[0-9]+:Zd
+
+    s/^[^:]*:[0-9]+:[[:space:]]*//
       \Z_ble_trap_handler="trap -- '\''\$\{_ble_trap_handler//\$q/\$Q}'\'' \$nZd
       \Zline = "bind"Zd
       \Ztrap_command=["'\'']trap -- Zd
@@ -623,13 +658,14 @@ function sub:scan {
   sub:scan/a.txt
   sub:scan/check-todo-mark
   sub:scan/bash300bug
-  sub:scan/bash301bug-array-element-length
+  sub:scan/bash301bug
   sub:scan/bash400bug
   sub:scan/bash401-histexpand-bgpid
   sub:scan/bash404-no-argument-return
   sub:scan/bash501-arith-base
   sub:scan/bash502-patsub_replacement
   sub:scan/gawk402bug-regex-check
+  sub:scan/nawk-bug
   sub:scan/array-count-in-arithmetic-expression
   sub:scan/unset-variable
   sub:scan/eval-literal

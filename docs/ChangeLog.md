@@ -17,7 +17,18 @@
 - keymap/vi: split widget `text-object` into `text-object-{inner,outer}` (requested by Darukutsu) `#D2093` 11cf118a
 - keymap/vi: implement text-object in xmap for brackets (requested by Darukutsu) `#D2095` 7d80167c
 - util: support `ble-import -C callback` (motivated by Dominiquini) `#D2102` 0fdbe3b0
-- mandb: look for git subcommands (motivated by bkerin) `#D2111` xxxxxxxx
+- mandb: look for git subcommands (motivated by bkerin) `#D2112` 9641c3b8
+- edit (`display-shell-version`): show the `atuin` version `#D2124` 9045fb87
+- complete: add widgets `auto_complete/insert-?word` (requested by Tommimon) `#D2127` 0c4b6772
+- edit: add widgets `execute-named-command` and `history-goto` `#D2144` aa92b42a
+- keymap/vi_nmap: support `shell-expand-line` `#D2145` aa92b42a
+- main: support `bash ble.sh --install` `#D2169` 986d26a3 3801a87e
+- util(stty): support `bleopt term_stty_restore` (requested by TheFantasticWarrior) `#D2170` e64b02b7
+  - util: update workaround of Bash 5.2 `checkwinsize` for `term_stty_restore` (reported by TheFantasticWarrior) `#D2184` xxxxxxxx
+- edit: support `bleopt edit_magic_accept` (requested by pl643, bkerin) `#D2175` 3e9d8907
+- main: support shell variable `BLE_VER` `#D2177` a12dedab
+- edit: support `bleopt edit_magic_accept=verify-syntax` `#D2178` ac84c153
+- util(bleopt, blehook, ble-face): support wildcards `*` and `?` and change `@` to match an empty string `#D2182` xxxxxxxx
 
 ## Changes
 
@@ -28,10 +39,15 @@
 - make: add `INSDIR_LICENSE` for install location of licenses (reported by willemw) `#D2064` d39998f0 acf3b091
 - prompt: show prompt ruler after markers (motivated by U-Labs) `#D2067` e4a90378
 - complete: suffix a space to non-filenames with `compopt -o filenames` (reported by Dominiquini) `#D2096` aef8927f
+- edit: distinguish space and delimiters in `cword` and `eword` `#D2121` 4f453710
+- prompt: update status line on face change (motivated by Vosjedev) `#D2134` f3e7e386
+- decode: specify the default keymap for the keymap load hooks `#D2141` 4a34ccf2
+- progcomp(compopt): refactor the completion option `ble/{no- => }default` `#D2155` 51f9f4f6
 
 ## Fixes
 
 - util (`conditional-sync`): fix bugs when `pid=PID` is specified (contributed by bkerin) `#D2031` 09f5cec2 `#D2034` 09f5cec2
+  - util (`conditional-sync`): fix wrong command grouping overwriting `pid=PID` (reported by dragonde, georglauterbach) `#D2122`
 - bgproc: return status of bgproc process `#D2036` 887d92dd
 - mandb: replace TAB with 4 spaces before removing control characters (reported by EmilySeville7cfg) `#D2038` 313cfb25
 - menu(desc): fix a bug that prefix is not shown with menu-filter `#D2039` e92b78d6
@@ -50,7 +66,18 @@
 - keymap/vi: improve text-object in omap for brackets (reported by Darukutsu) `#D2100` d1a1d538
 - decode(bind): fix command-line argument parsing `#D2107` 57a13c3c
 - edit(gexec): fix a bug that `LINENO` is vanishing `#D2108` b5776596
-- mandb: fix extraction of option description in format 5 (reported by bkerin) `#D2109` xxxxxxxx
+- mandb: fix extraction of option description in format 5 (reported by bkerin) `#D2110` 90a992cc
+- decode: fix handling of @ESC in quoted-insert `#D2119` 0bbc3639
+- syntax: save stat after command name for consistent completion-context `#D2126` 50d6f1bb
+- term: fix control sequences for hiding cursor (reported by n87) `#D2130` f9b9aea8
+- highlight: fix inconsistent tab width in plain layer (reported by dgudim) `#D2132` f9072c40
+- decode: consume incomplete keyseq in macros `#D2137` 27e6309e
+- keymap/vi: fix conflicting binding to <kbd>C-RET</kbd> in `vi_imap` `#D2146` 0b18f3c2
+- decode: force updating cache for <kbd>@ESC</kbd> `#D2148` 6154d71c
+- progcomp(compopt): support printing the current options (reported by bkerin) `#D2154` 51f9f4f6
+- progcomp(compopt): properly handle dynamically specified `plusdirs` `#D2156` 51f9f4f6
+- edit: fix `BLE_COMMAND_ID` starting from `2` `#D2160` 8f4bf62a
+- util(vbell): fix previous vbell not fully cleared `#D2181` xxxxxxxx
 
 ## Compatibility
 
@@ -75,14 +102,38 @@
 - nsearch: set `immediate-accept` for `empty=emulate-readline` (reported by blackteahamburger) `#D2104` 870ecef7
 - decode(bind): support the colonless form of `bind -x` of bash-5.3 `#D2106` 78d7d2e3
 - decode, vi_digraph: trim CR of text resources in MSYS `#D2105` 6f4badf4
-- progcomp: conditionally suffix space for git completion (reported by bkerin) `#D2110` xxxxxxxx
+- progcomp: conditionally suffix space for git completion (reported by bkerin) `#D2111` 2c7cca2f
+- main: fix initialization errors with `set -u` `#D2116` b503887a
+- progcomp: work around slow `make` completion in large repository (reported by blackteahamburger) `#D2117` 5f3a0010
+- util(TRAPEXIT): fix condition for `stty sane` in Cygwin `#D2118` a7f604e1
+- progcomp: fix the detection of the zoxide completion (reported by 6801318d8d) `#D2120` 29cd8f10
+- progcomp: pass original command path to completion functions (reported by REmerald) `#D2125` 0cf0383a
+- main: work around nRF Connect initialization (requested by liyafe1997) `#D2129` 2df3b109
+- main(unload): redirect streams to work around trap `EXIT` in bash-5.2 (reported by ragnarov) `#D2142` 38a8d571
+- complete: call the `docker` command through `ble/util/conditional-sync` `#D2150` 6c3f824a
+- util(joblist): fix job detection in Bash 5.3 `#D2157` 6d835818
+  - util(joblist): exclude more foreground dead jobs in Bash 5.3 `#D2174` 8a321424
+- util,complete: work around regex `/=.../` failing in Solaris nawk `#D2162` 46fdf44a
+- main: fix issues in MSYS1 `#D2163` 5f0b88fb
+- util: work around bash-3.1 bug that `10>&-` fails to close the fd `#D2164` b5938192
+- decode: fix the problem that key always timed out in bash-3 `#D2173` 0b176e76
 
 ## Contrib
 
-- fix(histdb): show error message only when bgproc crashed `#D2036` 887d92dd
+- histdb
+  - fix(histdb): show error message only when bgproc crashed `#D2036` 887d92dd
+  - util: add `ble/util/{time,timeval,mktime}` `#D2133` 34a886fe
+  - histdb: suppress outputs from `PRAGMA quick_check;` `#D2147` 6154d71c
+  - histdb: fix variable leak of `ret` `#D2152` 98a2ae15
+  - util: fix `ble/util/time` in `bash < 4.2` `#D2161` 623dba91
+  - histdb: support subcommands `#D2167` 4d7dd1ee
+  - histdb: support `top`, `stats`, `calendar`, and `week` `#D2167` 4d7dd1ee
+  - histdb: unify the color palette selection `#D2167` 4d7dd1ee
 - contrib/fzf-git: update to be consistent with the upstream (motivated by arnoldmashava) `#D2054` c78e5c9f
 - contrib/layer/pattern: add `{pattern}` layer `#D2074` 449d92ca
 - contrib/fzf-git: fix unsupported command modes (reported by dgudim) `#D2083` ba2b8865
+- contrib/bash-preexec: support the latest version of `bash-preexec` (reported by mcarans) `#D2128` 50af4d9c
+- contrib/config/execmark: output error status through `ble/canvas/trace` `#D2136` 64cdcd01
 
 ## Documentation
 
@@ -91,12 +142,18 @@
 - github: add FUNDING `#D2080` 3f133936
 - blerc: describe keybinding to accept autosuggestion by TAB (motivated by TehFunkWagnalls) `#D2090` cd069860
 - docs: apply Grammarly and fix typos `#D2099` 8b3f6f8c
+- docs(README): add sabbrev example for named directories `#D2115` a9a21a0e
 
 ## Test
 
 - test(bash): fix condition for bash bug of history expansion `#D2071` aacf1462
 - test(main): fix delimiter of `MSYS` in adding `winsymlinks` `#D2071` aacf1462
 - test(util,vi): adjust `ble/util/is-stdin-ready` while testing `#D2105` 23a05827 6f4badf4
+- test(vi): suppress warnings for non-interactive sessions `#D2113` b8b7ba0c
+- test(bash,util): fix tests in interactive session `#D2123` 06ad3a6c
+- test(vi): fix broken states after test `#D2123` 06ad3a6c
+- test(bash): fix test cases for history expansion `#D2131` 838b4652
+- test(bash): add tests for bash array bugs `#D2149` 6154d71c
 
 ## Internal changes
 
@@ -105,6 +162,21 @@
 - memo: add recent configs and create directories `#D2073` 99cb5e81
 - highlight: generalize `region` layer `#D2074` 449d92ca
 - keymap/vi: integrate vi tests into the test framework `#D2101` d16b8438
+- global(leakvar): fix variable leak `#D2114` d3e1232d
+- make(scan): apply builtin checks to `contrib` `#D2135` 2f16d985
+  - contrib/fzf-git: do not use `ble/util/print` in a script mode (reported by dgudim) `#D2166` 8f0dfe9b
+- decode: change Isolated ESC to U+07FC `#D2138` 82bfa665
+- edit: introduce `selection` keymap for more flexible shift selection `#D2139` 2cac11ad
+  - edit: fix a regression that delete-selection does not work (reported by cmndrsp0ck) `#D2151` 98a2ae15
+- util: support `bleopt connect_tty` `#D2140` f940696f
+  - util: support `ble/fd#add-cloexec` and add `O_CLOEXEC` by default `#D2158` 785267e1
+  - util: fix error of bad file descriptors (reported by ragnarov) `#D2159` 785267e1
+  - util: work around macOS/FreeBSD failure on `exec 32>&2` (reported by tessus, jon-hotaisle) `#D2165` 8f0dfe9b
+  - main: record external file descriptors on `ble-attach` `#D2183` xxxxxxxx
+- main: fix unprocessed `-PGID` in `*.pid` for cleanup `#D2143` a5da23c0
+- history: prevent `SIGPIPE` from reverting the TTY state in trap `EXIT` `#D2153` 4b8a0799
+  - history: fix initially shifted history index `#D2180` xxxxxxxx
+- edit: support `bleopt internal_exec_int_trace` (motivated by tessus) `#D2171` cebea478 3801a87e
 
 <!---------------------------------------------------------------------------->
 # ble-0.4.0-devel3

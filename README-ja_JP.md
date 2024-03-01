@@ -31,6 +31,10 @@
 詳細は、試用またはインストールに関しては [節1.1](#get-from-source) と [節1.2](#get-from-tarball) を、
 `~/.bashrc` の設定に関しては [節1.3](#set-up-bashrc) を御覧ください。
 
+> [!NOTE]
+> `fzf` を `ble.sh` と組み合わせてお使いの場合は [節2.8](#set-up-bashrc) を必ず
+> 御覧ください。
+
 <details open><summary><b><code>git</code> を用いてソースを取得し <code>ble.sh</code> を生成</b></summary>
 
 この方法では `git`, `make` (GNU make), 及び `gawk` が必要です。
@@ -69,11 +73,11 @@ source ble-nightly/ble.sh
 # インストール & .bashrc 簡単設定 (動かない場合は節1.3を御参照下さい)
 
 curl -L https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz | tar xJf -
-mkdir -p ~/.local/share/blesh
-mv -f ble-nightly/* ~/.local/share/blesh/
-rmdir ble-nightly
+bash ble-nightly/ble.sh --install ~/.local/share
 echo 'source ~/.local/share/blesh/ble.sh' >> ~/.bashrc
 ```
+
+インストール後はディレクトリ `ble-nightly` は削除して問題ありません。
 </details>
 
 <details><summary><b><code>wget</code> を用いて nightly ビルドをダウンロード</b></summary>
@@ -89,11 +93,11 @@ source ble-nightly/ble.sh
 # インストール & .bashrc 簡単設定 (動かない場合は節1.3を御参照下さい)
 
 wget -O - https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz | tar xJf -
-mkdir -p ~/.local/share/blesh
-mv ble-nightly/* ~/.local/share/blesh/
-rmdir ble-nightly
+bash ble-nightly/ble.sh --install ~/.local/share
 echo 'source ~/.local/share/blesh/ble.sh' >> ~/.bashrc
 ```
+
+インストール後はディレクトリ `ble-nightly` は削除して問題ありません。
 </details>
 
 <details open><summary><b>パッケージ管理システムを通じてパッケージをインストール</b> (現在限られたパッケージのみ)</summary>
@@ -234,6 +238,12 @@ Vimモードの実装は2017年9月に始まり2018年3月に一先ず完成と�
   例外として、全て大文字の変数 (`ble.sh` が内部使用するものを除く) および `_*` の形の変数 (`_ble_*` および `__ble_*` を除く) を読み込み専用にすることは可能です。
 - `ble.sh` は Bash のビルトインコマンド (`trap`, `readonly`, `bind`, `history`, `read`, `exit`) をシェル関数で上書きし、`ble.sh` と干渉しないようにその振る舞いを調整します。
   ユーザーまたは他の枠組みが元のビルトインを直接呼び出した場合、または `ble.sh` の定義したシェル関数を別のシェル関数で上書きした場合、正しい動作を保証できません。
+- シェル及び端末の設定はラインエディタ用とコマンド実行用で異なります。`ble.sh`
+  はラインエディタ向けに必要な調整を行い、ユーザが指定したコマンド実行用の設定
+  をできるだけ復元します。但し、様々な理由により、一部の設定については意図的に
+  復元しない場合や復元することができない場合があります。詳細については
+  [wiki](https://github.com/akinomyoga/ble.sh/wiki/Internals#internal-and-external)
+  (英語) に情報があります。
 
 # 1 使い方
 
@@ -437,6 +447,13 @@ bleopt exec_elapsed_mark=
 bleopt exec_elapsed_mark=$'\e[94m[%ss (%s %%)]\e[m'
 # Tip: マーカーを表示する条件を変更することも可能です。
 bleopt exec_elapsed_enabled='sys+usr>=10*60*1000' # 例: 合計CPU時間が 10 分以上の時に表示
+
+# 終了マーカー "[ble: exit]" の無効化
+bleopt exec_exit_mark=
+
+# その他のマーカー "[ble: ...]" の無効化
+bleopt edit_marker=
+bleopt edit_marker_error=
 ```
 
 ## 2.3 曖昧文字幅
@@ -627,7 +644,7 @@ function ble/widget/my/example1 {
 ble-bind -f C-t my/example1
 ```
 
-## 2.8 fzf との統合
+## 2.8 fzf との統合<sup><a id="fzf-integration" href="#get-from-source">†</a></sup>
 
 `fzf` を `ble.sh` と一緒にお使いいただく場合には、[`contrib/fzf` 統合機能](https://github.com/akinomyoga/blesh-contrib#pencil-fzf-integration) を用いて `fzf` を設定していただく必要があります。
 詳細についてはリンク先の説明を御覧ください。
@@ -636,11 +653,44 @@ ble-bind -f C-t my/example1
 # blerc
 
 # 注意: fzf を bash_completion と組み合わせて使用する場合は、fzf-completion よ
-# りも先に bash_completion をロードしておく必要があります。
+# りも先に bash_completion をロードしておく必要があります。これは ble.sh と関係
+# なく必要です。
 source /etc/profile.d/bash_completion.sh
 
 ble-import -d integration/fzf-completion
 ble-import -d integration/fzf-key-bindings
+```
+
+上記 `ble-import` に指定されているオプション `-d` は指定したファイルの読み込み
+を遅延させます。このように設定した場合、指定したファイルはプロンプトが表示され
+た後にバックグランドで読み込まれます。詳細に関しては [`ble-import` - 説明書
+§8](https://github.com/akinomyoga/ble.sh/wiki/Manual-%C2%A78-Miscellaneous#user-content-fn-ble-import)
+を御覧ください。もし fzf の設定を読み込んだ後で更に設定を行うには、四つの方法が
+ございます。最も単純な方法はオプション `-d` を指定しない方法 [1] です。或いは、
+`ble-import -d` [2] または `ble/util/idle.push` [3] を用いて追加設定も同様に遅
+延させることができます。または、fzf 設定ファイルの読み込み完了に対して
+`ble-import -C` [4] を用いてフックを設定することもできます。
+
+```bash
+# [1] オプション -d を使用しない
+ble-import integration/fzf-completion
+ble-import integration/fzf-key-bindings
+<settings>
+
+# [2] 追加設定も ble-import -d を使う
+ble-import -d integration/fzf-completion
+ble-import -d integration/fzf-key-bindings
+ble-import -d '<filename containing the settings>'
+
+# [3] 追加設定を ble/util/idle.push で登録
+ble-import -d integration/fzf-completion
+ble-import -d integration/fzf-key-bindings
+ble/util/idle.push '<settings>'
+
+# [4] 追加設定を ble-import -C で登録
+ble-import -d integration/fzf-completion
+ble-import -d integration/fzf-key-bindings
+ble-import -C '<settings>' integration/fzf-key-bindings
 ```
 
 # 3 ヒント
@@ -685,6 +735,15 @@ ble-sabbrev L='| less'
 ```bash
 # blerc
 ble-sabbrev '\L'='| less'
+```
+
+`~` で始まる静的略語展開は <kbd>/</kbd> でも展開されます。これは Zsh の名前付きディレクトリ (named directories) に模した使い方ができます。
+例えば、以下の設定の下で `~mybin/` と入力すると、`/home/user/bin/` など (`HOME=/home/user` の場合) に展開されます。
+
+```bash
+# blerc
+
+ble-sabbrev "~mybin=$HOME/bin"
 ```
 
 # 4 謝辞

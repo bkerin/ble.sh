@@ -2,7 +2,7 @@
 
 ble-import lib/core-test
 
-ble/test/start-section 'bash' 49
+ble/test/start-section 'bash' 65
 
 # case $word を quote する必要がある条件は?
 
@@ -298,6 +298,48 @@ ble/test/start-section 'bash' 49
     ble/test ret='1 2 3'
   fi
 
+  # BUG bash-3.0
+  #   IFS がデフォルト以外の時 declare -a arr2=("${arr1[@]}") (disbale=#D0525)
+  #   も正しく動かない。
+  a=(1 2 3)
+  IFS=x
+  declare -a a1=("${a[@]}") # disable=#D0525
+  a2=("${a[@]}") # disable=#D0525
+  IFS=$' \t\n'
+  if ((_ble_bash<30100)); then
+    ble/test code:'ret=$a1' ret=1x2x3
+    ble/test code:'ret=$a2' ret=1
+  else
+    ble/test code:'ret=$a1' ret=1
+    ble/test code:'ret=$a2' ret=1
+  fi
+
+  # BUG bash-3.0
+  #   IFS がデフォルト以外の時 declare -a arr2=($v) による split は動かない。代
+  #   わりに空白で分割される。
+  IFS=x
+  v=1x2x3
+  declare -a a1=($v)
+  a2=($v)
+  if ((_ble_bash<30100)); then
+    ble/test code:'ret=$a1' ret=1x2x3
+    ble/test code:'ret=$a2' ret=1
+  else
+    ble/test code:'ret=$a1' ret=1
+    ble/test code:'ret=$a2' ret=1
+  fi
+  v='1 2 3'
+  declare -a a1=($v)
+  a2=($v)
+  if ((_ble_bash<30100)); then
+    ble/test code:'ret=$a1' ret=1
+    ble/test code:'ret=$a2' ret='1 2 3'
+  else
+    ble/test code:'ret=$a1' ret='1 2 3'
+    ble/test code:'ret=$a2' ret='1 2 3'
+  fi
+  IFS=$' \t\n'
+
   # BUG bash-3.0 [Ref #D1570]
   #   * "${var[@]/xxx/yyy}" (#D1570) はスカラー変数に対して空の結果を生む。
   #     ${var[@]//xxx/yyy}, ${var[@]/%/yyy}, ${var[@]/#/yyy} (#D1570) について
@@ -333,18 +375,64 @@ ble/test/start-section 'bash' 49
   # いが微妙に異なることを議論している。
   #
   q=\' line='$'$q'\'$q'!!'$q'\'$q
-  ble/util/assign ret '(builtin history -s histentry; builtin history -p "$line")'
+  code='(builtin history -s histentry; builtin history -p "$line")'
   if ((_ble_bash<30100)); then
     # 3.0 ではそもそも失敗する。
-    ble/test code:'' ret=
+    ble/test "$code" stdout=
   elif ((_ble_bash<40100)) || [[ $- != *[iH]* ]]; then
     # 非対話セッション または 3.1..4.0 では意図せず展開が起こる
-    ble/test code:'' ret="${line//!!/histentry}"
+    ble/test "$code" stdout="${line//!!/histentry}"
   else
     # 期待した振る舞い
-    ble/test code:'' ret="$line"
+    ble/test "$code" stdout="$line"
   fi
-  ble/test '(builtin history -c; builtin history -p "$line")' stdout=
+  if ((_ble_bash<40100)); then
+    ble/test '(set -H; builtin history -c; builtin history -p "$line")' stdout= exit=1
+  else
+    ble/test '(set -H; builtin history -c; builtin history -p "$line")' stdout="$line"
+  fi
+
+  # BUG bash-3.1 and 3.2 [Ref #D0857]
+  #   A file descriptor >= 10 cannot be redirected if it is already in use.  In
+  #   bash-3.2, we can first close the file descriptor and then perform the
+  #   redirect.  In bash-3.1, because of the next bug, one cannot simply close
+  #   the file descriptor.  One needs to move the file descriptor to another
+  #   number.
+  if [[ -d /proc/$$/fd ]] && { ((1)) >/dev/tty; } 2>/dev/null; then
+    (
+      exec 7>/dev/null 77>/dev/null # disable=#D0857
+      exec 7>/dev/tty 77>/dev/tty   # disable=#D0857
+      ble/util/getpid
+      if ((30100<=_ble_bash&&_ble_bash<40000)); then
+        # bug
+        ble/test '[[ -t 7 ]]'
+        ble/test '[[ ! -t 77 ]]'
+      else
+        # expected
+        ble/test '[[ -t 7 ]]'
+        ble/test '[[ -t 77 ]]'
+      fi
+    )
+  fi
+
+  # BUG bash-3.1 [Ref #D2164]
+  #   file descriptor >= 10 cannot be closed by exec 77>&-.
+  if [[ -d /proc/$$/fd ]] && { ((1)) >/dev/tty; } 2>/dev/null; then
+    (
+      exec 7>/dev/null 77>/dev/null # disable=#D0857
+      exec 7>&- 77>&-               # disable=#D2164
+      ble/util/getpid
+      if ((30100<=_ble_bash&&_ble_bash<30200)); then
+        # bug
+        ble/test '[[ ! -e /proc/$BASHPID/fd/7 ]]'
+        ble/test '[[ -e /proc/$BASHPID/fd/77 ]]'
+      else
+        # expected
+        ble/test '[[ ! -e /proc/$BASHPID/fd/7 ]]'
+        ble/test '[[ ! -e /proc/$BASHPID/fd/77 ]]'
+      fi
+    )
+  fi
 
   # BUG bash-3.0 [Ref #D1956]
   #   関数定義の一番外側でリダイレクトしてもリダイレクトされない。例えば、
@@ -369,6 +457,27 @@ ble/test/start-section 'bash' 49
   fi
   ble/test 'test1 f2' stdout=hello
   ble/test 'test1 f3' stdout=hello
+)
+
+# Quirks
+(
+  # (#D2123) In all the Bash versions 1.14..5.3, expand_aliases inside
+  # "compound-command &" are disabled in interactive sessions.
+  shopt -s expand_aliases
+  alias e='ble/util/print hello'
+  ble/test 'eval "e"' stdout=hello
+  ble/test 'true && eval "e"' stdout=hello
+  ble/test 'eval "e" & wait' stdout=hello
+  if [[ $- == *i* ]]; then
+    ble/test '(eval "e") & wait' stdout=
+    ble/test '{ eval "e"; } & wait' stdout=
+    ble/test 'true && eval "e" & wait' stdout=
+  else
+    ble/test '(eval "e") & wait' stdout=hello
+    ble/test '{ eval "e"; } & wait' stdout=hello
+    ble/test 'true && eval "e" & wait' stdout=hello
+  fi
+  builtin unalias e
 )
 
 ble/test/end-section

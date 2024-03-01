@@ -100,7 +100,7 @@ if ((_ble_bash<40000)); then
       true 100 progressive-weight:timeout=3000:SIGKILL
     local ext=$?
     if ((ext==142)); then
-      printf 'ble.sh: timeout: builtin history %s' "$*" >&"$_ble_util_fd_stderr"
+      printf 'ble.sh: timeout: builtin history %s' "$*" >&"$_ble_util_fd_tui_stderr"
       local ret=11
       ble/builtin/trap/sig#resolve SIGSEGV
       ((ext=128+ret))
@@ -116,14 +116,31 @@ else
   }
 fi
 
-if ((_ble_bash<40000)); then
+if ((_ble_bash>=50200)); then
   function ble/builtin/history/.get-min {
-    ble/util/assign-words min 'ble/builtin/history/.dump | head -1'
+    if ((${_ble_trap_sig-0}==_ble_builtin_trap_EXIT)); then
+      # Note (#D2153; cf #D2046, #D2118): In Bash >= 5.2, the final TTY state
+      # after EXIT is affected by `set_tty_state` by Bash.  When any process in
+      # the pipeline is terminated by a signal at the top-level interactive
+      # shell, Bash tries to adjust the TTY state by calling "set_tty_state".
+      # This even happens when the pipeline is canceled by SIGPIPE.  The
+      # following command produces SIGPIPE because "head -1" or "sed 1q"
+      # terminates prematurely.  To prevent Bash from changing the TTY state on
+      # exit, we intentionally run the following command in a subshell.
+      ble/string#split-words min "$(builtin history | ble/bin/sed -n '1{p;q;}')"
+    else
+      ble/util/assign-words min 'builtin history | ble/bin/sed -n "1{p;q;}"'
+    fi
+    min=${min/'*'}
+  }
+elif ((_ble_bash>=40000)); then
+  function ble/builtin/history/.get-min {
+    ble/util/assign-words min 'builtin history | ble/bin/sed -n "1{p;q;}"'
     min=${min/'*'}
   }
 else
   function ble/builtin/history/.get-min {
-    ble/util/assign-words min 'builtin history | head -1'
+    ble/util/assign-words min 'ble/builtin/history/.dump | ble/bin/sed -n "1{p;q;}"'
     min=${min/'*'}
   }
 fi
@@ -552,12 +569,9 @@ if ((_ble_bash>=30100)); then
   ##
   ##   @var[in] tmpfile_base
   function ble/history:bash/resolve-multiline/.awk {
-    if ((_ble_bash>=50000)); then
-      local -x epoch=$EPOCHSECONDS
-    elif ((_ble_bash>=40400)); then
-      local -x epoch
-      ble/util/strftime -v epoch %s
-    fi
+    local ret
+    ble/util/time
+    local -x epoch=$ret
 
     local -x reason=$1
     local apos=\'
@@ -668,7 +682,7 @@ if ((_ble_bash>=30100)); then
       function save_timestamp(line) {
         if (is_resolve) {
           # "history" format
-          if (line ~ /^ *[0-9]+\*? +__ble_time_[0-9]+__/) {
+          if (line ~ /^ *[0-9]+\*? +__ble_time_[0-9]*__/) {
             sub(/^ *[0-9]+\*? +__ble_time_/, "", line);
             sub(/__.*$/, "", line);
             entry_time = line;
@@ -686,7 +700,7 @@ if ((_ble_bash>=30100)); then
       {
         if (is_resolve) {
           save_timestamp($0);
-          if (sub(/^ *[0-9]+\*? +(__ble_time_[0-9]+__|\?\?|.+: invalid timestamp)/, "", $0))
+          if (sub(/^ *[0-9]+\*? +(__ble_time_[0-9]*__|\?\?|.+: invalid timestamp)/, "", $0))
             flush_entry();
           entry_text = ++entry_nline == 1 ? $0 : entry_text "\n" $0;
         } else {
@@ -987,6 +1001,7 @@ function ble/builtin/history/.check-uncontrolled-change {
     if [[ $filename && :$opts: == *:append:* ]] && ((_ble_builtin_history_wskip<prevmax&&prevmax<max)); then
       # 最後に管理下で追加された事を確認した範囲 wskip..prevmax を書き込む。
       (
+        ble/util/joblist/__suppress__
         ble/builtin/history/.delete-range "$((prevmax+1))" "$max"
         ble/builtin/history/.write "$filename" "$_ble_builtin_history_wskip" append:fetch
       )
@@ -1112,7 +1127,10 @@ function ble/builtin/history/.write {
         return "#" line;
       }
 
-      /^ *[0-9]+\*? +(__ble_time_[0-9]+__|\?\?|.+: invalid timestamp)?/ {
+      # Note (#D2163): We match /__ble_time_[0-9]*__/ instead of
+      # /__ble_time_[0-9]+__/ because %s in HISTTIMESTAMP can be expanded to an
+      # empty string in bash-3.1 of msys1.
+      /^ *[0-9]+\*? +(__ble_time_[0-9]*__|\?\?|.+: invalid timestamp)?/ {
         flush_line();
 
         mode = 1;
@@ -1120,7 +1138,7 @@ function ble/builtin/history/.write {
         if (flag_timestamp)
           timestamp = extract_timestamp($0);
 
-        sub(/^ *[0-9]+\*? +(__ble_time_[0-9]+__|\?\?|.+: invalid timestamp)?/, "", $0);
+        sub(/^ *[0-9]+\*? +(__ble_time_[0-9]*__|\?\?|.+: invalid timestamp)?/, "", $0);
       }
       { text = text != "" ? text "\n" $0 : $0; }
       END { flush_line(); }

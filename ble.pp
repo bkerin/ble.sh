@@ -110,6 +110,8 @@ time {
              '    Update ble.sh and exit' \
              '  --clear-cache' \
              '    Clear ble.sh cache and exit' \
+             '  --install PREFIX' \
+             '    Install ble.sh and exit' \
              '' \
              '  --rcfile=BLERC' \
              '  --init-file=BLERC' \
@@ -151,7 +153,7 @@ time {
              '  --debug-bash-output' \
              '    Internal settings for debugging' \
              '' ;;
-    --test | --update | --clear-cache | --lib) _ble_init_command=1 ;;
+    --test | --update | --clear-cache | --lib | --install) _ble_init_command=1 ;;
     esac
   done
   if [ -n "$_ble_init_exit" ]; then
@@ -182,6 +184,12 @@ if [[ ! $_ble_init_command ]]; then
     return 1 2>/dev/null || builtin exit 1
   fi
 
+  # We here check the cases where we do not want a line editor.  We first check
+  # the cases that Bash provides.  We also check the cases where other
+  # frameworks try to do a hack using an interactive Bash.  We honestly do not
+  # want to add exceptions for every random framework that tries to do a naive
+  # hack using interactive sessions, but it is easier than instructing users to
+  # add a proper workaroud/check by themselves.
   if ((BASH_SUBSHELL)); then
     builtin echo "ble.sh: ble.sh cannot be loaded into a subshell." >&3
     return 1 2>/dev/null || builtin exit 1
@@ -191,8 +199,19 @@ if [[ ! $_ble_init_command ]]; then
     esac &&
       builtin echo "ble.sh: This is not an interactive session." >&3 || ((1))
     return 1 2>/dev/null || builtin exit 1
-  elif ! [[ -t 4 && -t 5 ]] && ! ((1)) >/dev/tty; then
-    builtin echo "ble.sh: cannot find a controlling TTY/PTY in this session." >&3
+  elif ! [[ -t 4 && -t 5 ]] && ! { [[ ${bleopt_connect_tty-} ]] && ((1)) >/dev/tty; } then
+    if [[ ${bleopt_connect_tty-} ]]; then
+      builtin echo "ble.sh: cannot find a controlling TTY/PTY in this session." >&3
+    else
+      builtin echo "ble.sh: stdout/stdin are not connected to TTY/PTY." >&3
+    fi
+    return 1 2>/dev/null || builtin exit 1
+  elif [[ ${NRF_CONNECT_VSCODE-} && ! -t 3 ]]; then
+    # Note #D2129: VS Code Extension "nRF Connect" tries to extract an
+    # interactive setting by sending multiline commands to an interactive
+    # session.  We may turn off accept_line_threshold for an nRF Connect
+    # session as we do for Midnight Commander, but we do not need to enable the
+    # line editor for nRF Connect in the first place.
     return 1 2>/dev/null || builtin exit 1
   fi
 fi 3>&2 4<&0 5>&1 &>/dev/null # set -x 対策 #D0930
@@ -332,7 +351,7 @@ function ble/base/adjust-builtin-wrappers-2 {
   # function :, alias : の保存
   local defs
   ble/base/adjust-builtin-wrappers/.assign 'LC_ALL= LC_MESSAGES=C builtin type :; alias :' || ((1)) # set -e 対策
-  defs=${defs#$': is a function\n'}
+  defs=${defs#$': is a shell builtin\n'}
   _ble_bash_builtins_save=$_ble_bash_builtins_save$'\n'$defs
 
   builtin unset -f :
@@ -405,11 +424,11 @@ function ble/base/xtrace/adjust {
   fi
   set +x
 
-  ((level==0)) || return 0
+  ((_ble_bash>=40000&&level==0)) || return 0
   _ble_bash_xtrace_debug_enabled=
   if [[ ${bleopt_debug_xtrace:-/dev/null} == /dev/null ]]; then
     if [[ $_ble_bash_xtrace_debug_fd ]]; then
-      builtin eval "exec $_ble_bash_xtrace_debug_fd>&-" || return 0
+      builtin eval "exec $_ble_bash_xtrace_debug_fd>&-" || return 0 # disable=#D2164 (here bash4+)
       _ble_bash_xtrace_debug_filename=
       _ble_bash_xtrace_debug_fd=
     fi
@@ -451,7 +470,7 @@ function ble/base/xtrace/restore {
   fi
   builtin unset -v '_ble_bash_xtrace[level]'
 
-  ((level==0)) || return 0
+  ((_ble_bash>=40000&&level==0)) || return 0
   if [[ $_ble_bash_xtrace_debug_enabled ]]; then
     ble/base/xtrace/.log "$FUNCNAME"
     _ble_bash_xtrace_debug_enabled=
@@ -463,7 +482,7 @@ function ble/base/xtrace/restore {
     if [[ $_ble_bash_XTRACEFD_dup ]]; then
       # BASH_XTRACEFD の fd を元の出力先に繋ぎ直す
       builtin eval "exec $BASH_XTRACEFD>&$_ble_bash_XTRACEFD_dup" &&
-        builtin eval "exec $_ble_bash_XTRACEFD_dup>&-" || ((1))
+        builtin eval "exec $_ble_bash_XTRACEFD_dup>&-" || ((1)) # disble=#D2164 (here bash4+)
     else
       # BASH_XTRACEFD の fd は新しく割り当てた fd なので値上書きで閉じて良い
       if [[ $_ble_bash_XTRACEFD_set ]]; then
@@ -628,7 +647,7 @@ function ble/init/restore-IFS {
   builtin unset -v _ble_init_original_IFS
 }
 
-if ((_ble_bash>=50100)); then
+if ((BASH_VERSINFO[0]>5||BASH_VERSINFO[0]==5&&BASH_VERSINFO[1]>=1)); then
   _ble_bash_BASH_REMATCH_level=0
   _ble_bash_BASH_REMATCH=()
   function ble/base/adjust-BASH_REMATCH {
@@ -733,7 +752,7 @@ else
   function ble/base/restore-BASH_REMATCH {
     ((_ble_bash_BASH_REMATCH_level>0&&
         --_ble_bash_BASH_REMATCH_level==0)) || return 0
-    [[ $_ble_bash_BASH_REMATCH =~ $_ble_bash_BASH_REMATCH_rex ]]
+    [[ ${_ble_bash_BASH_REMATCH-} =~ $_ble_bash_BASH_REMATCH_rex ]]
   }
 fi
 
@@ -831,7 +850,7 @@ function ble/base/read-blesh-arguments {
       opts=$opts:keep-rlvars ;;
     (--debug-bash-output)
       bleopt_internal_suppress_bash_output= ;;
-    (--test | --update | --clear-cache | --lib)
+    (--test | --update | --clear-cache | --lib | --install)
       if [[ $_ble_init_command ]]; then
         ble/util/print "ble.sh ($arg): the option '--$_ble_init_command' has already been specified." >&2
         opts=$opts:E
@@ -918,7 +937,7 @@ local _ble_local_test 2>/dev/null && _ble_bash_loaded_in_function=1
 
 _ble_version=0
 BLE_VERSION=$_ble_init_version
-function ble/base/initialize-version-information {
+function ble/base/initialize-version-variables {
   local version=$BLE_VERSION
 
   local hash=
@@ -936,10 +955,14 @@ function ble/base/initialize-version-information {
   local major=${version%%.*}; version=${version#*.}
   local minor=${version%%.*}; version=${version#*.}
   local patch=${version%%.*}
-  BLE_VERSINFO=("$major" "$minor" "$patch" "$hash" "$status" noarch)
   ((_ble_version=major*10000+minor*100+patch))
+  BLE_VERSINFO=("$major" "$minor" "$patch" "$hash" "$status" noarch)
+  BLE_VER=$_ble_version
 }
-ble/base/initialize-version-information
+function ble/base/clear-version-variables {
+  builtin unset -v _ble_bash _ble_version BLE_VERSION BLE_VERSINFO BLE_VER
+}
+ble/base/initialize-version-variables
 
 #------------------------------------------------------------------------------
 # workarounds for builtin read
@@ -1011,6 +1034,7 @@ function ble/bin#freeze-utility-path {
     [[ $flags == *n* ]] && ble/bin#has "ble/bin/$cmd" && continue
     ble/bin#has "ble/bin/.frozen:$cmd" && continue
     if ble/util/assign path "builtin type -P -- $cmd 2>/dev/null" && [[ $path ]]; then
+      [[ $path == ./* || $path == ../* ]] && path=$PWD/$path
       builtin eval "function ble/bin/$cmd { '${path//$q/$Q}' \"\$@\"; }"
     else
       fail=1
@@ -1075,6 +1099,19 @@ function ble/init/check-environment {
   fi
   _ble_base_env_HOSTNAME=$HOSTNAME
 
+  if [[ ! ${HOME-} ]]; then
+    ble/util/print "ble.sh: insane environment: \$HOME is empty." >&2
+    local home
+    if home=$(getent passwd 2>/dev/null | awk -F : -v UID="$UID" '$3 == UID {print $6}') && [[ $home && -d $home ]] ||
+        { [[ $USER && -d /home/$USER && -O /home/$USER ]] && home=/home/$USER; } ||
+        { [[ $USER && -d /Users/$USER && -O /Users/$USER ]] && home=/Users/$USER; } ||
+        { [[ $home && ! ( -e $home && -h $home ) ]] && ble/bin/mkdir -p "$home" 2>/dev/null; }
+    then
+      export HOME=$home
+      ble/util/print "ble.sh: modified HOME=$HOME" >&2
+    fi
+  fi
+
   if [[ ! ${LANG-} ]]; then
     ble/util/print "ble.sh: suspicious environment: \$LANG is empty." >&2
   fi
@@ -1121,7 +1158,7 @@ function ble/init/check-environment {
 }
 if ! ble/init/check-environment; then
   ble/util/print "ble.sh: failed to adjust the environment. canceling the load of ble.sh." 1>&2
-  builtin unset -v _ble_bash BLE_VERSION BLE_VERSINFO
+  ble/base/clear-version-variables
   ble/init/clean-up 2>/dev/null # set -x 対策 #D0930
   return 1
 fi
@@ -1132,9 +1169,11 @@ function ble/bin/awk/.instantiate {
   local path q=\' Q="'\''" ext=1
 
   if ble/util/assign path "builtin type -P -- nawk 2>/dev/null" && [[ $path ]]; then
+    [[ $path == ./* || $path == ../* ]] && path=$PWD/$path
     # Note: Some distribution (like Ubuntu) provides gawk as "nawk" by
     # default. To avoid wrongly picking gawk as nawk, we need to check the
     # version output from the command.
+    local version
     ble/util/assign version '"$path" -W version' 2>/dev/null </dev/null
     if [[ $version != *'GNU Awk'* && $version != *mawk* ]]; then
       builtin eval "function ble/bin/nawk { '${path//$q/$Q}' -v AWKTYPE=nawk \"\$@\"; }"
@@ -1146,6 +1185,7 @@ function ble/bin/awk/.instantiate {
   fi
 
   if ble/util/assign path "builtin type -P -- mawk 2>/dev/null" && [[ $path ]]; then
+    [[ $path == ./* || $path == ../* ]] && path=$PWD/$path
     builtin eval "function ble/bin/mawk { '${path//$q/$Q}' -v AWKTYPE=mawk \"\$@\"; }"
     if [[ ! $_ble_bin_awk_type ]]; then
       _ble_bin_awk_type=mawk
@@ -1154,6 +1194,7 @@ function ble/bin/awk/.instantiate {
   fi
 
   if ble/util/assign path "builtin type -P -- gawk 2>/dev/null" && [[ $path ]]; then
+    [[ $path == ./* || $path == ../* ]] && path=$PWD/$path
     builtin eval "function ble/bin/gawk { '${path//$q/$Q}' -v AWKTYPE=gawk \"\$@\"; }"
     if [[ ! $_ble_bin_awk_type ]]; then
       _ble_bin_awk_type=gawk
@@ -1167,6 +1208,7 @@ function ble/bin/awk/.instantiate {
       _ble_bin_awk_type=xpg4
       function ble/bin/awk { /usr/xpg4/bin/awk -v AWKTYPE=xpg4 "$@"; } && ext=0
     elif ble/util/assign path "builtin type -P -- awk 2>/dev/null" && [[ $path ]]; then
+      [[ $path == ./* || $path == ../* ]] && path=$PWD/$path
       local version
       ble/util/assign version '"$path" -W version || "$path" --version' 2>/dev/null </dev/null
       if [[ $version == *'GNU Awk'* ]]; then
@@ -1242,6 +1284,11 @@ function ble/bin/awk0.available {
 
   function ble/bin/awk0.available { ((0)); }
   return 1
+}
+
+function ble/base/is-msys1 {
+  local cr; cr=$'\r'
+  [[ $OSTYPE == msys && ! $cr ]]
 }
 
 function ble/util/mkd {
@@ -1457,7 +1504,7 @@ function ble/base/initialize-base-directory {
 }
 if ! ble/base/initialize-base-directory "${BASH_SOURCE[0]}"; then
   ble/util/print "ble.sh: ble base directory not found!" 1>&2
-  builtin unset -v _ble_bash BLE_VERSION BLE_VERSINFO
+  ble/base/clear-version-variables
   ble/init/clean-up 2>/dev/null # set -x 対策 #D0930
   return 1
 fi
@@ -1533,7 +1580,7 @@ function ble/base/initialize-runtime-directory {
 }
 if ! ble/base/initialize-runtime-directory; then
   ble/util/print "ble.sh: failed to initialize \$_ble_base_run." 1>&2
-  builtin unset -v _ble_bash BLE_VERSION BLE_VERSINFO
+  ble/base/clear-version-variables
   ble/init/clean-up 2>/dev/null # set -x 対策 #D0930
   return 1
 fi
@@ -1583,12 +1630,15 @@ function ble/base/clean-up-runtime-directory {
     if [[ $file == *.pid && -s $file ]]; then
       local run_pid IFS=
       ble/bash/read run_pid < "$file"
-      if [[ $run_pid && ! ${run_pid//[0-9]} ]]; then
+      if ble/string#match "$run_pid" '^-?[0-9]+$' && kill -0 "$run_pid" &>/dev/null; then
         if ((pid==$$)); then
           # 現セッションの背景プロセスの場合は遅延させる
-          kill -0 "$run_pid" &>/dev/null && bgpids[ibgpid++]=$run_pid
+          bgpids[ibgpid++]=$run_pid
         else
-          kill "$run_pid"
+          builtin kill -- "$run_pid" &>/dev/null
+          ble/util/msleep 50
+          builtin kill -0 "$run_pid" &>/dev/null &&
+            (ble/util/nohup "ble/util/conditional-sync '' '((1))' 100 progressive-weight:pid=$run_pid:no-wait-pid:timeout=3000:SIGKILL")
         fi
       fi
     fi
@@ -1596,15 +1646,12 @@ function ble/base/clean-up-runtime-directory {
     removed[iremoved++]=$file
   done
   ((iremoved)) && ble/bin/rm -rf "${removed[@]}" 2>/dev/null
-  ((ibgpid)) && (ble/util/nohup 'ble/bin/sleep 3; kill "${bgpids[@]}"')
+  ((ibgpid)) && (ble/util/nohup 'ble/bin/sleep 3; builtin kill -- "${bgpids[@]}" &>/dev/null')
 
   [[ $failglob ]] && shopt -s failglob
   [[ $noglob ]] && set -f
   return 0
 }
-
-# initialization time = 9ms (for 70 files)
-ble/base/clean-up-runtime-directory
 
 ##
 ## @var _ble_base_cache
@@ -1690,7 +1737,7 @@ function ble/base/migrate-cache-directory {
 }
 if ! ble/base/initialize-cache-directory; then
   ble/util/print "ble.sh: failed to initialize \$_ble_base_cache." 1>&2
-  builtin unset -v _ble_bash BLE_VERSION BLE_VERSINFO
+  ble/base/clear-version-variables
   ble/init/clean-up 2>/dev/null # set -x 対策 #D0930
   return 1
 fi
@@ -1748,7 +1795,7 @@ function ble/base/initialize-state-directory {
 }
 if ! ble/base/initialize-state-directory; then
   ble/util/print "ble.sh: failed to initialize \$_ble_base_state." 1>&2
-  builtin unset -v _ble_bash BLE_VERSION BLE_VERSINFO
+  ble/base/clear-version-variables
   ble/init/clean-up 2>/dev/null # set -x 対策 #D0930
   return 1
 fi
@@ -1850,6 +1897,7 @@ function ble-update/.download-nightly-build {
   local tarname=ble-nightly.tar.xz
   local url_tar=$_ble_base_repository_url/releases/download/nightly/$tarname
   (
+    ble/util/joblist/__suppress__
     set +f
     shopt -u failglob nullglob
 
@@ -1914,6 +1962,48 @@ function ble-update/.download-nightly-build {
   ) &&
     ble-update/.reload
 }
+## @fn ble-update/.check-build-dependencies
+##   @var[out] make
+function ble-update/.check-build-dependencies {
+  # check make
+  make=
+  if ble/bin#has gmake; then
+    make=gmake
+  elif ble/bin#has make && make --version 2>&1 | ble/bin/grep -qiF 'GNU Make'; then
+    make=make
+  else
+    ble/util/print "ble-update: GNU Make is not available." >&2
+    return 1
+  fi
+
+  # check git, gawk
+  if ! ble/bin#has git gawk; then
+    local command
+    for command in git gawk; do
+      ble/bin#has "$command" ||
+        ble/util/print "ble-update: '$command' command is not available." >&2
+    done
+    return 1
+  fi
+  return 0
+}
+## @fn ble-update/.check-repository
+function ble-update/.check-repository {
+  if [[ ${_ble_base_repository-} && $_ble_base_repository != release:* ]]; then
+    if [[ ! -e $_ble_base_repository/.git ]]; then
+      ble/util/print "ble-update: git repository not found at '$_ble_base_repository'." >&2
+    elif [[ ! -O $_ble_base_repository ]]; then
+      ble/util/print "ble-update: git repository is owned by another user:" >&2
+      ls -ld "$_ble_base_repository"
+    elif [[ ! -r $_ble_base_repository || ! -w $_ble_base_repository || ! -x $_ble_base_repository ]]; then
+      ble/util/print 'ble-update: git repository permission denied:' >&2
+      ls -ld "$_ble_base_repository"
+    else
+      return 0
+    fi
+  fi
+  return 1
+}
 function ble-update {
   if (($#)); then
     ble/base/print-usage-for-no-argument-command 'Update and reload ble.sh.' "$@"
@@ -1942,55 +2032,27 @@ function ble-update {
     fi
   fi
 
-  # check make
-  local make=
-  if ble/bin#has gmake; then
-    make=gmake
-  elif ble/bin#has make && make --version 2>&1 | ble/bin/grep -qiF 'GNU Make'; then
-    make=make
-  else
-    ble/util/print "ble-update: GNU Make is not available." >&2
-    return 1
-  fi
-
-  # check git, gawk
-  if ! ble/bin#has git gawk; then
-    local command
-    for command in git gawk; do
-      ble/bin#has "$command" ||
-        ble/util/print "ble-update: '$command' command is not available." >&2
-    done
-    return 1
-  fi
+  local make
+  ble-update/.check-build-dependencies || return 1
 
   local insdir_doc=$_ble_base/doc
   [[ ! -d $insdir_doc && -d ${_ble_base%/*}/doc/blesh ]] &&
     insdir_doc=${_ble_base%/*}/doc/blesh
 
-  if [[ ${_ble_base_repository-} && $_ble_base_repository != release:* ]]; then
-    if [[ ! -e $_ble_base_repository/.git ]]; then
-      ble/util/print "ble-update: git repository not found at '$_ble_base_repository'." >&2
-    elif [[ ! -O $_ble_base_repository ]]; then
-      ble/util/print "ble-update: git repository is owned by another user:" >&2
-      ls -ld "$_ble_base_repository"
-    elif [[ ! -r $_ble_base_repository || ! -w $_ble_base_repository || ! -x $_ble_base_repository ]]; then
-      ble/util/print 'ble-update: git repository permission denied:' >&2
-      ls -ld "$_ble_base_repository"
-    else
-      ( ble/util/print "cd into $_ble_base_repository..." >&2 &&
-          builtin cd "$_ble_base_repository" &&
-          git pull && git submodule update --recursive --remote &&
-          if [[ $_ble_base == "$_ble_base_repository"/out ]]; then
-            ble-update/.make all
-          elif ((EUID!=0)) && ! ble-update/.check-install-directory-ownership; then
-            ble-update/.make all
-            ble-update/.make --sudo INSDIR="$_ble_base" INSDIR_DOC="$insdir_doc" install
-          else
-            ble-update/.make INSDIR="$_ble_base" INSDIR_DOC="$insdir_doc" install
-          fi )
-      ble-update/.reload "$?"
-      return "$?"
-    fi
+  if ble-update/.check-repository; then
+    ( ble/util/print "cd into $_ble_base_repository..." >&2 &&
+        builtin cd "$_ble_base_repository" &&
+        git pull && git submodule update --recursive --remote &&
+        if [[ $_ble_base == "$_ble_base_repository"/out ]]; then
+          ble-update/.make all
+        elif ((EUID!=0)) && ! ble-update/.check-install-directory-ownership; then
+          ble-update/.make all
+          ble-update/.make --sudo INSDIR="$_ble_base" INSDIR_DOC="$insdir_doc" install
+        else
+          ble-update/.make INSDIR="$_ble_base" INSDIR_DOC="$insdir_doc" install
+        fi )
+    ble-update/.reload "$?"
+    return "$?"
   fi
   
   if ((EUID!=0)) && ! ble-update/.check-install-directory-ownership; then
@@ -2042,16 +2104,8 @@ ble/builtin/trap/install-hook RETURN inactive
 function ble/base/initialize-session {
   [[ $_ble_base_session == */"$$" ]] && return 0
 
-  local start_time=
-  if ((_ble_bash>=50000)); then
-    start_time=${EPOCHREALTIME//[!0-9]}
-  elif ((_ble_bash>=40200)); then
-    printf -v start_time '%(%s)T' -1
-    ((start_time*=1000000))
-  else
-    ble/util/assign start_time 'ble/bin/date +%s'
-    ((start_time*=1000000))
-  fi
+  local ret
+  ble/util/timeval; local start_time=$ret
   ((start_time-=SECONDS*1000000))
 
   _ble_base_session=${start_time::${#start_time}-6}.${start_time:${#start_time}-6}/$$
@@ -2069,6 +2123,9 @@ ble/base/initialize-session
 #%x inc.r|@|lib/core-complete-def|
 #%x inc.r|@|lib/core-debug-def|
 #%x inc.r|@|contrib/integration/bash-preexec-def|
+
+# initialization time = 9ms (for 70 files)
+ble/function#try ble/util/idle.push ble/base/clean-up-runtime-directory
 
 bleopt -I
 #------------------------------------------------------------------------------
@@ -2228,6 +2285,12 @@ ble/debug/leakvar#check $"leakvar" A4b2
 #%end.i
   fi
 
+  # reconnect standard streams
+  ble/fd/save-external-standard-streams
+  exec 0<&"$_ble_util_fd_tui_stdin"
+  exec 1>&"$_ble_util_fd_tui_stdout"
+  exec 2>&"$_ble_util_fd_tui_stderr"
+
   # char_width_mode=auto
   ble/canvas/attach
 #%if leakvar
@@ -2272,7 +2335,12 @@ ble/debug/leakvar#check $"leakvar" A7b1
 ble/debug/leakvar#check $"leakvar" A8-history
 #%end.i
 
+  # We here temporarily restore PS1 and PROMPT_COMMAND for the user hooks
+  # registered to ATTACH.  Note that in this context, ble-edit/adjust-PS1 is
+  # already performed by the above ble-edit/attach.
+  ble-edit/restore-PS1
   blehook/invoke ATTACH
+  ble-edit/adjust-PS1
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" A9-ATTACH
 #%end.i
@@ -2338,7 +2406,15 @@ function ble/base/unload-for-reload {
 ## @fn ble/base/unload [opts]
 function ble/base/unload {
   ble/util/is-running-in-subshell && return 1
+
+  # Adjust environment
   local IFS=$_ble_term_IFS
+  ble/base/adjust-builtin-wrappers-1
+  ble/base/adjust-bash-options
+  ble/base/adjust-POSIXLY_CORRECT
+  ble/base/adjust-builtin-wrappers-2
+  ble/base/adjust-BASH_REMATCH
+
   ble/term/stty/TRAPEXIT "$1"
   ble/term/leave
   ble/util/buffer.flush >&2
@@ -2347,11 +2423,11 @@ function ble/base/unload {
   ble-edit/bind/clear-keymap-definition-loader
   ble/builtin/trap/finalize "$1"
   ble/util/import/finalize
-  ble/fd#finalize
   ble/base/clean-up-runtime-directory finalize
-  builtin unset -v _ble_bash BLE_VERSION BLE_VERSINFO
+  ble/fd#finalize
+  ble/base/clear-version-variables
   return 0
-}
+} 0<&"$_ble_util_fd_tui_stdin" 1>&"$_ble_util_fd_tui_stdout" 2>&"$_ble_util_fd_tui_stderr"
 
 ## @var _ble_base_attach_from_prompt
 ##   非空文字列の時、PROMPT_COMMAND 経由の ble-attach を現在試みている最中です。
@@ -2554,6 +2630,56 @@ function ble/base/sub:test {
 function ble/base/sub:update { ble-update; }
 function ble/base/sub:clear-cache {
   (shopt -u failglob; ble/bin/rm -rf "$_ble_base_cache"/*)
+}
+function ble/base/sub:install {
+  local insdir=${1:-${XDG_DATA_HOME:-$HOME/.local/share}}/blesh
+
+  local dir=$insdir sudo=
+  [[ $dir == /* ]] || dir=./$dir
+  while [[ $dir && ! -d $dir ]]; do
+    dir=${dir%/*}
+  done
+  [[ $dir ]] || dir=/
+  if ! [[ -r $dir && -w $dir && -x $dir ]]; then
+    if ((EUID!=0)) && [[ ! -O $dir ]] && ble/bin#has sudo; then
+      sudo=1
+    else
+      ble/util/print "ble.sh --install: $dir: permission denied" >&2
+      return 1
+    fi
+  fi
+
+  if [[ ${_ble_base_repository-} == release:nightly-* ]]; then
+    if [[ $insdir == "$_ble_base" ]]; then
+      ble/util/print "ble.sh --install: already installed" >&2
+      return 1
+    fi
+    local ret
+    ble/string#quote-word "$insdir"; local qinsdir=$ret
+    ble/string#quote-word "$_ble_base"; local qbase=$ret
+    if [[ $sudo ]]; then
+      ble/util/print "\$ sudo mkdir -p $qinsdir"
+      sudo mkdir -p "$insdir"
+      ble/util/print "\$ sudo cp -Rf $qbase/* $qinsdir/"
+      sudo cp -Rf "$_ble_base"/* "$insdir/"
+      ble/util/print "\$ sudo rm -rf $qinsdir/{cache.d,run}"
+      sudo rm -rf "$insdir"/{cache.d,run}
+    else
+      ble/util/print "\$ mkdir -p $qinsdir"
+      ble/bin/mkdir -p "$insdir"
+      ble/util/print "\$ cp -Rf $qbase/* $qinsdir/"
+      ble/bin/cp -Rf "$_ble_base"/* "$insdir/"
+      ble/util/print "\$ rm -rf $qinsdir/cache.d/*"
+      ble/bin/rm -rf "$insdir/cache.d"/*
+    fi
+  elif local make; ble-update/.check-build-dependencies && ble-update/.check-repository; then
+    ( ble/util/print "cd into $_ble_base_repository..." >&2 &&
+        builtin cd "$_ble_base_repository" &&
+        ble-update/.make ${sudo:+--sudo} install INSDIR="$insdir" )
+  else
+    ble/util/print "ble.sh --install: not supported." >&2
+    return 1
+  fi
 }
 function ble/base/sub:lib { :; } # do nothing
 

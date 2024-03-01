@@ -33,9 +33,9 @@ function bleopt/.read-arguments/process-option {
 function bleopt/expand-variable-pattern {
   ret=()
   local pattern=$1
-  if [[ $pattern == *@* ]]; then
-    builtin eval -- "ret=(\"\${!${pattern%%@*}@}\")"
-    ble/array#filter-by-glob ret "${pattern//@/?*}"
+  if [[ $pattern == *[@*?]* ]]; then
+    builtin eval -- "ret=(\"\${!${pattern%%[@*?]*}@}\")"
+    ble/array#filter-by-glob ret "${pattern//@/*}"
   elif [[ ${!pattern+set} || :$opts: == :allow-undefined: ]]; then
     ret=("$pattern")
   fi
@@ -79,7 +79,7 @@ function bleopt/.read-arguments {
         esac
       done ;;
     (*)
-      if local rex='^([_a-zA-Z0-9@]+)(:?=|$)(.*)'; [[ $arg =~ $rex ]]; then
+      if local rex='^([_a-zA-Z0-9@*?]+)(:?=|$)(.*)'; [[ $arg =~ $rex ]]; then
         local name=${BASH_REMATCH[1]#bleopt_}
         local var=bleopt_$name
         local op=${BASH_REMATCH[2]}
@@ -87,7 +87,7 @@ function bleopt/.read-arguments {
 
         # check/expand variable names
         if [[ $op == ':=' ]]; then
-          if [[ $var == *@* ]]; then
+          if [[ $var == *[@*?]* ]]; then
             ble/util/print "bleopt: \`${var#bleopt_}': wildcard cannot be used in the definition." >&2
             flags=E$flags
             continue
@@ -178,7 +178,7 @@ function bleopt {
       '    NAME=VALUE  Set the value to the option.' \
       '    NAME:=VALUE Set or create the value to the option.' \
       '' \
-      '  NAME can contain "@" as a wildcard.' \
+      '  NAME can contain "@", "*", and "?" as wildcards.' \
       ''
     return 0
   fi
@@ -1417,6 +1417,10 @@ function ble/opts#has {
 function ble/opts#remove {
   ble/path#remove "$@"
 }
+## @fn ble/opts#append-unique opts value
+function ble/opts#append-unique {
+  [[ :${!1}: == *:"$2":* ]] || ble/util/set "$1" "${!1:+${!1}:}$2"
+}
 
 ## @fn ble/opts#extract-first-optarg opts key [default_value]
 function ble/opts#extract-first-optarg {
@@ -2127,7 +2131,8 @@ function ble/util/writearray {
 
 #%    # 全体 quote の除去
       if (decl ~ /^([_a-zA-Z][_a-zA-Z0-9]*)='\''\(.*\)'\''$/) {
-        sub(/='\''\(/, "=(", decl);
+        # Note: nawk in Solaris 2.11 does not allow regex to start with /=.
+        sub(/(=)'\''\(/, "=(", decl);
         sub(/\)'\''$/, ")", decl);
         gsub(/'\'\\\\\'\''/, "'\''", decl);
       }
@@ -2193,7 +2198,7 @@ function ble/util/readarray {
 
 ## @fn ble/util/assign var command
 ##   var=$(command) の高速な代替です。command はサブシェルではなく現在のシェル
-##   で実行されます。Bash 5.3 の var=${ command; } に等価です。
+##   で実行されます。Bash 5.3 の var=${ command; } にほぼ等価です。
 ##
 ##   @param[in] var
 ##     代入先の変数名を指定します。
@@ -2204,6 +2209,11 @@ function ble/util/readarray {
 ##   bgpid=$!; ble/util/print "$bgpid")' » でプロセスグループが作られる事を想定
 ##   している。例えば bgpid=$(...) はプロセスグループが作られないので使えない。
 ##
+## @remarks There is small behavioral differences between the implementation by
+##   the function substitution and the manual implementation using temporary
+##   files.  In the function substitutions, the update of the job list is
+##   suppressed, so the notified dead jobs are not flushed on just running
+##   ble/util/assign jobs jobs.
 _ble_util_assign_base=$_ble_base_run/$$.util.assign.tmp
 _ble_util_assign_level=0
 if ((_ble_bash>=40000)); then
@@ -2748,6 +2758,23 @@ else
   }
 fi
 
+function ble/util/load-standard-builtin {
+  local ret; ble/util/readlink "$BASH"
+  local bash_prefix=${ret%/*/*}
+  if [[ -s $bash_prefix/lib/bash/$1 ]] &&
+    (enable -f "$bash_prefix/lib/bash/$1" "$1" && help "$1") &>/dev/null; then
+    enable -f "$bash_prefix/lib/bash/$1" "$1"
+    return 0
+  else
+    return 1
+  fi
+}
+
+## @fn ble/util/is-stdin-ready [exit]
+##   Returns if there is already any user inputs pending in stdin.
+##   @param[in,opt] exit
+##     This specifies the exit status when we cannot test it.  The default
+##     value is 1.
 if ((_ble_bash>=40000)); then
   # #D1341 対策 変数代入形式だと組み込みコマンドにロケールが適用されない。
   function ble/util/is-stdin-ready {
@@ -2757,7 +2784,7 @@ if ((_ble_bash>=40000)); then
   # suppress locale error #D1440
   ble/function#suppress-stderr ble/util/is-stdin-ready
 else
-  function ble/util/is-stdin-ready { false; }
+  function ble/util/is-stdin-ready { return "${1:-1}"; }
 fi
 
 # Note: BASHPID は Bash-4.0 以上
@@ -2783,10 +2810,154 @@ else
 fi
 
 ## @fn ble/fd#is-open fd
-##   指定したファイルディスクリプタが開いているかどうか判定します。
-function ble/fd#is-open { builtin : >&"$1"; } 2>/dev/null
+##   Test if the specified file descriptor is open.
+##
+_ble_util_fd_is_open_stdout=
+_ble_util_fd_is_open_stderr=
+if ((_ble_bash>=40000)) && [[ -d /proc/$BASHPID/fd ]]; then
+  # Bash 3 does not have BASHPID
+  function ble/fd#is-open { [[ $1 && -e /proc/$BASHPID/fd/$1 ]]; }
+  function ble/fd#is-open/.upgrade { builtin unset -f "$FUNCNAME"; }
+else
+  # This is the most primitive but incomplete implementation and will be
+  # overwritten later when "ble/fd#alloc/.nextfd" is ready.  We need this
+  # implementation to make "ble/fd#alloc/.nextfd" work.  This temporary
+  # implementation ensures that the number is not used when it fails, but the
+  # number may not be actually used when it succeeds.  This is because this
+  # function may unexpectedly hit the undo-redirection fd for `2>/dev/null'.
+  function ble/fd#is-open { builtin : 9>&"$1"; } 2>/dev/null
+
+  function ble/fd#is-open/.upgrade {
+    if ! { [[ $_ble_util_fd_null ]] && ((1)) >&"$_ble_util_fd_null"; } 2>/dev/null; then
+      ble/util/print "$FUNCNAME: [FATAL] call this function after \$_ble_util_fd_null is ready" >&2
+      return 1
+    fi
+
+    local fd1 fd2
+    ble/fd#alloc/.nextfd fd1
+    ble/fd#alloc/.nextfd fd2
+    _ble_util_fd_is_open_stdout=$fd1
+    _ble_util_fd_is_open_stderr=$fd2
+
+    # This is the final version.  This implementation uses "exec" to move file
+    # descriptors without creating any "undo-redirection" fds.  To reserve the
+    # numbers of the file descriptors, we duplicate the file descriptor with
+    # O_CLOEXEC connected to /dev/null stored in $_ble_util_fd_null.  After
+    # defining this function, "ble/fd#is-open" needs to be called at least once
+    # to replace the file descriptors with the ones with O_CLOEXEC.
+    builtin eval -- "
+      ble/fd#alloc/.exec $fd1 '>/dev/null'             # disable=#D1835
+      ble/fd#alloc/.exec $fd2 '>&$fd1'                 # disable=#D1835
+      function ble/fd#is-open {
+        ble/string#match \"\$1\" '^[0-9]+$' || return 1
+        [[ \$1 == $fd1 || \$1 == $fd2 || \$1 == $_ble_util_fd_null ]] && return 0
+        ble/fd#alloc/.exec $fd2 '>&2'                  # disable=#D1835
+        exec 2>&$_ble_util_fd_null                     # disable=#D1835
+        ble/fd#alloc/.exec $fd1 \">&\$1\"              # disable=#D1835
+        local ext=\$?
+        exec 2>&$fd2                                   # disable=#D1835
+        ble/fd#alloc/.exec $fd1 '>&$_ble_util_fd_null' # disable=#D1835
+        ble/fd#alloc/.exec $fd2 '>&$fd1'               # disable=#D1835
+        return \"\$ext\"
+      }
+    "
+    builtin unset -f "$FUNCNAME"
+  }
+fi
+
+function ble/fd#alloc/.close { builtin eval "exec $1<&-"; } # disable=#D2164
+if ((30100<=_ble_bash&&_ble_bash<30200)); then
+  function ble/fd#alloc/.close/.upgrade {
+    if ! { [[ $_ble_util_fd_null ]] && ((1)) >&"$_ble_util_fd_null"; } 2>/dev/null; then
+      ble/util/print "$FUNCNAME: [FATAL] call this function after \$_ble_util_fd_null is ready" >&2
+      return 1
+    fi
+
+    # Bash 3.1 has a bug that the file descriptor (>= 10) cannot be closed by
+    # 33>&-.  We here utilize another bug in Bash 3.1, where 77>&33- fails
+    # halfway when 77 is in use and results in just closing 33.  We use the
+    # file descriptor for /dev/null in place of 77.
+    builtin eval -- "
+      function ble/fd#alloc/.close {
+        ((\$1==$_ble_util_fd_null||\$1==2)) && return 1
+        exec $_ble_util_fd_null<&\"\$1\"-
+      } 2>/dev/null"
+    builtin unset -f "$FUNCNAME"
+  }
+else
+  function ble/fd#alloc/.close/.upgrade { builtin unset -f "$FUNCNAME"; }
+fi
+
+function ble/fd/.validate-shared-fds {
+  local -a close_fd=()
+  # We first check if the exported fds are still valid.  If an exported fd is
+  # invalidated by e.g. closing the other end point, the fd becomes invalid and
+  # another stream can be later assigned to the same number.  Using the
+  # re-assigned number as if it was the inherited fd causes problems.  Before
+  # performing any redirections, we here explicitly close the invalidated fds
+  # and unset the environment variables.
+  if [[ ${_ble_util_fdvars_export-} ]]; then
+    local ret var fd
+    ble/string#split ret : "$_ble_util_fdvars_export"
+    for var in "${ret[@]}"; do
+      ble/string#match "$var" '^[a-zA-Z_][a-zA-Z_0-9]*$' || continue
+      fd=${!var}
+      ble/string#match "$fd" '^[0-9]+$' || continue
+      if ! ble/fd#is-open "$fd"; then
+        ble/array#push close_fd "$fd"
+        builtin unset -v "$var"
+      fi
+    done
+
+    # We also check variables exported from older versions by the variable name
+    # pattern.  In case some variables contain unrelated numbers, we require
+    # the number to have at least two digits.
+    for var in "${!_ble_util_fd_@}"; do
+      fd=${!var}
+      ble/string#match "$fd" '^[0-9]{2,}$' || continue
+      if ! ble/fd#is-open "$fd"; then
+        ble/array#push close_fd "$fd"
+        builtin unset -v "$var"
+      fi
+    done
+    _ble_util_fdvars_export=
+  fi
+
+  # We also close all the fds marked as "cloexec" that were inherited by the
+  # parent ble.sh session.
+  if [[ ${_ble_util_fdlist_cloexit-} ]]; then
+    local ret fd
+    ble/string#split ret : "$_ble_util_fdlist_cloexit"
+    for fd in "${ret[@]}"; do
+      [[ $fd && ! ${fd//[0-9]} ]] &&
+        ble/array#push close_fd "$fd"
+    done
+    _ble_util_fdlist_cloexit=
+  fi
+
+  if ((${#close_fd[@]})); then
+    "${_ble_util_set_declare[@]//NAME/mark}" # disable=#D1570
+    local fd
+    for fd in "${close_fd[@]}"; do
+      ble/set#contains mark "$fd" && continue
+      ble/set#add mark "$fd"
+
+      # Note: XXX--At this point, the implementation of ble/fd#alloc/.close
+      # does not work for Bash 3.1.  We give up closing file descriptors in
+      # Bash 3.1.
+      ble/fd#alloc/.close "$fd"
+    done
+  fi
+}
+ble/fd/.validate-shared-fds
+export _ble_util_fdlist_cloexit=
+export _ble_util_fdvars_export=
 
 _ble_util_openat_nextfd=
+## @fn ble/fd#alloc/.nextfd var [fdbase [opts]]
+##   @param[out] var
+##   @opt no-increment
+##     _ble_util_openat_nextfd を更新しません。
 function ble/fd#alloc/.nextfd {
   [[ $_ble_util_openat_nextfd ]] ||
     _ble_util_openat_nextfd=${bleopt_openat_base:-30}
@@ -2798,18 +2969,254 @@ function ble/fd#alloc/.nextfd {
   #   常に開いていない fd を探索する。#D1318
   # Note: fd が枯渇すると探索が無限ループになるので fd 探索範囲の上限を 1024 に
   #   制限する。もし見つからない場合には初期値の fd を上書きする。
-  local _ble_local_init=$_ble_util_openat_nextfd
+  local _ble_local_init=${2:-$_ble_util_openat_nextfd}
   local _ble_local_limit=$((_ble_local_init+1024))
-  while ((_ble_util_openat_nextfd<_ble_local_limit)) &&
-          ble/fd#is-open "$_ble_util_openat_nextfd"; do
-    ((_ble_util_openat_nextfd++))
+  local _ble_local_nextfd=$_ble_local_init
+  while ((_ble_local_nextfd<_ble_local_limit)) &&
+          ble/fd#is-open "$_ble_local_nextfd"; do
+    ((_ble_local_nextfd++))
   done
-  if ((_ble_util_openat_nextfd>=_ble_local_limit)); then
-    _ble_util_openat_nextfd=$_ble_local_init
-    builtin eval "exec $_ble_util_openat_nextfd>&-"
+  if ((_ble_local_nextfd>=_ble_local_limit)); then
+    _ble_local_nextfd=$_ble_local_init
+    ble/fd#alloc/.close "$_ble_local_nextfd"
   fi
-  (($1=_ble_util_openat_nextfd++))
+  (($1=_ble_local_nextfd++))
+  [[ ${2-} || :${3-}: == *:no-increment:* ]] ||
+    _ble_util_openat_nextfd=$_ble_local_nextfd
 }
+
+## @var _ble_util_fd_null
+##   We open a stream connected to /dev/null for read/write and store the
+##   number in this variable.
+##
+##   @remark We originally initialized this variable using "ble/fd#alloc" after
+##   we define "ble/fd#alloc".  However, because of bash-3.1 bug (#D2164), we
+##   need the file descriptor associated with /dev/null for ble/fd#add-cloexec,
+##   and ble/fd#add-cloexec is needed by ble/fd#alloc.  We give up initializing
+##   _ble_util_fd_null using "ble/fd#alloc" and manually initialize it here.
+##   Some part needs to be performed later after ble/fd#add-cloexec is defined.
+if [[ :$bleopt_connect_tty: == *:inherit:* ]]; then
+  # Initialize the variable as if "ble/fd#alloc _ble_util_fd_null base:inherit"
+  if [[ ! ${_ble_util_fd_null-} ]] || ! ble/fd#is-open "$_ble_util_fd_null"; then
+    builtin eval "exec $_ble_util_fd_null<>/dev/null"
+    ble/opts#append-unique _ble_util_fdvars_export _ble_util_fd_null
+    export _ble_util_fd_null
+    ble/fd#alloc/.nextfd _ble_util_fd_null
+  fi
+else
+  # Initialize the variable as if "ble/fd#alloc _ble_util_fd_null base".
+  # ble/fd#add-cloexec needs to be performed later.
+  ble/fd#alloc/.nextfd _ble_util_fd_null
+  builtin eval "exec $_ble_util_fd_null<>/dev/null"
+  ble/opts#append-unique _ble_util_fdlist_cloexit "$_ble_util_fd_null"
+  # later: ble/fd#add-cloexec "$_ble_util_fd_null"
+fi
+
+# We now switch to the complete implementation of "ble/fd#alloc/.close" relying
+# on $_ble_util_fd_null.
+ble/fd#alloc/.close/.upgrade
+
+## @fn ble/fd#alloc/.exec fddst redir
+##   Performs builtin eval "exec $fddst$redir" with sepcial cares for bugs in
+##   old versions of Bash.
+##   @param fddst
+##     The file descriptor that is supposed to be modified
+##   @param redir
+##     Redirection operator plus arguments
+function ble/fd#alloc/.exec {
+  # Note (#D0857): Bash 3.2/3.1 has a bug for the file descriptors (>= 10).
+  #   When a file descriptor is already used, the redirections of the form
+  #   33>... (disable=#D0857) silently fails.  To work around this bug, we
+  #   first close the file descriptor by ble/fd#alloc/.close.
+  # Note (#D2164): We also need to close the destination file descriptor FD
+  #   before performing "exec FD>...".  When FD is open and has the CLOEXEC
+  #   attribute, the redirection is performed but immediately undone by Bash.
+  #   https://lists.gnu.org/archive/html/bug-bash/2024-02/msg00188.html
+  ble/fd#alloc/.close "$1"
+  builtin eval "exec $1$2"
+}
+
+# We now switch to the complete implementation of "ble/fd#is-open" utlizing
+# "ble/fd#alloc/.nextfd", "ble/fd#alloc/.exec", and "$_ble_util_fd_null".
+ble/fd#is-open/.upgrade
+
+## @fn ble/fd#list
+if [[ -d /proc/$$/fd ]]; then
+  ## @fn ble/fd#list/adjust-glob
+  ##   @var[out] set shopt gignore
+  function ble/fd#list/adjust-glob {
+    set=$- gignore=$GLOBIGNORE
+    if ((_ble_bash>=40100)); then
+      shopt=$BASHOPTS
+    else
+      shopt=
+      shopt -q failglob && shopt=$shopt:failglob
+      shopt -q dotglob && shopt=$shopt:dotglob
+    fi
+    shopt -u failglob
+    set +f
+    GLOBIGNORE=
+  }
+  ## @fn ble/fd#list/restore-glob
+  ##   @var[in] set shopt gignore
+  function ble/fd#list/restore-glob {
+    # Note: dotglob is changed by GLOBIGNORE
+    GLOBIGNORE=$gignore
+    if [[ :$shopt: == *:dotglob:* ]]; then shopt -s dotglob; else shopt -u dotglob; fi
+    [[ $set == *f* ]] && set -f
+    [[ :$shopt: == *:failglob:* ]] && shopt -s failglob
+  }
+  ## @fn ble/fd#list [pid]
+  ##   List the file descriptors opend for the specified process.  If PID is
+  ##   not specified, this returns the list for the current process.
+  ##   @arr[out] ret
+  function ble/fd#list {
+    ret=()
+    local set shopt gignore
+    ble/fd#list/adjust-glob
+
+    local pid=${1-}
+    if [[ ! $pid ]]; then
+      if ((_ble_bash<40000)); then
+        local BASHPID
+        ble/util/getpid
+      fi
+      pid=$BASHPID
+    fi
+
+    local fd
+    for fd in /proc/"$pid"/fd/[0-9]*; do
+      fd=${fd##*/}
+      [[ $fd && ! ${fd//[0-9]} ]] &&
+        ble/array#push ret "$fd"
+    done
+    ble/fd#list/restore-glob
+  }
+else
+  ## @fn ble/fd#list
+  ##   List the file descriptors opend for the current process.
+  ##   @arr[out] ret
+  function ble/fd#list {
+    ret=()
+    local fd
+    for fd in {0..255}; do
+      ble/fd#is-open "$fd" && ble/array#push ret "$fd"
+    done
+  }
+fi
+
+if ((_ble_bash>=40400)) && ble/util/load-standard-builtin fdflags; then
+  # Implementation of ble/fd#add-cloexec by loadable builtin (8us)
+
+  function ble/fd#add-cloexec { builtin fdflags -s +cloexec "$1"; }
+  function ble/fd#remove-cloexec { builtin fdflags -s -cloexec "$1"; }
+elif ((_ble_bash>=40000)); then
+  # Implementation of ble/fd#add-cloexec by undo fd.
+  #
+  # In bash >= 4.0, the "undo fd" (i.e., the file descriptor that holds the
+  # original stream of the redirected file descriptor) gets O_CLOEXEC.  If we
+  # can identify the "undo fd", we can duplicate it to another file descriptor
+  # to get O_CLOEXEC version of the original stream.  This can only be used in
+  # bash >= 4.0, because older versions of bash does not give O_CLOEXEC to the
+  # undo fds.
+  if [[ -d /proc/$$/fd ]]; then
+    # Implementation of ble/fd#add-cloexec by procfs (1588us)
+
+    function ble/fd#add-cloexec/.listfd {
+      local fd
+      for fd in /proc/"$$"/fd/*; do
+        fd=${fd##*/}
+        [[ $fd && ! ${fd//[0-9]} ]] && ble/util/set "$1[fd]" 1
+      done
+    }
+    ## @fn ble/fd#add-cloexec/.probe
+    ##   @var[out] ret
+    function ble/fd#add-cloexec/.probe {
+      local fdset2
+      ble/fd#add-cloexec/.listfd fdset2
+
+      local fd
+      for fd in "${!fdset1[@]}"; do builtin unset -v 'fdset2[fd]'; done
+      fd=("${!fdset2[@]}")
+
+      ((${#fd[@]}==1)) &&
+        ble/fd#alloc/.nextfd ret '' no-increment &&
+        builtin eval -- "exec $ret<&$fd" &&
+        return 0
+
+      ret=
+      return 1
+    }
+
+    ## @fn ble/fd#add-cloexec/.dup-undo-redirection-fd
+    ##   @var[out] ret
+    function ble/fd#add-cloexec/.dup-undo-redirection-fd {
+      local set shopt gignore
+      ble/fd#list/adjust-glob
+
+      local fd=$1 fdset1
+      ble/fd#add-cloexec/.listfd fdset1
+
+      builtin eval -- "ble/fd#add-cloexec/.probe $fd</dev/null"
+      local ext=$?
+
+      ble/fd#list/restore-glob
+      return "$ext"
+    }
+  else
+    # Implementation of ble/fd#add-cloexec by manual fd scan (1996us)
+
+    ## @fn ble/fd#add-cloexec/.probe
+    ##   @var[out] ret
+    function ble/fd#add-cloexec/.probe {
+      local fd
+      local -a mark=()
+      for fd in "${candidates[@]}"; do
+        [[ $fd && ! ${fd//[0-9]} && ! ${mark[fd]-} ]] || continue
+        mark[fd]=1
+
+        ble/fd#is-open "$fd" &&
+          ble/fd#alloc/.nextfd ret '' no-increment &&
+          builtin eval -- "exec $ret<&$fd" &&
+          return 0
+      done
+      ret=
+      return 1
+    }
+
+    function ble/fd#add-cloexec/.dup-undo-redirection-fd {
+      local fd=$1
+
+      local -a candidates=()
+      local fdtmp
+      ble/fd#alloc/.nextfd fdtmp 10 &&
+        ble/array#push candidates "$fdtmp"
+      ble/fd#alloc/.nextfd fdtmp "$((fd<10?10:fd+1))" &&
+        ble/array#push candidates "$fdtmp"
+      ble/fd#alloc/.nextfd fdtmp '' no-increment &&
+        ble/array#push candidates "$fdtmp"
+
+      builtin eval -- "ble/fd#add-cloexec/.probe $fd</dev/null"
+    }
+  fi
+
+  function ble/fd#add-cloexec {
+    local fd=$1 ret
+    ble/fd#add-cloexec/.dup-undo-redirection-fd "$fd" &&
+      builtin eval -- "exec $fd>&- $fd>&$ret $ret>&-" # disable=#D2164 (here bash4+)
+  } 2>/dev/null
+  function ble/fd#remove-cloexec {
+    local fd=$1
+    if ((fd!=0)); then
+      builtin eval -- "exec 0<&$fd $fd<&- $fd<&0" </dev/null # disable=#D2164 (here bash4+)
+    else
+      builtin eval -- "exec 1>&$fd $fd>&- $fd>&1" >/dev/null # disable=#D2164 (here bash4+)
+    fi
+  }
+else
+  function ble/fd#add-cloexec { false; }
+  function ble/fd#remove-cloexec { false; }
+fi
 
 ## @fn ble/fd#alloc fdvar redirect [opts]
 ##   "exec {fdvar}>foo" に該当する操作を実行します。
@@ -2818,120 +3225,214 @@ function ble/fd#alloc/.nextfd {
 ##   @param[in] redirect
 ##     リダイレクトを指定します。
 ##   @param[in,opt] opts
-##     export
-##       指定した変数を export します。
-##     inherit
-##       既に fdvar が存在して有効な fd であれば何もしません。新しく fd を確保
-##       した場合には終了処理を登録しません。また上記の export を含みます。
-##     share
-##       >&NUMBER の形式のリダイレクトの場合に fd を複製する代わりに単に NUMBER
-##       を fdvar に代入します。
-##     overwrite
-##       既に fdvar が存在する場合その fd を上書きします。
-_ble_util_openat_fdlist=()
+##     A colon-separated list of the options.  These control how the new file
+##     descriptor should be allocated:
+##
+##     @opt inherit
+##       If the variable already contains a valid fd, we skip the allocation of
+##       the new fd.  "export" is implied.
+##     @opt inherit-tty
+##       If the variable already contains a valid fd connected to TTY, we skip
+##       the allocation of the new fd.  "export" is implied.
+##     @opt share
+##       When the redirection has the form ">&NUMBER", we assign the number to
+##       the variable instead of actually duplicating the fd.  This can be
+##       safely used only when the stream associated with the number will never
+##       be changed.
+##     @opt overwrite
+##       If the variable already contains a number, we perform the redirection
+##       on the number.
+##     @opt base
+##       When a new number needs to be assigned, we determine the number based
+##       on "bleopt openat_base" instead of using Bash's {fd}<> redirections.
+##
+##     These control how the file descriptors are closed on the session end or
+##     exported to the child sessions:
+##
+##     @opt export
+##       The specified variable is exported to the child processes.  This
+##       suppresses "cloexec". Also, "preserve" is implied.
+##     @opt preserve
+##       By default, ble.sh closes all the file descriptors allocated by
+##       ble/fd#alloc on the session end.  It also closes all the file
+##       descriptors allocated by the parent or previous ble.sh session.  This
+##       option suppresses the auto closing of the file descriptor allocated by
+##       this call.
 function ble/fd#alloc {
-  local _ble_local_preserve=
-  if [[ :$3: == *:inherit:* ]]; then
-    [[ ${!1-} ]] &&
-      ble/fd#is-open "${!1}" &&
-      return 0
+  local _ble_local_opts=$3
+  if [[ :$_ble_local_opts: == *:inherit:* ]]; then
+    [[ ${!1-} ]] && ble/fd#is-open "${!1}" && return 0
+    _ble_local_opts=$_ble_local_opts:export
+  elif [[ :$_ble_local_opts: == *:inherit-tty:* ]]; then
+    [[ ${!1-} && -t ${!1-} ]] && return 0
+    _ble_local_opts=$_ble_local_opts:export
   fi
 
-  if [[ :$3: == *:share:* ]]; then
-    local _ble_local_ret='[<>]&['$_ble_term_IFS']*([0-9]+)['$_ble_term_IFS']*$'
-    if [[ $2 =~ $rex ]]; then
+  if [[ :$_ble_local_opts: == *:share:* ]]; then
+    if ble/string#match "$2" '[<>]&['"$_ble_term_IFS"']*([0-9]+)['"$_ble_term_IFS"']*$'; then
       builtin eval -- "$1=${BASH_REMATCH[1]}"
       return 0
     fi
   fi
 
-  if [[ ${!1-} && :$3: == *:overwrite:* ]]; then
-    _ble_local_preserve=1
-    builtin eval "exec ${!1}$2"
-  elif ((_ble_bash>=40100)) && [[ :$3: != *:base:* ]]; then
+  if [[ ${!1-} && :$_ble_local_opts: == *:overwrite:* ]]; then
+    # When we overwrite or replace an existing fd stored in the variable, we do
+    # not register it for the auto-closing on unload.  This is because an
+    # existing code may want to use the fd, or we might have already register
+    # it for the auto-closing.
+    _ble_local_opts=$_ble_local_opts:preserve
+
+    ble/fd#alloc/.exec "${!1}" "$2"
+  elif ((_ble_bash>=40100)) && [[ :$_ble_local_opts: != *:base:* ]]; then
     builtin eval "exec {$1}$2"
   else
     ble/fd#alloc/.nextfd "$1"
-    # Note: Bash 3.2/3.1 のバグを避けるため、
-    #   >&- を用いて一旦明示的に閉じる必要がある #D0857
-    builtin eval "exec ${!1}>&- ${!1}$2"
+    ble/fd#alloc/.exec "${!1}" "$2"
   fi; local _ble_local_ext=$?
 
-  if [[ :$3: == *:inherit:* || :$3: == *:export:* ]]; then
-    export "$1"
-  elif [[ ! $_ble_local_preserve ]]; then
-    ble/array#push _ble_util_openat_fdlist "${!1}"
+  if ((_ble_local_ext==0)); then
+    if [[ :$_ble_local_opts: == *:export:* ]]; then
+      export "$1"
+      ble/opts#append-unique _ble_util_fdvars_export "$1"
+    elif [[ :$_ble_local_opts: != *:preserve:* ]]; then
+      ble/opts#append-unique _ble_util_fdlist_cloexit "${!1}"
+      ble/fd#add-cloexec "${!1}"
+    fi
   fi
   return "$_ble_local_ext"
 }
 function ble/fd#finalize {
-  local fd
-  for fd in "${_ble_util_openat_fdlist[@]}"; do
-    builtin eval "exec $fd>&-"
+  local fds fd
+  ble/string#split fds : "$_ble_util_fdlist_cloexit"
+  for fd in "${fds[@]}"; do
+    [[ $fd ]] || continue
+    ble/fd#alloc/.close "$fd"
   done
-  _ble_util_openat_fdlist=()
+  _ble_util_fdlist_cloexit=
+}
+function ble/fd#is-cloexit {
+  [[ :$_ble_util_fdlist_cloexit: == *:"$fd":* ]]
 }
 ## @fn ble/fd#close fd
 ##   指定した fd を閉じます。
 function ble/fd#close {
   set -- "$(($1))"
   (($1>=3)) || return 1
-  builtin eval "exec $1>&-"
-  ble/array#remove _ble_util_openat_fdlist "$1"
+  ble/fd#alloc/.close "$1"
+  ble/opts#remove _ble_util_fdlist_cloexit "$1"
   return 0
 }
 
-## @var _ble_util_fd_stdout
-## @var _ble_util_fd_stderr
+bleopt/declare -v connect_tty 1
+export bleopt_connect_tty
+
 ## @var _ble_util_fd_null
+##   The final part of the initialization of _ble_util_fd_null is performed
+##   here.
+ble/fd#add-cloexec "$_ble_util_fd_null"
+
 ## @var _ble_util_fd_zero
-##   既に定義されている場合は継承する
-if [[ $_ble_init_command ]]; then
-  # コマンドモードで実行している時には標準ストリームはそのまま使う。
-  _ble_util_fd_stdin=0
-  _ble_util_fd_stdout=1
-  _ble_util_fd_stderr=2
-else
-  if [[ -t 0 ]]; then
-    ble/fd#alloc _ble_util_fd_stdin '<&0' base:overwrite:export
+##   @remark MSYS1 somehow does not support duping a file descriptor to
+##   /dev/zero
+_ble_util_fd_zero=
+if [[ -c /dev/zero ]] && ! ble/base/is-msys1; then
+  if [[ :$bleopt_connect_tty: == *:inherit:* ]]; then
+    ble/fd#alloc _ble_util_fd_zero '< /dev/zero' base:inherit
   else
-    ble/fd#alloc _ble_util_fd_stdin '< /dev/tty' base:inherit
-  fi
-  if [[ -t 1 ]]; then
-    ble/fd#alloc _ble_util_fd_stdout '>&1' base:overwrite:export
-  else
-    ble/fd#alloc _ble_util_fd_stdout '> /dev/tty' base:inherit
-  fi
-  if [[ -t 2 ]]; then
-    ble/fd#alloc _ble_util_fd_stderr '>&2' base:overwrite:export
-  else
-    ble/fd#alloc _ble_util_fd_stderr ">&$_ble_util_fd_stdout" base:inherit:share
+    ble/fd#alloc _ble_util_fd_zero '< /dev/zero' base
   fi
 fi
-ble/fd#alloc _ble_util_fd_null '<> /dev/null' base:inherit
-[[ -c /dev/zero ]] &&
-  ble/fd#alloc _ble_util_fd_zero '< /dev/zero' base:inherit
+
+## @var[export,opt] _ble_util_fd_tty_stdin
+## @var[export,opt] _ble_util_fd_tty_stdout
+## @var[export,opt] _ble_util_fd_tty_stderr
+## @var[export]     _ble_util_fd_cmd_stdin
+## @var[export]     _ble_util_fd_cmd_stdout
+## @var[export]     _ble_util_fd_cmd_stderr
+## @var             _ble_util_fd_tui_stdin
+## @var             _ble_util_fd_tui_stdout
+## @var             _ble_util_fd_tui_stderr
+##   We keep three different sets of standard streams. "tty" is to inherit and
+##   maintain the standard streams connected to TTY to child processes. "tui"
+##   is used for the interactive interface of ble.sh, and "cmd" is used for the
+##   user commands.
+function ble/fd/.initialize-standard-stream {
+  local var_tty=_ble_util_fd_tty_$1
+  local var_cmd=_ble_util_fd_cmd_$1
+  local var_tui=_ble_util_fd_tui_$1
+  local fd=${2::1} redir=${2:1}
+
+  # For "cmd" (the stream used by the user commands), we always use the initial
+  # standard stream on the startup.  We duplicate the fd to assign a new number
+  # for "cmd".  This is because "cmd" can be later independently redirected by
+  # the user commands using "exec".
+  ble/fd#alloc "$var_cmd" "$redir&$fd" base
+
+  if [[ -t $fd ]]; then
+    # When the specified fd is a TTY, we keep it in another fd and use it for
+    # everything.  We *reuse* the number recorded in "tty" if any, or
+    # otherwise, we assign a new number to "tty".  We duplicate the original fd
+    # to the number in "tty" and copy the number to "tui".
+    local alloc_opts=base
+    [[ $bleopt_connect_tty == inherit ]] && alloc_opts=$alloc_opts:overwrite:export
+    ble/fd#alloc "$var_tty" "$redir&$fd" "$alloc_opts"
+    ble/util/set "$var_tui" "${!var_tty}"
+    return 0
+  fi
+
+  if [[ ! $_ble_init_command && $bleopt_connect_tty ]]; then
+    local alloc_opts=base
+    [[ $bleopt_connect_tty == inherit ]] && alloc_opts=$alloc_opts:inherit-tty
+    if ble/fd#alloc "$var_tty" "$redir /dev/tty" "$alloc_opts"; then
+      # When connect_tty is enabled and we succeed to get the fd to TTY, we
+      # save the number in "tty" and "tui" and redirect the target fd to the
+      # duplicated one.
+      ble/util/set "$var_tui" "${!var_tty}"
+      builtin eval -- "exec $fd$redir&${!var_tui}"
+      return 0
+    else
+      # When the existing "tty" fd is invalid or we failed to connect to the
+      # TTY, we remove it.
+      builtin unset -v "$var_tty"
+    fi
+  fi
+
+  # When connect_tty is unavailable, we use the common streams as the user
+  # commands for ble.sh's interface.  This means that when a user command
+  # redirects any standard streams by "exec", ble.sh's interface is also
+  # affected.  We keep the existing value of "tty", which may be initialized by
+  # the parent session.
+  ble/util/set "$var_tui" "${!var_cmd}"
+}
+ble/fd/.initialize-standard-stream stdin  '0<'
+ble/fd/.initialize-standard-stream stdout '1>'
+ble/fd/.initialize-standard-stream stderr '2>'
+
+## @fn ble/fd/save-external-standard-streams [fd_in fd_out fd_err]
+##   @var[in,opt] fd_in fd_out fd_err
+##     Specify the source file descriptors that are saved as standard streams
+##     for the external state.
+function ble/fd/save-external-standard-streams {
+  ble/fd#alloc _ble_util_fd_cmd_stdin  "<&${1:-0}" base:overwrite
+  ble/fd#alloc _ble_util_fd_cmd_stdout ">&${2:-1}" base:overwrite
+  ble/fd#alloc _ble_util_fd_cmd_stderr ">&${3:-2}" base:overwrite
+  ble/fd#add-cloexec "$_ble_util_fd_cmd_stdin"
+  ble/fd#add-cloexec "$_ble_util_fd_cmd_stdout"
+  ble/fd#add-cloexec "$_ble_util_fd_cmd_stderr"
+}
 
 function ble/fd#close-all-tty {
-  local -a fds=()
-  if [[ -d /proc/$$/fd ]]; then
-    ble/util/getpid
-    local fd
-    for fd in /proc/"$BASHPID"/fd/[0-9]*; do
-      ble/array#push fds "${fd##*/}"
-    done
-  else
-    fd=({0..255})
-  fi
+  local ret
+  ble/fd#list
 
   # Note: 0 1 2 及び _ble_util_fd_std{in,out,err} を閉じる事を考えたが、どうも
   # redirect によって待避されている物などたくさんある様なので全部チェックする事
   # にした。
   local fd
-  for fd in "${fds[@]}"; do
+  for fd in "${ret[@]}"; do
     if ble/string#match "$fd" '^[0-9]+$' && [[ -t $fd ]]; then
-      builtin eval "exec $fd>&- $fd>&$_ble_util_fd_null"
-      ble/array#remove _ble_util_openat_fdlist "$fd"
+      ble/fd#alloc/.exec "$fd" ">&$_ble_util_fd_null"
+      ble/opts#remove _ble_util_fdlist_cloexit "$fd"
     fi
   done
 }
@@ -3034,7 +3535,8 @@ function ble/util/declare-print-definitions {
       sub(/^declare +(-[-aAilucnrtxfFgGI]+ +)?(-- +)?/, "", decl);
       if (isArray) {
         if (decl ~ /^([_a-zA-Z][_a-zA-Z0-9]*)='\''\(.*\)'\''$/) {
-          sub(/='\''\(/, "=(", decl);
+          # Note: nawk in Solaris 2.11 does not allow regex to start with /=.
+          sub(/(=)'\''\(/, "=(", decl);
           sub(/\)'\''$/, ")", decl);
           gsub(/'\'\\\\\'\''/, "'\''", decl);
         }
@@ -3128,6 +3630,7 @@ function ble/util/for-global-variables {
   local __ble_hidden_only=
   [[ :$__ble_opts: == *:hidden-only:* ]] && __ble_hidden_only=1
   (
+    ble/util/joblist/__suppress__
     ((_ble_bash>=50000)) && shopt -u localvar_unset
     __ble_error=
     __ble_q="'" __ble_Q="'\''"
@@ -3284,6 +3787,67 @@ function ble/util/isprint+ {
 # suppress locale error #D1440
 ble/function#suppress-stderr ble/util/isprint+
 
+## @fn ble/util/mktime Y m d H M S z
+## @fn ble/util/mktime 'Y-m-d H:M:S z'
+##   @param[in] Y m d H M S
+##     These specify year, month, day, hour, minute, and second, respectively.
+##   @param[in,opt] z
+##     This specifies the time zone in the format [-+]HHMM.  If `z` is
+##     unspecified, the local time zone is used, but this implementation does
+##     not consider the summer time currently.  We assume that the time
+##     difference with respect to UTC would be the same as the current one
+##     while the conversion.
+_ble_util_mktime_tzdelta=
+function ble/util/mktime {
+  if (($#==6||$#==7)); then
+    local tz=${7-}
+    if [[ ! $tz ]]; then
+      # TODO: summer time
+      # if ble/is-function ble/bin/gawk; then
+      #   local mktime_str
+      #   ble/util/sprintf mktime_str 'mktime("%04d %02d %02d %02d %02d %02d")' "${@:1:6}"
+      #   ble/util/assign ret "ble/bin/gawk 'BEGIN{print $mktime_str; exit}'"
+      # elif ble/is-function ble/bin/mawk; then
+      #   local mktime_str
+      #   ble/util/sprintf mktime_str 'mktime("%04d %02d %02d %02d %02d %02d")' "${@:1:6}"
+      #   ble/util/assign ret "ble/bin/mawk 'BEGIN{print $mktime_str; exit}'"
+      # else
+      #   # if date supports +%s and -d DATE.
+      #   ble/bin/date -d "$1-$2-$3 $4:$5:$6" +%s
+      # fi
+      if [[ ! ${_ble_util_mktime_tzdelta-} ]]; then
+        # Note: Currently, the time difference is calculated for the current
+        # time.  This does not consider the summer time of the specified time.
+        # If needed, we need to specify the time to the date command using the
+        # GNU extension "-d time" every time.  We cannot cache the time
+        # difference in this case.
+        ble/util/assign _ble_util_mktime_tzdelta 'ble/bin/date +%z'
+      fi
+      tz=$_ble_util_mktime_tzdelta
+    fi
+
+    local tzdelta
+    if ble/string#match "$tz" '^[-+]([0-9]{1,2})([0-9]{2})$'; then
+      tzdelta=${tz::1}$(((10#0${BASH_REMATCH[1]}*60+10#0${BASH_REMATCH[2]})*60))
+    else
+      tzdelta=0
+    fi
+
+    local Y=$((10#0$1)) m=$((10#0$2)) d=$((10#0$3))
+    local H=$((10#0$4)) M=$((10#0$5)) S=$((10#0$6))
+
+    ((m<3)) && ((Y--,m+=12))
+    local day_delta=$((365*(Y-1970)+(Y/4-Y/100+Y/400-477)+(m+1)*306/10-63+(d-1)))
+    ((ret=((day_delta*24+H)*60+M)*60+S-tzdelta))
+    return 0
+  elif ble/string#match "${1-}" '^([0-9]{4})-([01]?[0-9])-([0-3]?[0-9]) ([0-2]?[0-9]):([0-5]?[0-9]):([0-5]?[0-9])( ([-+][0-9]{3,4}))?$'; then
+    ble/util/mktime "${BASH_REMATCH[@]:1:6}" "${BASH_REMATCH[8]-}"
+  else
+    ble/util/print "$FUNCNAME: invalid argument '${1-}'" >&2
+    return 2
+  fi
+}
+
 if ((_ble_bash>=40200)); then
   function ble/util/strftime {
     if [[ $1 = -v ]]; then
@@ -3296,11 +3860,43 @@ else
   function ble/util/strftime {
     if [[ $1 = -v ]]; then
       local fmt=$3 time=$4
-      ble/util/assign "$2" 'ble/bin/date +"$fmt" $time'
+      ble/util/assign "$2" "ble/bin/date +\"\$fmt\" $time"
     else
       ble/bin/date +"$1" $2
     fi
   }
+fi
+
+## @fn ble/util/time
+## @fn ble/util/timeval
+##   現在の UNIX 時刻を取得します。ble/util/time は秒を単位とし、
+##   ble/util/timeval はマイクロ秒を単位とします。Bash 5.0 未満では秒単位の分解
+##   能しかありません。
+if ((_ble_bash>=50000)); then
+  function ble/util/time { ret=$EPOCHSECONDS; }
+  function ble/util/timeval { ret=${EPOCHREALTIME//[!0-9]}; }
+else
+  function ble/util/time {
+    if ble/util/strftime -v ret '%s' 2>/dev/null && ble/string#match '^[0-9]{3,}$'; then
+      function ble/util/time { ble/util/strftime -v ret '%s'; }
+    else
+      function ble/util/time {
+        ble/util/strftime -v ret '%F %T %z'
+        ble/util/mktime "$ret"
+      }
+      ble/util/time
+    fi
+
+    # In Bash >= 4.2, we continue to use printf %(...)T.  In Bash < 4.2, we use
+    # the internal clock SECONDS relative to the origin _ble_util_time_base.
+    if ((_ble_bash<40200)) && ble/string#match "${SECONDS-}" '^[0-9]+$'; then
+      builtin readonly SECONDS
+      _ble_util_time_base=$((ret-SECONDS))
+      function ble/util/time { ((ret=_ble_util_time_base+SECONDS)); }
+    fi
+  }
+  function ble/util/timeval { ble/util/time; ((ret*=1000000)); }
+
 fi
 
 #%< util.hook.sh
@@ -3310,17 +3906,6 @@ fi
 
 #%include benchmark.sh
 
-function ble/util/msleep/.check-builtin-sleep {
-  local ret; ble/util/readlink "$BASH"
-  local bash_prefix=${ret%/*/*}
-  if [[ -s $bash_prefix/lib/bash/sleep ]] &&
-    (enable -f "$bash_prefix/lib/bash/sleep" sleep && builtin sleep 0.0) &>/dev/null; then
-    enable -f "$bash_prefix/lib/bash/sleep" sleep
-    return 0
-  else
-    return 1
-  fi
-}
 function ble/util/msleep/.check-sleep-decimal-support {
   local version; ble/util/assign version 'LC_ALL=C ble/bin/sleep --version 2>&1' 2>/dev/null # suppress locale error #D1440
   [[ $version == *'GNU coreutils'* || $OSTYPE == darwin* && $version == 'usage: sleep seconds' ]]
@@ -3442,7 +4027,7 @@ function ble/util/msleep/.use-read-timeout {
         _ble_util_msleep_fd=$_ble_util_msleep_tmp
         _ble_util_msleep_read='! ble/bash/read-timeout "$v" -u "$_ble_util_msleep_fd" v'
       elif [[ $open == exec ]]; then
-        ble/fd#alloc _ble_util_msleep_fd "$redir \"\$_ble_util_msleep_tmp\""
+        ble/fd#alloc _ble_util_msleep_fd "$redir \"\$_ble_util_msleep_tmp\"" base
         _ble_util_msleep_read='! ble/bash/read-timeout "$v" -u "$_ble_util_msleep_fd" v'
       else
         _ble_util_msleep_read='! ble/bash/read-timeout "$v" v '$redir' "$_ble_util_msleep_tmp"'
@@ -3506,7 +4091,7 @@ function ble/util/msleep/.use-read-timeout {
 }
 
 _ble_util_msleep_builtin_available=
-if ((_ble_bash>=40400)) && ble/util/msleep/.check-builtin-sleep; then
+if ((_ble_bash>=40400)) && ble/util/load-standard-builtin sleep; then
   _ble_util_msleep_builtin_available=1
   _ble_util_msleep_delay=300
   function ble/util/msleep/.core { builtin sleep "$1"; }
@@ -3790,7 +4375,8 @@ function ble/util/conditional-sync {
   fi
   builtin eval -- "$__ble_continue" || return 148
   (
-    [[ $__ble_pid ]] || builtin eval -- "$__ble_command" & __ble_pid=$!
+    ble/util/joblist/__suppress__
+    [[ $__ble_pid ]] || { builtin eval -- "$__ble_command" & __ble_pid=$!; }
     while
       # check timeout
       if [[ $__ble_timeout ]]; then
@@ -3882,11 +4468,11 @@ function ble/file/has-stat {
 ##
 ##   @var[out] ret
 ##     時刻を Unix Epoch で取得します。
-##     秒以下の少数も取得できる場合には ret[1] に小数部を格納します。
+##     秒以下の小数も取得できる場合には ret[1] に小数部を格納します。
 ##
 function ble/file#mtime {
   # fallback: print current time
-  function ble/file#mtime { ble/util/strftime -v ret '%s %N'; ble/string#split-words ret "$ret"; ((0)); } || return 1
+  function ble/file#mtime { ble/util/time; ret=("$ret"); } || return 1
 
   if ble/bin/date -r / +%s &>/dev/null; then
     function ble/file#mtime { local file=$1; ble/util/assign-words ret 'ble/bin/date -r "$file" +"%s %N"' 2>/dev/null; }
@@ -3988,8 +4574,8 @@ function ble/util/buffer.flush {
   # のカーソル移動も無理やり表示しようとする端末に対する対策。
   [[ $_ble_term_state == internal ]] &&
     [[ $_ble_term_cursor_hidden_internal != hidden ]] &&
-    [[ $text != *"$_ble_term_civis"* && $text != *"$_ble_term_cvvis"* ]] &&
-    text=$_ble_term_civis$text$_ble_term_cvvis
+    [[ $text != *"$_ble_term_civis"* && $text != *"$_ble_term_rmcivis"* ]] &&
+    text=$_ble_term_civis$text$_ble_term_rmcivis
 
   ble/util/put "$text"
 }
@@ -4137,6 +4723,14 @@ _ble_util_joblist_events=()
 function ble/util/joblist {
   local opts=$1 jobs0
   ble/util/assign jobs0 'jobs'
+
+  # Note (#D2157): ble/util/assign uses the function substitution in bash >=
+  # 5.3.  However, in the function substitution, the update of the joblist is
+  # disabled.  For this reason, reading the output of "jobs" by ble/util/assign
+  # doesn't clear the notified job entries.  To clear job entires, we perform a
+  # dummy call of the jobs builtin without using a function substitution.
+  ((_ble_bash>=50300)) && jobs >/dev/null
+
   if [[ $jobs0 == "$_ble_util_joblist_jobs" ]]; then
     # 前回の呼び出し結果と同じならば状態変化はないものとして良い。終了・強制終
     # 了したジョブがあるとしたら "終了" だとか "Terminated" だとかいう表示にな
@@ -4166,9 +4760,7 @@ function ble/util/joblist {
   if [[ $jobs0 != "$_ble_util_joblist_jobs" ]]; then
     for ijob in "${!list[@]}"; do
       if [[ ${_ble_util_joblist_list[ijob]} && ${list[ijob]#'['*']'[-+ ]} != "${_ble_util_joblist_list[ijob]#'['*']'[-+ ]}" ]]; then
-        if [[ ${list[ijob]} != *'__ble_suppress_joblist__'* ]]; then
-          ble/array#push _ble_util_joblist_events "${list[ijob]}"
-        fi
+        ble/array#push _ble_util_joblist_events "${list[ijob]}"
         list[ijob]=
       fi
     done
@@ -4185,9 +4777,7 @@ function ble/util/joblist {
       for ijob in "${!list[@]}"; do
         local job0=${list[ijob]}
         if [[ $job0 && ! ${_ble_util_joblist_list[ijob]} ]]; then
-          if [[ $job0 != *'__ble_suppress_joblist__'* ]]; then
-            ble/array#push _ble_util_joblist_events "$job0"
-          fi
+          ble/array#push _ble_util_joblist_events "$job0"
         fi
       done
     fi
@@ -4200,12 +4790,24 @@ function ble/util/joblist {
   joblist=("${_ble_util_joblist_list[@]}")
 } 2>/dev/null
 
+# A dummy function to mark the fore ground subshells by ble.sh.  Since ble.sh
+# works in `bind -x', foreground completed subshells also remain in the job
+# list and can be unexpectedly notified to users.  To avoid it, we mark
+# foreground subshells by including the call to this dummy function.
+function ble/util/joblist/__suppress__ { ((1)); }
+
 function ble/util/joblist.split {
   local arr=$1; shift
   local line ijob= rex_ijob='^\[([0-9]+)\]'
+  local -a out=()
   for line; do
     [[ $line =~ $rex_ijob ]] && ijob=${BASH_REMATCH[1]}
-    [[ $ijob ]] && builtin eval "$arr[ijob]=\${$arr[ijob]}\${$arr[ijob]:+\$_ble_term_nl}\$line"
+    [[ $ijob ]] && out[ijob]=${out[ijob]:+${out[ijob]}$_ble_term_nl}$line
+  done
+
+  for ijob in "${!out[@]}"; do
+    [[ ${out[ijob]} != *'ble/util/joblist/__suppress__'* ]] &&
+      builtin eval -- "$arr[ijob]=\${out[ijob]}"
   done
 }
 
@@ -4720,7 +5322,7 @@ function ble/util/import/.read-arguments {
 function ble/util/import {
   local files file ext=0 ret enc
   files=("$@")
-  set -- # Note #D: source によって引数が継承されるのを防ぐ
+  set -- # Note #D1859: source によって引数が継承されるのを防ぐ
   for file in "${files[@]}"; do
     ble/util/import/encode-filename "$file"; enc=$ret
     local guard=ble/util/import/guard:$enc
@@ -4980,12 +5582,14 @@ function ble/util/clock/.initialize {
       ((ret=integral*1000+10#0$fraction))
     }
   elif ((_ble_bash>=40200)); then
-    printf -v _ble_util_clock_base '%(%s)T' -1
+    local ret
+    ble/util/time
+    _ble_util_clock_base=$ret
     _ble_util_clock_reso=1000
     _ble_util_clock_type=printf
     function ble/util/clock {
-      local now; printf -v now '%(%s)T' -1
-      ((ret=(now-_ble_util_clock_base)*1000))
+      ble/util/time
+      ((ret=(ret-_ble_util_clock_base)*1000))
     }
   elif [[ $SECONDS && ! ${SECONDS//[0-9]} ]]; then
     builtin readonly SECONDS
@@ -4997,11 +5601,13 @@ function ble/util/clock/.initialize {
       ((ret=(now-_ble_util_clock_base)*1000))
     }
   else
-    ble/util/strftime -v _ble_util_clock_base '%s'
+    local ret
+    ble/util/time
+    _ble_util_clock_base=$ret
     _ble_util_clock_reso=1000
     _ble_util_clock_type=date
     function ble/util/clock {
-      ble/util/strftime -v ret '%s'
+      ble/util/time
       ((ret=(ret-_ble_util_clock_base)*1000))
     }
   fi
@@ -5361,6 +5967,10 @@ if ((_ble_bash>=40000)); then
     done
     [[ $removed ]]
   }
+  function ble/util/idle.clear {
+    ((${#_ble_util_idle_task[@]})) || return 1
+    _ble_util_idle_task=()
+  }
 
   function ble/util/is-running-in-idle {
     [[ ${ble_util_idle_status+set} ]]
@@ -5506,7 +6116,7 @@ function ble/term:cygwin/initialize.hook {
   # Note: Cygwin console では何故か RI (ESC M) が
   #   1行スクロールアップとして実装されている。
   #   一方で CUU (CSI A) で上にスクロールできる。
-  printf '\eM\e[B' >&"$_ble_util_fd_stderr"
+  printf '\eM\e[B' >&"$_ble_util_fd_tui_stderr"
   _ble_term_ri=$'\e[A'
 
   # DLの修正
@@ -5736,6 +6346,9 @@ function ble/term/visible-bell/.clear {
   >| "$_ble_term_visible_bell_ftime"
 }
 
+## @fn ble/term/visible-bell/.erase-previous-visible-bell
+##   @var[in] _ble_term_visible_bell_prev
+##   @var[in] sgr0
 function ble/term/visible-bell/.erase-previous-visible-bell {
   local ret workers
   ble/util/eval-pathname-expansion '"$_ble_base_run/$$.visible-bell."*' canonical
@@ -5795,12 +6408,6 @@ function ble/term/visible-bell {
   # 字列の時は設定されていないだけなので表示する。
   ((LINES==1)) && return 0
 
-  if ble/is-function ble/canvas/trace-text; then
-    ble/term/visible-bell:canvas/init "$message"
-  else
-    ble/term/visible-bell:term/init "$message"
-  fi
-
   local sgr0=$_ble_term_sgr0
   local sgr1=${_ble_term_setaf[2]}$_ble_term_rev
   local sgr2=$_ble_term_rev
@@ -5813,16 +6420,22 @@ function ble/term/visible-bell {
 
   local show_opts=
   ble/term/visible-bell/.erase-previous-visible-bell && show_opts=erased
+
+  if ble/is-function ble/canvas/trace-text; then
+    ble/term/visible-bell:canvas/init "$message"
+  else
+    ble/term/visible-bell:term/init "$message"
+  fi
   ble/term/visible-bell/.show "$sgr1" "$show_opts"
 
   local workerfile; ble/term/visible-bell/.create-workerfile
-  # Note: __ble_suppress_joblist__ を指定する事によって、
+  # Note: ble/util/joblist/__suppress__ を指定する事によって、
   #   終了したジョブの一覧に現れない様にする。
   #   対策しないと read の置き換え実装でジョブ一覧が表示されてしまう。
   # Note: 標準出力を閉じて置かないと $() の中で
   #   read を呼び出した時に visible-bell worker がブロックしてしまう。
   # ref #D1000, #D1087
-  ( ble/term/visible-bell/.worker __ble_suppress_joblist__ 1>/dev/null & )
+  ( ble/util/joblist/__suppress__; ble/term/visible-bell/.worker 1>/dev/null & )
 }
 function ble/term/visible-bell/cancel-erasure {
   >| "$_ble_term_visible_bell_ftime"
@@ -5848,6 +6461,15 @@ function ble/term/visible-bell/erase {
 #   stty icanon を設定するプログラムがある。これを設定すると入力が buffering され
 #   その場で入力を受信する事ができない。結果として hang した様に見える。
 #   従って、enter で -icanon を設定する事にする。
+
+[[ ${_ble_term_stty_save+set} ]] || _ble_term_stty_save=
+bleopt/declare -v term_stty_restore ''
+function bleopt/check:term_stty_restore {
+  if [[ $value && ! $_ble_term_stty_save ]]; then
+    ble/util/assign _ble_term_stty_save 'ble/bin/stty -g'
+  fi
+  return 0
+}
 
 ## @var _ble_term_stty_state
 ##   現在 stty で制御文字の効果が解除されているかどうかを保持します。
@@ -5892,42 +6514,47 @@ function ble/term/stty/.initialize-flags {
 ble/term/stty/.initialize-flags
 
 function ble/term/stty/initialize {
+  if [[ $bleopt_term_stty_restore ]]; then
+    [[ $_ble_term_stty_save ]] ||
+      ble/util/assign _ble_term_stty_save 'ble/bin/stty -g'
+  fi
   ble/bin/stty -ixon -echo -nl -icrnl -icanon \
                "${_ble_term_stty_flags_enter[@]}"
   _ble_term_stty_state=1
 }
 function ble/term/stty/leave {
   [[ ! $_ble_term_stty_state ]] && return 0
-  ble/bin/stty echo -nl icanon \
-               "${_ble_term_stty_flags_leave[@]}"
   _ble_term_stty_state=
+
+  if [[ $bleopt_term_stty_restore && $_ble_term_stty_save ]]; then
+    ble/bin/stty "$_ble_term_stty_save"
+  else
+    ble/bin/stty echo -nl icanon "${_ble_term_stty_flags_leave[@]}"
+  fi
 }
 function ble/term/stty/enter {
+  # Note (#D2184): This function is overwritten later in Bash 5.2 to work
+  # around the problem that "checkwinsize" does not work in "bind -x" in Bash
+  # 5.2.  The changes to this function needs to be also reflected in the later
+  # overwriting version of "ble/term/stty/enter".
   [[ $_ble_term_stty_state ]] && return 0
-  ble/bin/stty -echo -nl -icrnl -icanon \
-               "${_ble_term_stty_flags_enter[@]}"
-  _ble_term_stty_state=1
+  if [[ $bleopt_term_stty_restore ]]; then
+    ble/term/stty/initialize
+  else
+    ble/bin/stty -echo -nl -icrnl -icanon "${_ble_term_stty_flags_enter[@]}"
+    _ble_term_stty_state=1
+  fi
 }
 function ble/term/stty/finalize {
   ble/term/stty/leave
+  _ble_term_stty_save=
 }
 function ble/term/stty/TRAPEXIT {
   # exit の場合は echo
-  ble/bin/stty echo -nl \
-               "${_ble_term_stty_flags_leave[@]}"
-
-  # Note (#D): WA for bash-5.2 stty: bash-5.2 以降では EXIT trap よりも後に readline
-  # が stty を復元しようとするので、セッション終了後に制御端末が壊れた状態にな
-  # る。親プロセスが同じ端末に属していてかつ ble.sh セッションでない場合には、
-  # 入力に支障を来すので制御端末の状態を手動で復元する様に表示を行う。
-  if ((_ble_bash>=50200)) && [[ :$1: == *:EXIT:* && ! -e $_ble_base_run/$PPID.load ]]; then
-    local lines
-    ble/util/assign-array lines 'ble/bin/ps -o tty "$$" "$PPID"'
-    ((${#lines[@]}>=3)) && lines=("${lines[@]:${#lines[@]}-2}")
-    if [[ ${lines[0]} == ${lines[1]} ]]; then
-      local sgr=$_ble_term_bold${_ble_term_setaf[4]} sgr0=$_ble_term_sgr0
-      ble/util/print "ble: Please run \`${sgr}stty sane$sgr0' to recover the correct TTY state." >&"${_ble_util_fd_stderr:-2}"
-    fi
+  if [[ $bleopt_term_stty_restore && $_ble_term_stty_save ]]; then
+    ble/bin/stty "$_ble_term_stty_save"
+  else
+    ble/bin/stty echo -nl "${_ble_term_stty_flags_leave[@]}"
   fi
 }
 
@@ -5941,7 +6568,7 @@ function ble/term/update-winsize {
         shopt -s checkwinsize
         (:)
         shopt -u checkwinsize
-      fi 2>&"$_ble_util_fd_stderr"
+      fi 2>&"$_ble_util_fd_tui_stderr"
     }
     ble/term/update-winsize
     return 0
@@ -6011,7 +6638,7 @@ function ble/term/update-winsize {
   # (d) "bash -O checkwinsize -c ..." による実装 (bash-4.3 以上) (9094.595 usec/eval)
   function ble/term/update-winsize {
     local ret script='LINES= COLUMNS=; (:); [[ $COLUMNS && $LINES ]] && builtin echo "$LINES $COLUMNS"'
-    ble/util/assign-words ret '"$BASH" -O checkwinsize -c "$script"' 2>&"$_ble_util_fd_stderr"
+    ble/util/assign-words ret '"$BASH" -O checkwinsize -c "$script"' 2>&"$_ble_util_fd_tui_stderr"
     [[ ${ret[0]} ]] && LINES=${ret[0]}
     [[ ${ret[1]} ]] && COLUMNS=${ret[1]}
   }
@@ -6043,10 +6670,15 @@ if ((50200<=_ble_bash&&_ble_bash<50300)); then
       function ble/term/stty/enter {
         [[ $_ble_term_stty_state ]] && return 0
         local ret
-        ble/util/assign-words ret 'ble/bin/stty -echo -nl -icrnl -icanon "${_ble_term_stty_flags_enter[@]}" size'
+        if [[ $bleopt_term_stty_restore ]]; then
+          ble/term/stty/initialize
+          ble/util/assign-words ret 'ble/bin/stty size'
+        else
+          ble/util/assign-words ret 'ble/bin/stty -echo -nl -icrnl -icanon "${_ble_term_stty_flags_enter[@]}" size'
+          _ble_term_stty_state=1
+        fi
         [[ ${ret[0]} =~ ^[0-9]+$ ]] && LINES=${ret[0]}
         [[ ${ret[1]} =~ ^[0-9]+$ ]] && COLUMNS=${ret[1]}
-        _ble_term_stty_state=1
       }
     else
       ble/term/update-winsize
@@ -6112,7 +6744,7 @@ function ble/term/cursor-state/.update-hidden {
   if [[ $state == hidden ]]; then
     ble/util/buffer "$_ble_term_civis"
   else
-    ble/util/buffer "$_ble_term_cvvis"
+    ble/util/buffer "$_ble_term_rmcivis"
   fi
 
   _ble_term_cursor_hidden_current=$state
@@ -6808,7 +7440,12 @@ if ((_ble_bash>=40200)); then
   # pair in systems where sizeof(wchar_t) == 2.
   function ble/util/.has-bashbug-printf-uffff {
     ((40200<=_ble_bash&&_ble_bash<50000)) || return 1
-    local LC_ALL=C.UTF-8 2>/dev/null # Workaround: CentOS 7 に C.UTF-8 がなかった
+
+    # Note: CentOS 7 に C.UTF-8 がなかったので 2>/dev/null する。macOS にも
+    # C.UTF-8 はない。何れにしてもこれらのシステムでは sizeof(wchar_t) == 2 で
+    # はないので正しく UTF-8 にならなくても良い。
+    local LC_ALL=C.UTF-8 2>/dev/null
+
     local ret
     builtin printf -v ret '\uFFFF'
     ((${#ret}==2))
@@ -7313,7 +7950,10 @@ function ble/util/message/.encode-data {
     ble/string#quote-word "$data"
     ret=eval:$ret
   else
-    ble/util/getpid
+    if ((_ble_bash<40000)); then
+      local BASHPID
+      ble/util/getpid
+    fi
 
     local index=0 file
     while

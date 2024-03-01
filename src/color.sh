@@ -674,27 +674,31 @@ function ble/color/convert-color256-to-color88 {
 ##   @var[out] ret
 function ble/color/convert-rgb24-to-color256 {
   local R=$1 G=$2 B=$3
-  if ((R==G&&G==B)); then
-    # xterm 24 grayscale: 10k+8 (0..238)
-    if ((R<=3)); then
-      # 6x6x6 cube (0,0,0)
-      ret=16
-    elif ((R>=247)); then
-      # 6x6x6 cube (5,5,5)
-      ret=231
-    elif ((R>=92&&(R-92)%40<5)); then
-      # 6x6x6 cube (1,1,1)-(4,4,4)
-      ((ret=59+43*(R-92)/40))
-    else
-      local level=$(((R-3)/10))
-      ((ret=232+(level<=23?level:23)))
-    fi
-  else
+  if ((R!=G||G!=B)); then
     # xterm 6x6x6 cube: k?55+40k:0
-    ((R=R<=47?0:(R<=95?1:(R-35)/40)))
-    ((G=G<=47?0:(G<=95?1:(G-35)/40)))
-    ((B=B<=47?0:(B<=95?1:(B-35)/40)))
-    ((ret=16+36*R+6*G+B))
+    local r=$((R<=47?0:(R<=95?1:(R-35)/40)))
+    local g=$((G<=47?0:(G<=95?1:(G-35)/40)))
+    local b=$((B<=47?0:(B<=95?1:(B-35)/40)))
+    if ((r!=g||g!=b)); then
+      ((ret=16+36*r+6*g+b))
+      return 0
+    fi
+  fi
+
+  # xterm 24 grayscale: 10k+8 (0..238)
+  local W=$(((R+G+B+1)/3))
+  if ((W<=3)); then
+    # 6x6x6 cube (0,0,0)
+    ret=16
+  elif ((W>=247)); then
+    # 6x6x6 cube (5,5,5)
+    ret=231
+  elif ((W>=92&&(W-92)%40<5)); then
+    # 6x6x6 cube (1,1,1)-(4,4,4)
+    ((ret=59+43*(W-92)/40))
+  else
+    local level=$(((W-3)/10))
+    ((ret=232+(level<=23?level:23)))
   fi
 }
 ## @fn ble/color/convert-rgb24-to-color88 R G B
@@ -703,26 +707,30 @@ function ble/color/convert-rgb24-to-color256 {
 ##   @var[out] ret
 function ble/color/convert-rgb24-to-color88 {
   local R=$1 G=$2 B=$3
-  if ((R==G&&G==B)); then
-    # xterm 8 grayscale: 46+25k = 46,71,96,121,146,171,196,221
-    if ((R<=22)); then
-      ret=16 # 4x4x4 cube (0,0,0)=0:0:0
-    elif ((R>=239)); then
-      ret=79 # 4x4x4 cube (3,3,3)=255:255:255
-    elif ((131<=R&&R<=142)); then
-      ret=37 # 4x4x4 cube (1,1,1)=139:139:139
-    elif ((197<=R&&R<=208)); then
-      ret=58 # 4x4x4 cube (2,2,2)=197:197:197
-    else
-      local level=$(((R-34)/25))
-      ((ret=80+(level<=7?level:7)))
-    fi
-  else
+  if ((R!=G||G!=B)); then
     # xterm 4x4x4 cube: (k?81+58k:0) = 0,139,197,255
-    ((R=R<=69?0:(R<=168?1:(R-52)/58)))
-    ((G=G<=69?0:(G<=168?1:(G-52)/58)))
-    ((B=B<=69?0:(B<=168?1:(B-52)/58)))
-    ((ret=16+16*R+4*G+B))
+    local r=$((R<=69?0:(R<=168?1:(R-52)/58)))
+    local g=$((G<=69?0:(G<=168?1:(G-52)/58)))
+    local b=$((B<=69?0:(B<=168?1:(B-52)/58)))
+    if ((r!=g||g!=b)); then
+      ((ret=16+16*r+4*g+b))
+      return 0
+    fi
+  fi
+
+  # xterm 8 grayscale: 46+25k = 46,71,96,121,146,171,196,221
+  local W=$(((R+G+B+1)/3))
+  if ((W<=22)); then
+    ret=16 # 4x4x4 cube (0,0,0)=0:0:0
+  elif ((W>=239)); then
+    ret=79 # 4x4x4 cube (3,3,3)=255:255:255
+  elif ((131<=W&&W<=142)); then
+    ret=37 # 4x4x4 cube (1,1,1)=139:139:139
+  elif ((197<=W&&W<=208)); then
+    ret=58 # 4x4x4 cube (2,2,2)=197:197:197
+  else
+    local level=$(((W-34)/25))
+    ((ret=80+(level<=7?level:7)))
   fi
 }
 
@@ -1330,10 +1338,11 @@ function ble-face/.print-help {
     '    -r FACEPAT...' \
     '            Reset faces.  If faces are not specified, all faces are selected.' \
     '' \
-    '  FACEPAT   Specifies a face name.  The character @ in the face name is treated' \
-    '            as a wildcard.' \
+    '  FACEPAT   Specifies a face name.  The characters "@", "*", and "?" in the' \
+    '            face name are treated as wildcards.' \
     '' \
-    '  FACE      Specifies a face name.  Wildcard @ cannot be used.' \
+    '  FACE      Specifies a face name.  The wildcards "@", "*", and "?" cannot be' \
+    '            used.' \
     '' \
     '  TYPE      Specifies the format of SPEC. The following values are available.' \
     '    gspec   Comma separated graphic attribute list' \
@@ -1397,7 +1406,7 @@ function ble-face {
   fi
 
   if ((!${#print[@]}&&!${#setface[@]})); then
-    print=(@)
+    print=('?@')
   fi
 
   ((${#print[@]})) && ble/color/initialize-faces
@@ -1411,7 +1420,7 @@ function ble-face {
 
   local spec
   for spec in "${setface[@]}"; do
-    if local rex='^([_a-zA-Z@][_a-zA-Z0-9@]*)(:?=)(.*)$'; ! [[ $spec =~ $rex ]]; then
+    if local rex='^([_a-zA-Z@*?][_a-zA-Z0-9@*?]*)(:?=)(.*)$'; ! [[ $spec =~ $rex ]]; then
       ble/util/print "ble-face: unrecognized setting '$spec'" >&2
       flags=E$flags
       continue
@@ -1421,8 +1430,8 @@ function ble-face {
     local type=${BASH_REMATCH[2]}
     local value=${BASH_REMATCH[3]}
     if [[ $type == ':=' ]]; then
-      if [[ $var == *@* ]]; then
-        ble/util/print "ble-face: wild card @ cannot be used for face definition ($spec)." >&2
+      if [[ $var == *[@*?]* ]]; then
+        ble/util/print "ble-face: wildcards @*? cannot be used for face definition ($spec)." >&2
         flags=E$flags
       else
         ble/color/defface "$var" "$value"
@@ -1633,6 +1642,7 @@ ble/highlight/layer:plain/initialize-vars
 
 ## @fn ble/highlight/layer:plain/update/.getch
 ##   @var[in,out] ch
+##   @var[in] it
 function ble/highlight/layer:plain/update/.getch {
   [[ $ch == [' '-'~'] ]] && return 0
   if [[ $ch == [$'\t\n\177'] ]]; then
@@ -1665,7 +1675,7 @@ function ble/highlight/layer:plain/update {
     ble/highlight/layer/update/shift _ble_highlight_layer_plain_buff
 
     local i text=$1 ch
-    local it=$_ble_term_it
+    local it=${bleopt_tab_width:-$_ble_term_it}
     for ((i=DMIN;i<DMAX;i++)); do
       ch=${text:i:1}
 
