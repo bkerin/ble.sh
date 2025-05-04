@@ -9,12 +9,12 @@
 ##
 ## # Please put the following line in the beginning of .bashrc
 ## # Note: Please replace $HOME/.local/share/blesh with the path to your ble.sh
-## [[ $- == *i* ]] && "$HOME/.local/share/blesh/ble.sh" --noattach
+## [[ $- == *i* ]] && source "$HOME/.local/share/blesh/ble.sh" --noattach
 ##
 ## # Your bashrc contents should come between the two lines.
 ##
 ## # Please put the following line in the end of .bashrc
-## [[ ${BLE_VERSION-} ]] && ble-attach
+## [[ ! ${BLE_VERSION-} ]] || ble-attach
 ## ```
 ##
 
@@ -41,14 +41,16 @@
 #bleopt editor=vim
 
 
-## The following settings sets the behavior of visible bells (vbell).
-## "vbell_duration" sets the time duration to show the vbell. "vbell_align"
-## controls the position of vbell. The value "left" (default) specifies that
-## the vbell should be shown up on the top left corner of the terminal. The
-## values "center" and "right" specify that the vbell is shown on the top
-## center and the top right corner, respectively.  The faces "vbell",
-## "vbell_erase", and "vbell_flash" specify the graphic style of the vbell, the
-## one after vbell is erased, and the one used to blink the vbell,
+## The following settings sets the behavior of visible bells (vbell).  The
+## option "vbell_duration" sets the time duration to show the vbell.  The
+## option "vbell_align" controls the position of vbell with a colon-separated
+## fields. The fields "left", "center", and "right" specify that the vbell
+## should be shown up on the left, center, and right, respectively, in the
+## terminal display.  The default is "right".  The field "panel" specify that
+## vbell should be shown below the command line within the line editor
+## interface (as far as the line editor is currently active).  The faces
+## "vbell", "vbell_erase", and "vbell_flash" specify the graphic style of the
+## vbell, the one after vbell is erased, and the one used to blink the vbell,
 ## respectively.
 
 #bleopt vbell_default_message=' Wuff, -- Wuff!! '
@@ -63,11 +65,15 @@
 ## Line editor settings
 
 
-## The following settings turns on/off the audible bells and visible bells for
-## errors while user edit. The non-empty value turns on the bells.
+## This option controls the behavior of the bell in the line editing by
+## colon-separated values.  When "abell", "vbell", and "visual" are contained,
+## the audible bells, the visible bells, and the visual bells are enabled.  The
+## audible bell sends BEL to the terminal.  The visible bell shows the message
+## on the terminal display.  The visual bell is the GNU-Screen style bell that
+## flashes the terminal display by turning on DECSCNM in a short moment.  Old
+## settings "edit_vbell" and "edit_abell" should be updated to use "edit_bell".
 
-#bleopt edit_abell=1
-#bleopt edit_vbell=
+#bleopt edit_bell=abell
 
 
 ## The following setting turns on the delayed load of history when an non-empty
@@ -92,12 +98,16 @@
 #bleopt indent_tabs=1
 
 
-## "undo_point" controls the cursor position after "undo". When "beg" or "end"
-## is specified, the cursor will be moved to the beginning or the end of the
-## dirty section, respectively. When other values are specified, the original
-## cursor position is reproduced.
+## "undo_point" controls the cursor position after "undo".  When "beg" and
+## "end" are specified, the cursor will be moved to the beginning and the end,
+## respectively, of the dirty section.  When "first" and "last" are specified,
+## the cursor position will be the first and last positions, respectively, for
+## which the resulting line content is recorded.  When "near" is specified, it
+## behaves like "last" for undo and "first" for redo.  Otherwise, it behaves
+## like "beg" for vi command modes and "near" for the other modes.  The default
+## is "auto".
 
-#bleopt undo_point=end
+#bleopt undo_point=near
 
 
 ## The following setting controls forced layout calculations before graphical
@@ -120,7 +130,7 @@
 
 ## The following option specifies the set of expansions performed by
 ## magic-space with a colon-separated list of expansion types. "history",
-## "sabbrev", and "alias" can be specified.
+## "sabbrev", "alias", and "autocd" can be specified.
 
 #bleopt edit_magic_expand=history:sabbrev
 
@@ -135,17 +145,17 @@
 
 ## This option specifies the expansions performed on accept-line by a
 ## colon-separated list.  The expansion is performed in a similar way as Bash's
-## history expansion.  When "sabbrev", "alias", and "history" is specified, the
-## respective expansions are attempted on the command line.  When "verify" is
-## specified, if sabbrev or alias expansions changed the command line, the
-## execution of the command line is canceled so the user can examine or
-## continue to edit the expanded line.  The history expansion can be controlled
-## by "shopt -s histverify" in a similar manner.  When "verify-syntax" is
-## specified and any expansions change the command string, a syntax check is
-## performed.  The command execution is canceled when the command string is not
-## syntactically complete.  When "history-line" is specified, the history
-## expansion replaces the command line instead of just printing the expansion
-## result.  The default value of this option is empty.
+## history expansion.  When "sabbrev", "alias", "autocd", and "history" is
+## specified, the respective expansions are attempted on the command line.
+## When "verify" is specified, if sabbrev, alias, or autocd expansions changed
+## the command line, the execution of the command line is canceled so the user
+## can examine or continue to edit the expanded line.  The history expansion
+## can be controlled by "shopt -s histverify" in a similar manner.  When
+## "verify-syntax" is specified and any expansions change the command string, a
+## syntax check is performed.  The command execution is canceled when the
+## command string is not syntactically complete.  When "history-line" is
+## specified, the history expansion replaces the command line instead of just
+## printing the expansion result.  The default value of this option is empty.
 
 #bleopt edit_magic_accept=sabbrev
 
@@ -307,13 +317,26 @@
 #bleopt allow_exit_with_jobs=
 
 
-## The following setting controls the cursor position after the move to other
-## history entries. When non-empty values are specified, the offset of the
-## cursor from the beginning of the command line is preserved. When an empty
-## value is specified the cursor position is the beginning or the end of the
-## command lines when the move is to a newer or older entry, respectively.
+## The following setting controls the default cursor position after moving to
+## another history entry.  When "preserve" is specified, ble.sh tries to
+## preserve the cursor position before moving the history entry.  When "begin"
+## and "end" are specified, the cursor is placed at the beginning and end,
+## respectively, of the entry.  When "near" is specified, when we move to an
+## older (newer) history entry, the cursor is placed at the end (beginning) of
+## the text.  When "far" is specified, when we move to an older (newer) history
+## entry, the cursor is palced at the beginning (end) of the text.  When
+## "beginning-of-{,graphical-,logical-}line" is specified, the cursor is placed
+## at the beginning of the last (first) line when we move to an older (newer)
+## history entry.  When "end-of-{,graphical-,logical-}line" is specified, the
+## cursor is placed at the end of the last (first) line when we move to an
+## older (newer) history entry.  When "preserve-{,graphical-,logical-}-column"
+## is specified, te cursor is placed at the same column as before moving the
+## history entry.  When the versions without "graphical" or "logical" is used,
+## a logical or graphical line is used based on "bleopt edit_line_type".  The
+## default is "end-of-line".  When "auto" is specified, the behavior is "end"
+## by default, but it becomes similar to "near" when called by vi motion.
 
-#bleopt history_preserve_point=
+#bleopt history_default_point=auto
 
 
 ## The following setting controls the history sharing. If it has non-empty
@@ -359,7 +382,10 @@
 ## characters exceeds the capacity.  The value `truncate` means that the
 ## command line is truncated from its end to fit into the capacity.  The value
 ## `editor` means that the widget `edit-and-execute` will be invoked to open an
-## editor to edit the command line contents.
+## editor to edit the command line contents.  When the value `editor` is
+## specified, `bleopt history_limit_length` is recommended to be less than or
+## equal to `bleopt line_limit_length`.  Otherwise, the text editor may be
+## unexpectedly executed in navigating through the history.
 
 #bleopt line_limit_type=none
 
@@ -632,7 +658,7 @@
 ## can be specified based on the user's preference.
 
 #ble-face auto_complete='fg=238,bg=254'           # default
-#ble-face auto_complete='fg=white,bg=69'          # blue background
+#ble-face auto_complete='fg=231,bg=69'            # blue background
 #ble-face auto_complete='fg=240,underline,italic' # darker background
 
 
@@ -733,10 +759,11 @@
 
 
 ## The following setting controls the detailed behavior of menu-complete with a
-## colon-separated list of options:
-##
-## - When the option "insert-selection" is specified, the currently selected
-##  menu item is temporarily inserted in the command line.
+## colon-separated list of options.  When the option "insert-selection" is
+## specified, the currently selected menu item is temporarily inserted in the
+## command line.  When "hidden" is specified, "insert-selection" is enabled,
+## and additionally, the completion menu is hidden by default.  The default is
+## "insert-selection".
 
 #bleopt complete_menu_complete_opts=insert-selection
 
@@ -789,6 +816,27 @@
 ## specified, the multicolumn mode is disabled.
 
 #bleopt menu_desc_multicolumn_width=65
+
+
+## These faces specifies additional graphic styles used to highlight completion
+## candidates.  Face "menu_complete_match" specifies the additional style for
+## the candidate parts matching the filtering text.  Face
+## "menu_complete_selected" specifies the additional style for the selected
+## candidate.
+
+#ble-face menu_complete_match=bold
+#ble-face menu_complete_selected=reverse
+
+
+## These faces control graphic styles used in the menu descriptions.  Face
+## "menu_desc_default" is used as a default highlighting of the description.
+## Face "menu_desc_type" is used for the prefix string "(type) " to indicate
+## the type of the menu item.  Face "menu_desc_quote" is used to quote strings
+## embedded in the descriptions.
+
+#ble-face menu_desc_default=none
+#ble-face menu_desc_type=ref:syntax_delimiter
+#ble-face menu_desc_quote=ref:syntax_quoted
 
 
 ## When this Readline setting is enabled, the cases of alphabets are ignored on
@@ -909,12 +957,26 @@
 #bleopt syntax_eval_polling_interval=50
 
 
+## The following setting limits the number of expanded words to process in
+## highlighting a single grammatical word.  When this setting is set to an
+## empty string, the number of expanded words to process is unlimited.
+
+#bleopt highlight_eval_word_limit=200
+
+
+## If set to a non-empty value, the setting "color_scheme" specifies a preset
+## graphic styles for basic faces.  The supported schemes are found in the
+## subdirectory "contrib/scheme".  The default value is "default".
+
+#bleopt color_scheme=base16
+
+
 ## The following settings specify graphic styles of corresponding faces.  Faces
 ## used for specific features are described in the respective sections.
 
-#ble-face -s region                    fg=white,bg=60
-#ble-face -s region_insert             fg=blue,bg=252
-#ble-face -s region_match              fg=white,bg=55
+#ble-face -s region                    fg=231,bg=60
+#ble-face -s region_insert             fg=27,bg=254
+#ble-face -s region_match              fg=231,bg=55
 #ble-face -s region_target             fg=black,bg=153
 #ble-face -s disabled                  fg=242
 #ble-face -s overwrite_mode            fg=black,bg=51
@@ -924,40 +986,42 @@
 #ble-face -s syntax_quoted             fg=green
 #ble-face -s syntax_quotation          fg=green,bold
 #ble-face -s syntax_escape             fg=magenta
-#ble-face -s syntax_expr               fg=navy
+#ble-face -s syntax_expr               fg=63
 #ble-face -s syntax_error              bg=203,fg=231
 #ble-face -s syntax_varname            fg=202
 #ble-face -s syntax_delimiter          bold
-#ble-face -s syntax_param_expansion    fg=purple
+#ble-face -s syntax_param_expansion    fg=133
 #ble-face -s syntax_history_expansion  bg=94,fg=231
-#ble-face -s syntax_function_name      fg=92,bold
+#ble-face -s syntax_function_name      fg=99,bold
 #ble-face -s syntax_comment            fg=gray
 #ble-face -s syntax_glob               fg=198,bold
 #ble-face -s syntax_brace              fg=37,bold
-#ble-face -s syntax_tilde              fg=navy,bold
-#ble-face -s syntax_document           fg=94
-#ble-face -s syntax_document_begin     fg=94,bold
+#ble-face -s syntax_tilde              fg=63,bold
+#ble-face -s syntax_document           fg=100
+#ble-face -s syntax_document_begin     fg=100,bold
 #ble-face -s command_builtin_dot       fg=red,bold
 #ble-face -s command_builtin           fg=red
 #ble-face -s command_alias             fg=teal
-#ble-face -s command_function          fg=92 # fg=purple
+#ble-face -s command_function          fg=99 # fg=133
 #ble-face -s command_file              fg=green
 #ble-face -s command_keyword           fg=blue
 #ble-face -s command_jobs              fg=red,bold
-#ble-face -s command_directory         fg=navy,underline
+#ble-face -s command_directory         fg=63,underline
+#ble-face -s command_suffix            fg=231,bg=28
+#ble-face -s command_suffix_new        fg=231,bg=124
 #ble-face -s argument_option           fg=teal
 #ble-face -s argument_option           fg=black,bg=225
-#ble-face -s filename_directory        underline,fg=26
-#ble-face -s filename_directory_sticky underline,fg=white,bg=26
+#ble-face -s filename_directory        underline,fg=33
+#ble-face -s filename_directory_sticky underline,fg=231,bg=26
 #ble-face -s filename_link             underline,fg=teal
-#ble-face -s filename_orphan           underline,fg=teal,bg=224
+#ble-face -s filename_orphan           underline,fg=16,bg=224
 #ble-face -s filename_setuid           underline,fg=black,bg=220
 #ble-face -s filename_setgid           underline,fg=black,bg=191
 #ble-face -s filename_executable       underline,fg=green
 #ble-face -s filename_other            underline
 #ble-face -s filename_socket           underline,fg=cyan,bg=black
 #ble-face -s filename_pipe             underline,fg=lime,bg=black
-#ble-face -s filename_character        underline,fg=white,bg=black
+#ble-face -s filename_character        underline,fg=231,bg=black
 #ble-face -s filename_block            underline,fg=yellow,bg=black
 #ble-face -s filename_warning          underline,fg=red
 #ble-face -s filename_url              underline,fg=blue
@@ -965,12 +1029,13 @@
 #ble-face -s varname_array             fg=orange,bold
 #ble-face -s varname_empty             fg=31
 #ble-face -s varname_export            fg=200,bold
-#ble-face -s varname_expr              fg=92,bold
+#ble-face -s varname_expr              fg=99,bold
 #ble-face -s varname_hash              fg=70,bold
+#ble-face -s varname_new               fg=34
 #ble-face -s varname_number            fg=64
 #ble-face -s varname_readonly          fg=200
 #ble-face -s varname_transform         fg=29,bold
-#ble-face -s varname_unset             fg=124
+#ble-face -s varname_unset             fg=245
 
 #ble-face -s cmdinfo_cd_cdpath         fg=26,bg=155
 
@@ -1412,3 +1477,22 @@ blehook/eval-after-load keymap_vi blerc/vim-load-hook
 ## from Bash.
 
 #bleopt internal_suppress_bash_output=1
+
+
+## This is a colon-separated list of fields to control the behavior of
+## ble/debug/profiler.  When the field "line" and "func" are specified,
+## statistics for lines and function calls, respectively, are enabled.  When
+## the field "tree" is specified, function-call trees are saved.  Optional
+## parameter "html" can be specified to "line" and "func" separated by the
+## equal sign, i.e., "line=html" and "func=html".  In such a case, the results
+## are also saved in the .html format.
+
+#bleopt debug_profiler_opts=line:func
+
+
+## This option specifies the threshold time in milliseconds to determine
+## whether to include a command in the tree generated by "bleopt
+## debug_profiler_opts=tree".  The commands that took less than this time in
+## execution will be skipped.  The default value is 5.0 msec.
+
+#bleopt debug_profiler_tree_threshold=5.0

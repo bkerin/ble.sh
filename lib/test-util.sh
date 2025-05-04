@@ -2,7 +2,7 @@
 
 ble-import lib/core-test
 
-ble/test/start-section 'ble/util' 1234
+ble/test/start-section 'ble/util' 1244
 
 # bleopt
 
@@ -931,6 +931,8 @@ function is-global { (builtin readonly "$1"; ! local "$1" 2>/dev/null); }
   ble/test code:'ret=stdX:stdY:usrZ; ble/path#remove-glob ret "std[a-zX-Z]"' ret=usrZ
   ble/test code:'ret=stdX:usrZ:stdY; ble/path#remove-glob ret "std[a-zX-Z]"' ret=usrZ
   ble/test code:'ret=usrZ:stdX:stdY; ble/path#remove-glob ret "std[a-zX-Z]"' ret=usrZ
+
+  ble/test code:'ret=/usr/bin:/usr/local/bin:/usr/sbin:/usr/local/sbin; ble/path#remove-glob ret "/usr/local/*"' ret=/usr/bin:/usr/sbin
 )
 
 # ble/path#{append,prepend,contains}
@@ -1335,9 +1337,9 @@ function is-global { (builtin readonly "$1"; ! local "$1" 2>/dev/null); }
   ble/test 'ble/is-function declare' exit=1
   ble/test 'ble/is-function mkfifo' exit=1
 
-  function compgen { :; }
-  function declare { :; }
-  function mkfifo { :; }
+  function compgen { return 0; }
+  function declare { return 0; }
+  function mkfifo { return 0; }
   ble/test 'ble/is-function compgen'
   ble/test 'ble/is-function declare'
   ble/test 'ble/is-function mkfifo'
@@ -1446,10 +1448,10 @@ function is-global { (builtin readonly "$1"; ! local "$1" 2>/dev/null); }
 (
   shopt -s expand_aliases
   alias aaa=fun
-  function fun { :; }
-  function ble/fun { :; }
-  function ble/fun:type { :; }
-  function ble/fun#meth { :; }
+  function fun { return 0; }
+  function ble/fun { return 0; }
+  function ble/fun:type { return 0; }
+  function ble/fun#meth { return 0; }
 
   ble/test 'ble/util/type ret aaa' ret=alias
   ble/test 'ble/util/type ret fun' ret=function
@@ -1495,16 +1497,16 @@ function is-global { (builtin readonly "$1"; ! local "$1" 2>/dev/null); }
 # ble/util/is-stdin-ready
 if ((_ble_bash>=40000)); then
   (
-    ble/test 'echo 1 | { sleep 0.01; ble/util/is-stdin-ready; }'
+    ble/test 'echo 1 | { sleep 0.01; ble/util/is-stdin-ready 0; }'
     [[ ${CI-} == true && ${GITHUB_ACTION-} && $OSTYPE == msys* ]] ||
-      ble/test 'sleep 0.01 | ble/util/is-stdin-ready' exit=1
-    ble/test 'ble/util/is-stdin-ready <<< a'
-    ble/test 'ble/util/is-stdin-ready <<< ""'
+      ble/test 'sleep 0.01 | ble/util/is-stdin-ready 0' exit=1
+    ble/test 'ble/util/is-stdin-ready 0 <<< a'
+    ble/test 'ble/util/is-stdin-ready 0 <<< ""'
 
     # EOF は成功してしまう? これは意図しない振る舞いである。
     # しかし bash 自体が終了するので関係ないのかもしれない。
-    ble/test ': | { sleep 0.01; ble/util/is-stdin-ready; }'
-    ble/test 'ble/util/is-stdin-ready < /dev/null'
+    ble/test ': | { sleep 0.01; ble/util/is-stdin-ready 0; }'
+    ble/test 'ble/util/is-stdin-ready 0 < /dev/null'
   )
 fi
 
@@ -1514,7 +1516,7 @@ ble/test ble/util/is-running-in-subshell exit=1
 
 # ble/util/getpid
 (
-  ble/test/chdir
+  ble/test/chdir || exit
   function getpid {
     sh -c 'printf %s $PPID' >| a.txt
     ble/util/readfile ppid a.txt
@@ -1551,7 +1553,7 @@ ble/test ble/util/is-running-in-subshell exit=1
 # ble/fd#alloc
 # ble/fd#close
 (
-  ble/test/chdir
+  ble/test/chdir || exit
   ble/fd#alloc fd '> a.txt'
   ble/util/print hello >&"$fd"
   ble/util/print world >&"$fd"
@@ -1753,6 +1755,7 @@ fi
 
 # ble/util/buffer
 (
+  _ble_util_fd_tui_stderr=1 # ble/util/buffer.flush write outputs to this fd.
   ble/util/buffer.clear
   ble/test 'ble/util/buffer.flush' stdout=
   ble/util/buffer hello
@@ -1861,9 +1864,13 @@ fi
 
 # ble-import -C
 (
+  # Suppress all the idle tasks and processings
   ble/function#try ble/util/idle.clear
+  ble/util/buffer.clear
+  blehook idle_after_task=
+
   ble/function#push ble/util/idle/IS_IDLE '((1))'
-  ble/test/chdir
+  ble/test/chdir || exit
   ble/util/print 'ble/util/print FILE1' >| FILE1.txt
   ble/util/print 'ble/util/print FILE2' >| FILE2.txt
   ble/util/print 'ble/util/print FILE3' >| FILE3.txt
@@ -1972,8 +1979,8 @@ fi
 # ble/term/leave-for-widget
 # ble/term/enter
 # ble/term/leave
-# ble/term/initialize
-# ble/term/finalize
+# ble/term/attach
+# ble/term/detach
 
 # ble/util/{s2c,c2s}
 (
@@ -2133,6 +2140,12 @@ fi
 (
   function clear-locale { LC_ALL= LANG= LC_CTYPE=; }
 
+  # The current implementation of "ble/util/is-unicode-output" tests whether
+  # the specified locale is actually working, so the locales not installed in
+  # the test environment would be rejected.  We suppress the test by
+  # overwriting "ble/util/.test-utf8-locale".
+  ble/function#push ble/util/.test-utf8-locale 'return 0'
+
   for lang in {C,en_US,ja{_JP,}}.{UTF-8,utf8} ja_JP.{utf8,UTF-8}@cjk{wide,narrow,single}; do
     clear-locale
     ble/test "LANG=$lang; ble/util/is-unicode-output"
@@ -2150,6 +2163,8 @@ fi
     clear-locale
     ble/test "LC_CTYPE=C LANG=C LC_ALL=$lang; ble/util/is-unicode-output" exit=1
   done
+
+  ble/function#pop ble/util/.test-utf8-locale
 )
 
 ble/test/end-section

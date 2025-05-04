@@ -54,7 +54,7 @@ function ble/highlight/layer:syntax/getg { true; }
 
 
 ## @fn ble/syntax:bash/is-complete
-##   sytax がロードされる迄は常に真値。
+##   syntax がロードされる迄は常に真値。
 function ble/syntax:bash/is-complete { true; }
 
 
@@ -90,10 +90,12 @@ bleopt/declare -v highlight_filename 1
 bleopt/declare -v highlight_variable 1
 bleopt/declare -v highlight_timeout_sync 50
 bleopt/declare -v highlight_timeout_async 5000
+bleopt/declare -v highlight_eval_word_limit 200
 bleopt/declare -v syntax_eval_polling_interval 50
 
 builtin eval -- "${_ble_util_gdict_declare//NAME/_ble_syntax_highlight_filetype}"
 builtin eval -- "${_ble_util_gdict_declare//NAME/_ble_syntax_highlight_lscolors_ext}"
+builtin eval -- "${_ble_util_gdict_declare//NAME/_ble_syntax_highlight_lscolors_suffix}"
 builtin eval -- "${_ble_util_gdict_declare//NAME/_ble_syntax_bash_simple_eval}"
 builtin eval -- "${_ble_util_gdict_declare//NAME/_ble_syntax_bash_simple_eval_full}"
 
@@ -121,52 +123,55 @@ function ble/syntax/defface.onload {
   ble/color/defface syntax_quoted            fg=green
   ble/color/defface syntax_quotation         fg=green,bold
   ble/color/defface syntax_escape            fg=magenta
-  ble/color/defface syntax_expr              fg=26
+  ble/color/defface syntax_expr              fg=33
   ble/color/defface syntax_error             bg=203,fg=231 # bg=224
   ble/color/defface syntax_varname           fg=202
   ble/color/defface syntax_delimiter         bold
-  ble/color/defface syntax_param_expansion   fg=purple
+  ble/color/defface syntax_param_expansion   fg=133
   ble/color/defface syntax_history_expansion bg=94,fg=231
-  ble/color/defface syntax_function_name     fg=92,bold # fg=purple
+  ble/color/defface syntax_function_name     fg=99,bold # fg=133
   ble/color/defface syntax_comment           fg=242
   ble/color/defface syntax_glob              fg=198,bold
   ble/color/defface syntax_brace             fg=37,bold
-  ble/color/defface syntax_tilde             fg=navy,bold
-  ble/color/defface syntax_document          fg=94
-  ble/color/defface syntax_document_begin    fg=94,bold
+  ble/color/defface syntax_tilde             fg=63,bold
+  ble/color/defface syntax_document          fg=100
+  ble/color/defface syntax_document_begin    fg=100,bold
 
   ble/color/defface command_builtin_dot fg=red,bold
   ble/color/defface command_builtin     fg=red
   ble/color/defface command_alias       fg=teal
-  ble/color/defface command_function    fg=92 # fg=purple
+  ble/color/defface command_function    fg=99 # fg=133
   ble/color/defface command_file        fg=green
   ble/color/defface command_keyword     fg=blue
   ble/color/defface command_jobs        fg=red,bold
-  ble/color/defface command_directory   fg=26,underline
-  ble/color/defface filename_directory        underline,fg=26
-  ble/color/defface filename_directory_sticky underline,fg=white,bg=26
+  ble/color/defface command_directory   fg=33,underline
+  ble/color/defface command_suffix      fg=231,bg=28
+  ble/color/defface command_suffix_new  fg=231,bg=124
+  ble/color/defface filename_directory        underline,fg=33
+  ble/color/defface filename_directory_sticky underline,fg=231,bg=26
   ble/color/defface filename_link             underline,fg=teal
-  ble/color/defface filename_orphan           underline,fg=teal,bg=224
+  ble/color/defface filename_orphan           underline,fg=16,bg=224
   ble/color/defface filename_setuid           underline,fg=black,bg=220
   ble/color/defface filename_setgid           underline,fg=black,bg=191
   ble/color/defface filename_executable       underline,fg=green
   ble/color/defface filename_other            underline
   ble/color/defface filename_socket           underline,fg=cyan,bg=black
   ble/color/defface filename_pipe             underline,fg=lime,bg=black
-  ble/color/defface filename_character        underline,fg=white,bg=black
+  ble/color/defface filename_character        underline,fg=231,bg=black
   ble/color/defface filename_block            underline,fg=yellow,bg=black
   ble/color/defface filename_warning          underline,fg=red
   ble/color/defface filename_url              underline,fg=blue
   ble/color/defface filename_ls_colors        underline
-  ble/color/defface varname_unset     fg=124
+  ble/color/defface varname_unset     fg=245
   ble/color/defface varname_empty     fg=31
   ble/color/defface varname_number    fg=64
-  ble/color/defface varname_expr      fg=92,bold
+  ble/color/defface varname_expr      fg=99,bold
   ble/color/defface varname_array     fg=orange,bold
   ble/color/defface varname_hash      fg=70,bold
   ble/color/defface varname_readonly  fg=200
   ble/color/defface varname_transform fg=29,bold
   ble/color/defface varname_export    fg=200,bold
+  ble/color/defface varname_new       fg=34
   ble/color/defface argument_option   fg=teal
   ble/color/defface argument_error    fg=black,bg=225
 }

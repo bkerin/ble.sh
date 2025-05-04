@@ -62,7 +62,7 @@ function ble/util/c2w/clear-cache {
 ##     定義 ble/util/c2w:$bleopt_char_width_mode
 bleopt/declare -n char_width_mode auto
 function bleopt/check:char_width_mode {
-  if ! ble/is-function "ble/util/c2w:$value"; then
+  if ! ble/is-function ble/util/c2w:"$value"; then
     ble/util/print "bleopt: Invalid value char_width_mode='$value'. A function 'ble/util/c2w:$value' is not defined." >&2
     return 1
   fi
@@ -83,7 +83,7 @@ function bleopt/check:char_width_mode {
 function ble/util/c2w {
   ret=${_ble_util_c2w_cache[$1]:-${_ble_util_c2w[$1]}}
   if [[ ! $ret ]]; then
-    "ble/util/c2w:$bleopt_char_width_mode" "$1"
+    ble/util/c2w:"$bleopt_char_width_mode" "$1"
     _ble_util_c2w_cache[$1]=$ret
   fi
 }
@@ -91,16 +91,8 @@ function ble/util/c2w {
 ##   編集画面での表示上の文字幅を返します。
 ##   @var[out] ret
 function ble/util/c2w-edit {
-  local cs=${_ble_unicode_GraphemeCluster_ControlRepresentation[$1]}
-  if [[ $cs ]]; then
-    ret=${#cs}
-  elif (($1<32||127<=$1&&$1<160)); then
-    # 制御文字は ^? と表示される。
-    ret=2
-    # TAB は???
-
-    # 128-159: M-^?
-    ((128<=$1&&(ret=4)))
+  if ble/unicode/GraphemeCluster/ControlRepresentation "$1"; then
+    ret=${#ret}
   else
     ble/util/c2w "$1"
   fi
@@ -120,6 +112,29 @@ function ble/util/s2w-edit {
 }
 function ble/util/s2w {
   ble/util/s2w-edit "$1" R
+}
+
+## @fn ble/util/c2s-edit ccode [opts]
+##   編集画面での表現を返します。
+##   @param[opt] opts
+##     @opt sgr1 sgr0
+##       制御文字の代替表現を囲むのに使用する文字列を指定します。
+##
+##   @var[out] ret
+function ble/util/c2s-edit {
+  if ble/unicode/GraphemeCluster/ControlRepresentation "$1"; then
+    if [[ ${2-} ]]; then
+      local cr=$ret sgr0= sgr1=
+      if ble/opts#extract-last-optarg "$2" sgr1 "$_ble_term_rev"; then
+        sgr1=$ret
+        ble/opts#extract-last-optarg "$2" sgr0 "$_ble_term_sgr0"
+        sgr0=$ret
+        ret=$sgr1$cr$sgr0
+      fi
+    fi
+  else
+    ble/util/c2s "$1"
+  fi
 }
 
 # ---- 文字種判定 ----
@@ -173,14 +188,8 @@ function ble/unicode/c2w {
     ret=${_ble_unicode_c2w_index[c<0x20000?c>>8:((c>>12)-32+512)]}
     if [[ $ret == *:* ]]; then
       local l=${ret%:*} u=${ret#*:} m
-      while ((l+1<u)); do
-        ((m=(l+u)/2))
-        if ((_ble_unicode_c2w_ranges[m]<=c)); then
-          l=$m
-        else
-          u=$m
-        fi
-      done
+      local L='_ble_unicode_c2w_ranges[m=(l+u)/2]<=c?(l=m):(u=m),L[l+1>=u]'
+      ((l+1<u&&L))
       ret=${_ble_unicode_c2w[_ble_unicode_c2w_ranges[l]]}
     fi
   fi
@@ -251,9 +260,8 @@ function ble/unicode/EmojiStatus {
     ret=$_ble_unicode_EmojiStatus_None
     if ((_ble_unicode_EmojiStatus_xmaybe)); then
       local l=0 u=${#_ble_unicode_EmojiStatus_ranges[@]} m
-      while ((l+1<u)); do
-        ((_ble_unicode_EmojiStatus_ranges[m=(l+u)/2]<=code?(l=m):(u=m)))
-      done
+      local L='_ble_unicode_EmojiStatus_ranges[m=(l+u)/2]<=code?(l=m):(u=m),L[l+1>=u]'
+      ((l+1<u&&L))
       ret=${_ble_unicode_EmojiStatus[_ble_unicode_EmojiStatus_ranges[l]]:-0}
     fi
     _ble_unicode_EmojiStatus[code]=$ret
@@ -365,9 +373,8 @@ function ble/util/c2w:emacs {
   fi
 
   local l=0 u=${#_ble_util_c2w_emacs_wranges[@]} m
-  while ((l+1<u)); do
-    ((_ble_util_c2w_emacs_wranges[m=(l+u)/2]<=tIndex?(l=m):(u=m)))
-  done
+  local L='_ble_util_c2w_emacs_wranges[m=(l+u)/2]<=tIndex?(l=m):(u=m),L[l+1>=u]'
+  ((l+1<u&&L))
   ((ret=((l&1)==0)?2:1))
   return 0
 }
@@ -386,9 +393,8 @@ function ble/util/c2w:musl {
   fi
 
   local l=0 u=${#_ble_util_c2w_musl_ranges[@]} m
-  while ((l+1<u)); do
-    ((_ble_util_c2w_musl_ranges[m=(l+u)/2]<=code?(l=m):(u=m)))
-  done
+  local L='_ble_util_c2w_musl_ranges[m=(l+u)/2]<=code?(l=m):(u=m),L[l+1>=u]'
+  ((l+1<u&&L))
   ret=${_ble_util_c2w_musl[_ble_util_c2w_musl_ranges[l]]}
 }
 
@@ -420,20 +426,23 @@ function ble/util/c2w:auto/test.buff {
 
   [[ $_ble_attached ]] && { ble/canvas/panel/save-position goto-top-dock; saved_pos=$ret; }
   ble/canvas/put.draw "$_ble_term_sc"
+  [[ $_ble_term_sgr_invis ]] &&
+    ble/canvas/put.draw $'\e['"$_ble_term_sgr_invis"'m'
   if ble/util/is-unicode-output; then
 
     local -a codes=(
       # index=0,1 [EastAsianWidth=A 判定]
       0x25bd 0x25b6
 
-      # index=2..16 [Unicode version 判定] #D1645 #D1668
+      # index=2..17 [Unicode version 判定] #D1645 #D1668
       #   判定用の文字コードは "source
       #   make/canvas.c2w.list-ucsver-detection-codes.sh" を用いて生
       #   成されたリストから選択した。新しい Unicode version が出たら
       #   再びこれを実行して判定コードを書く事になる。
-      0x9FBC 0x9FC4 0x31B8 0xD7B0 0x3099
-      0x9FCD 0x1F93B 0x312E 0x312F 0x16FE2
-      0x32FF 0x31BB 0x9FFD 0x1B132 0x2FFC)
+      0x9FBC 0x9FC4  0x31B8 0xD7B0  0x3099
+      0x9FCD 0x1F93B 0x312E 0x312F  0x16FE2
+      0x32FF 0x31BB  0x9FFD 0x1B132 0x2FFC
+      0x31E4)
 
     _ble_util_c2w_auto_update_processing=${#codes[@]}
     _ble_util_c2w_auto_update_result=()
@@ -464,6 +473,8 @@ function ble/util/c2w:auto/test.buff {
       ble/canvas/put.draw "$_ble_term_cr$_ble_term_el"
     fi
   fi
+  [[ $_ble_term_sgr_invis ]] &&
+    ble/canvas/put.draw "$_ble_term_sgr0"
   ble/canvas/put.draw "$_ble_term_rc"
   [[ $_ble_attached ]] && ble/canvas/panel/load-position.draw "$saved_pos"
   ble/canvas/bflush.draw
@@ -478,7 +489,9 @@ function ble/util/c2w/test.hook {
   local ws
   if [[ $bleopt_char_width_version == auto ]]; then
     ws=("${_ble_util_c2w_auto_update_result[@]:2}")
-    if ((ws[14]==2)); then
+    if ((ws[15]==2)); then
+      bleopt char_width_version=16.0
+    elif ((ws[14]==2)); then
       bleopt char_width_version=15.1
     elif ((ws[13]==2)); then
       bleopt char_width_version=15.0
@@ -572,9 +585,8 @@ function ble/unicode/GraphemeCluster/c2break {
   ((ret>_ble_unicode_GraphemeClusterBreak_MaxCode)) && { ret=0; return 0; }
 
   local l=0 u=${#_ble_unicode_GraphemeClusterBreak_ranges[@]} m
-  while ((l+1<u)); do
-    ((_ble_unicode_GraphemeClusterBreak_ranges[m=(l+u)/2]<=code?(l=m):(u=m)))
-  done
+  local L='_ble_unicode_GraphemeClusterBreak_ranges[m=(l+u)/2]<=code?(l=m):(u=m),L[l+1>=u]'
+  ((l+1<u&&L))
 
   ret=${_ble_unicode_GraphemeClusterBreak[_ble_unicode_GraphemeClusterBreak_ranges[l]]:-0}
   _ble_unicode_GraphemeClusterBreak[code]=$ret
@@ -936,6 +948,27 @@ function ble/unicode/GraphemeCluster/.get-ascii-rep {
       ble/util/sprintf cs 'U+%X' "$c"
     fi
     _ble_unicode_GraphemeCluster_ControlRepresentation[c]=$cs
+  fi
+}
+
+function ble/unicode/GraphemeCluster/ControlRepresentation {
+  # cache
+  if [[ ${_ble_unicode_GraphemeCluster_ControlRepresentation[$1]+set} ]]; then
+    ret=${_ble_unicode_GraphemeCluster_ControlRepresentation[$1]}
+    [[ $ret ]]
+    return "$?"
+  fi
+
+  if (($1<32||127<=$1&&$1<160)) || {
+       ble/unicode/GraphemeCluster/c2break "$1"
+       ((ret==_ble_unicode_GraphemeClusterBreak_Control)); }; then
+    local cs
+    ble/unicode/GraphemeCluster/.get-ascii-rep "$1"
+    ret=$cs
+    return 0
+  else
+    _ble_unicode_GraphemeCluster_ControlRepresentation[$1]=
+    return 1
   fi
 }
 
@@ -2078,13 +2111,13 @@ function ble/canvas/trace/.impl {
   #-------------------------------------
 
   # CSI
-  local rex_csi='^\[[ -?]*[@-~]'
+  local rex_csi=$'^\e\\[[ -?]*[@-~]' # disable=#D1440 (LC_COLLATE=C is set)
   # OSC, DCS, SOS, PM, APC Sequences + "GNU screen ESC k"
   local rex_osc='^([]PX^_k])([^'$st']|+[^\'$st'])*(\\|'${st:+'|'}$st'|$)'
   # ISO-2022 関係 (3byte以上の物)
-  local rex_2022='^[ -/]+[@-~]'
+  local rex_2022=$'^\e[ -/]+[@-~]' # disable=#D1440 (LC_COLLATE=C is set)
   # ESC ?
-  local rex_esc='^[ -~]'
+  local rex_esc=$'^\e[ -~]' # disable=#D1440 (LC_COLLATE=C is set)
 
   # states
   local trace_sclevel=0
@@ -2435,7 +2468,7 @@ function ble/canvas/trace-text {
     # G0 だけで構成された文字列は先に単純に処理する
     ble/canvas/trace-text/.put-simple "${#1}" "$1"
   else
-    local glob='[ -~]*' globx='[! -~]*'
+    local glob='[ -~]*' globx='[! -~]*' # disable=#D1440 (LC_COLLATE=C is set)
     local i iN=${#1} text=$1
     for ((i=0;i<iN;)); do
       local tail=${text:i}
@@ -3040,7 +3073,7 @@ function ble/canvas/excursion-end.draw {
 ##   下部に寄せて表示されるパネルの開始番号を保持する。
 ##   この変数が空文字列の時は全てのパネルは上部に表示される。
 _ble_canvas_panel_class=()
-_ble_canvas_panel_height=(1 0 0)
+_ble_canvas_panel_height=()
 _ble_canvas_panel_focus=
 _ble_canvas_panel_vfill=
 _ble_canvas_panel_bottom= # 現在下部に居るかどうか
@@ -3413,7 +3446,7 @@ function ble/canvas/panel/invalidate {
     ble/canvas/excursion-end.draw
     ble/canvas/put.draw "$_ble_term_cr$_ble_term_ed"
     _ble_canvas_x=0 _ble_canvas_y=0
-    ble/array#fill-range _ble_canvas_panel_height 0 "${#_ble_canvas_panel_height[@]}" 0
+    ble/array#fill-range _ble_canvas_panel_height 0 "${#_ble_canvas_panel_class[@]}" 0
     ble/canvas/panel/reallocate-height.draw
     ble/canvas/bflush.draw
   fi

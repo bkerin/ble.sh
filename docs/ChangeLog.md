@@ -5,10 +5,25 @@
 
 ## New features
 
+- Bash 5.3 support
+  - syntax: support bash-5.3 function subst `${ list; }` `#2045` 0906fd95 71272a4b
+  - decode(bind): support the colonless form of `bind -x` of bash-5.3 `#D2106` 78d7d2e3
+  - util(joblist): fix job detection in Bash 5.3 `#D2157` 6d835818
+  - util(joblist): exclude more foreground dead jobs in Bash 5.3 `#D2174` 8a321424
+  - global: work around function names with slashes in Bash 5.3 POSIX mode `#D2221` 48c7bbee
+    - main: fix workaround for the posix vi-insert <kbd>C-i</kbd> binding in `bash <= 5.0` (reported by vasi786) `#D2243` 8e7ed824
+  - main: update the startup message for debug versions of Bash `#D2222` afb29073
+    - main: shorten the startup message for debug versions `#D2241` 0bc8610a
+    - main: suppress "--bash-debug-version" in "ble-reload" `#D2275` ec422115
+  - decode(read-user-settings): read the colonless form of `bind -x` of Bash 5.3 `#D2233` 62b23b69
+  - progcomp: use Bash 5.3 `compgen -V` for completions with newlines (motivated by RBT22) `#D2253` 0e8c388a
+    - progcomp: fix a bug that `x` at the end of the last completion is trimmed `#D2308` d9faeb37
+  - main: fix attach failure with `--attach=prompt` in Bash 5.3 POSIX mode `#D2267` 49845707
+    - syntax: fix a problem that `$_` is not preserved `#D2269` e053690d
+  - keymap/vi: support bash-5.3 readline bindable function `bash-vi-complete` in `vi_nmap` `#D2305` 55e0ee71
 - bgproc: support opts `kill9-timeout=TIMEOUT` `#D2034` 3ab41652
 - progcomp(cd): change display name and support mandb desc (requested by EmilySeville7cfg) `#D2039` 74402098
 - cmdspec: add completion options for builtins (motivated by EmilySeville7cfg) `#D2040` 9bd24691
-- syntax: support bash-5.3 function subst `${ list; }` `#2045` 0906fd95 71272a4b
 - complete: support `bleopt complete_requote_threshold` (requested by rauldipeas) `#2048` bb7e118e
 - menu (`ble/widget/menu/append-arg`): add option `bell` (motivated by bkerin) `#D2066` 3f31be18 bbf3fed3
 - make: support `make uninstall` `#D2068` a39a4a89
@@ -20,15 +35,49 @@
 - mandb: look for git subcommands (motivated by bkerin) `#D2112` 9641c3b8
 - edit (`display-shell-version`): show the `atuin` version `#D2124` 9045fb87
 - complete: add widgets `auto_complete/insert-?word` (requested by Tommimon) `#D2127` 0c4b6772
+  - auto-complete: insert word only when the cursor is at the end of line `#D2212` b72d78a9
 - edit: add widgets `execute-named-command` and `history-goto` `#D2144` aa92b42a
 - keymap/vi_nmap: support `shell-expand-line` `#D2145` aa92b42a
+  - decode: fix quoting of `WIDGET` and `LASTWIDGET` (reported by 3ximus) `#D2205` 1313390b
 - main: support `bash ble.sh --install` `#D2169` 986d26a3 3801a87e
 - util(stty): support `bleopt term_stty_restore` (requested by TheFantasticWarrior) `#D2170` e64b02b7
-  - util: update workaround of Bash 5.2 `checkwinsize` for `term_stty_restore` (reported by TheFantasticWarrior) `#D2184` xxxxxxxx
-- edit: support `bleopt edit_magic_accept` (requested by pl643, bkerin) `#D2175` 3e9d8907
+  - util: update workaround of Bash 5.2 `checkwinsize` for `term_stty_restore` (reported by TheFantasticWarrior) `#D2184` ef8272a4
+- magic expansions
+  - edit: support `bleopt edit_magic_accept` (requested by pl643, bkerin) `#D2175` 3e9d8907
+  - edit: support `bleopt edit_magic_accept=verify-syntax` `#D2178` ac84c153
+  - edit: support `bleopt edit_magic_{expand,accept}=autocd` (motivated by Jai-JAP) `#D2187` b6344b3b
 - main: support shell variable `BLE_VER` `#D2177` a12dedab
-- edit: support `bleopt edit_magic_accept=verify-syntax` `#D2178` ac84c153
-- util(bleopt, blehook, ble-face): support wildcards `*` and `?` and change `@` to match an empty string `#D2182` xxxxxxxx
+- util(bleopt, blehook, ble-face): support wildcards `*` and `?` and change `@` to match an empty string `#D2182` bf595293
+- complete(cd): complete variable names for `cdable_vars` `#D2190` 10527901
+- sabbrev: support suffix sabbrev to emulate Zsh's suffix aliases `#D2191` d66e05d2
+  - sabbrev: fix bugs in sabbrev matching and positioning (reported by dgudim) `#D2198` 70a325f9
+- complete: support `ble-face menu_desc_{default,type,quote}` (requested by romaia) `#D2193` b3e7237e
+- complete: support `bleopt complete_menu_complete_opts=hidden` and menu-style switching (requested by CamRatliff) `#D2199` 16ff7df7
+- syntax: support `ln=target` in `bleopt filename_ls_colors` (requested by akhilkedia) `#D2213` e169e31d
+- syntax: support arbitrary suffixes in `bleopt filename_ls_colors` `#D2213` e169e31d
+- util(vbell): support `bleopt vbell_align=panel` (requested by bb010g) `#D2228` fe85e0dd
+- highlight: reflect the top-level positional parameters `#D2246` f08e8f08
+- color: adjust default fg values in faces and add `bleopt color_scheme` (requested by mattmc3) `#D2248` e4cce0ea 5f5554a8 `#D2258` d6a38c43 `#D2263` 0aa66b25
+  - syntax(highlight/vartype): add `ble-face varname_new` `#D2272` 5bfc0ae5
+  - syntax(highlight/vartype): check variable existence for `${var?...}` `#D2273` 5bfc0ae5
+- highlight: add `bleopt highlight_eval_word_limit` (motivated by orionalves) `#D2256` 6833bdf8
+- progcomp: support `complete -E` `#D2257` ffac4205
+  - progcomp: fix `complete -I` for empty words (reported by blackteahamburger) `#D2262` 9270b529
+- make: support make variable `USE_DOC=no` (requested by blackteahamburger) `#D2260` 40fe9c95 134a38d1 c5caedf7
+  - make: fix condition for the `INSDIR_LICENSE` rule (reported by Jai-JAP) `#D2260` 5a8dcb4b
+- edit (`ble/widget/display-shell-version`): print shell options `#D2261` 70b89e5e ed5d451b
+- edit: enable `BLE_PIPESTATUS` and `PIPESTATUS` in `PROMPT_COMMAND` and prompts (requested by mattmc3) `#D2276` 27888830
+- nsearch: support `action={load-{line,command},insert{,-line}}` (motivated by vaab) `#D2286` 32f290df
+- complete: support completion for `execute-named-command` `#D2288` 4fee44e6
+- complete: support `ble-face menu_complete_{match,selected}` (requested by simonLeary42) `#D2291` 31f264ad
+- edit: support `bleopt history_default_point={preserve,begin,end,near,far,{beginning,end}-of-line,preserve-column,...}` (requested by miltieIV2) `#D2297` 37291ff1
+  - edit: support `bleopt history_default_point=auto` (reported by miltieIV2) `#D2297` 2a3351e7
+  - color: fix a bug that reverse rendition vanishes `#D2318` 209b4da0
+- edit: support `bleopt undo_point={first,last,near,auto}` `#D2303` 99af0ece
+- keymap/vi: add readline-compatible widgets for `vi_imap` and `vi_nmap` (requested by excited-bore) `#D2304` d7ec488a
+- edit: support bash-5.2 readline bindable function `vi-edit-and-execute-command` `#D2306` c395eb33 cc47acc2
+- edit: support readline bindable function `paste-from-clipboard` in more environments `#D2307` 17646524
+- keymap/vi: support `:marks` `#D2320` 01182d3b
 
 ## Changes
 
@@ -43,6 +92,22 @@
 - prompt: update status line on face change (motivated by Vosjedev) `#D2134` f3e7e386
 - decode: specify the default keymap for the keymap load hooks `#D2141` 4a34ccf2
 - progcomp(compopt): refactor the completion option `ble/{no- => }default` `#D2155` 51f9f4f6
+- main: export `BLE_SESSION_ID` `#D2188` 5871fea2
+- menu-complete: adjust cursor position with `insert-selection` disabled (reported by gvlassis) `#D2206` 341179d1
+- decode (`ble-bind`): do not convert registered C0 (motivated by gvlassis) `#D2210` cbf87fdc
+  - decode: process <kbd>@ESC</kbd> generated by CSI sequence (reported by gvlassis, 10b14224cc, lokxii) `#D2214` 365101cf
+- decode (`ble-bind`): support combined option arguments of the forms `--long=OPTARG` and `-kOPTARG` `#D2211` 1b16d399
+- canvas: use `_ble_term_invis` to hide characters used to determine char-width modes (requested by tessus) `#D2223` 8bb302e0
+  - canvas: hide cursor during char-width detection (requested by tessus) `#D2232` 0ff29b26
+- exec: refine the elapsed time resolution `#D2249` 67548656 713c4215
+- highlight (`ble/syntax/highlight/vartype`): reference the saved states of variables `#D2268` 063249b4
+- complete: attempt pathname expansions of incomplete pattern for `COMPV` (reported by mcepl) `#D2278` 6a426954
+- make: save commit id and branch name with `git archive` (requested by LecrisUT, blackteahamburger) `#D2290` 31f264ad
+- edit: revert edits with widget `discard-line` (reported by dezza) `#D2301` 3b2b4b81
+- vi_nmap: fix cursor position after <kbd>C-o</kbd> `#D2302` c106239a
+- decode (`ble-bind`): initialize specified keymaps (motivated by quantumfrost) `#D2324` 66e450d7
+- edit (`display-shell-version`): show `(integration: off)` for plugins with integration turned off `#D2330` 2ff03257
+- decode (`ble/debug/keylog`): exclude duplicate characters due to backtracking `#D2332` 355d1dc0
 
 ## Fixes
 
@@ -70,6 +135,7 @@
 - decode: fix handling of @ESC in quoted-insert `#D2119` 0bbc3639
 - syntax: save stat after command name for consistent completion-context `#D2126` 50d6f1bb
 - term: fix control sequences for hiding cursor (reported by n87) `#D2130` f9b9aea8
+  - term: fix `_ble_term_rmcivis` for `TERM=linux` `#D2197` 56765251
 - highlight: fix inconsistent tab width in plain layer (reported by dgudim) `#D2132` f9072c40
 - decode: consume incomplete keyseq in macros `#D2137` 27e6309e
 - keymap/vi: fix conflicting binding to <kbd>C-RET</kbd> in `vi_imap` `#D2146` 0b18f3c2
@@ -77,7 +143,29 @@
 - progcomp(compopt): support printing the current options (reported by bkerin) `#D2154` 51f9f4f6
 - progcomp(compopt): properly handle dynamically specified `plusdirs` `#D2156` 51f9f4f6
 - edit: fix `BLE_COMMAND_ID` starting from `2` `#D2160` 8f4bf62a
-- util(vbell): fix previous vbell not fully cleared `#D2181` xxxxxxxx
+- util(vbell): fix previous vbell not fully cleared `#D2181` 6c740a94
+- decode(rlfunc): fix widget name `vi-command/edit-and-execute-{line => command}` (fixed by alexandregv) 6aa8ba67
+- util(ble/util/idle.push): fix uninitialized `ble/util/idle.clock` (reported by Anyborr) `#D2189` 83ceb124
+- prompt: clear list for the cylic dependency detection (reported by micimize, neilbags) `#D2200` 61968497 00cae745b
+- util.hook: fix user DEBUG trap not executed at the top-level context `#D2202` 828fcfc1
+- keymap/vi(relative-line.impl): fix uninitialized variable `nmove` `#D2203` 4268650d
+- edit: render the final prompt before updating command history (motivated by pallaswept) `#D2207` 911a4051
+  - debug: support `bleopt debug_profiler_opts=tree` `#D2216` a453f373
+  - edit: fix leftover region after command execution `#D2247` 75c4a848
+- keymap/vi: fix <kbd>C-w</kbd> not saving the word into kill ring `#D2208` aa7ca45d
+- edit: fix standard streams in `EXIT` trap with `ble/widget/exit` `#D2217` 89f0dab8
+  - edit: fix regressions of vbell and `ble/builtin/exit` in Bash 3.2 `#D2265` f5955d5f
+- util(`ble/fd#cloexec`): check `fdflags` compatibility to avoid crash `#D2227` c3b3aaf8
+- util(`ble/function#evaldef`): suppress alias expansions (reported by 103sbavert) `#D2240` 51e762fe
+  - main: fix a bug that `_ble_bash` is missing (reported by tessus and Knusper) `#D2242` bb2dae6e a9b962d2 9eb1fee7
+- mandb: fix incorrect use of `groff` in place of `nroff` `#D2245` e0ffc418
+- edit: fix fd broken by ble-attach of new session in user space (reported by JohEngstrom) `#D2271` 49f97618 670c7ea0
+- util (`ble-import`): do not specify arguments to `-C callback` `#D2277` 4f0e94a2
+- main: fix issues with `ble/bin/awk` (reported by devidw) `#D2292` b0a7adcb
+- util (`ble/path#remove-glob`): fix a bug that `*` matches and removes multiple paths `#D2310` fd518d24
+- decode (`bind`): print the filename and line in error messages (motivated by excited-bore) `#D2311` 89c69077
+- util: fix the race condition of `ble/util/idle.clock` and the `TMOUT` initialization (reported by Anyborr, georglauterbach) `#D2314` 154386de
+- util (`ble/util/save-vars`): support saving sparse arrays to preserve undos and marks `#D2319` 486314c5
 
 ## Compatibility
 
@@ -100,7 +188,6 @@
 - decode,syntax: quote `$#` in arguments properly `#D2097` 40a625d3
 - global: work around case-interleaving collation (reported by dongxi8) `#D2103` a3b94bb3
 - nsearch: set `immediate-accept` for `empty=emulate-readline` (reported by blackteahamburger) `#D2104` 870ecef7
-- decode(bind): support the colonless form of `bind -x` of bash-5.3 `#D2106` 78d7d2e3
 - decode, vi_digraph: trim CR of text resources in MSYS `#D2105` 6f4badf4
 - progcomp: conditionally suffix space for git completion (reported by bkerin) `#D2111` 2c7cca2f
 - main: fix initialization errors with `set -u` `#D2116` b503887a
@@ -111,12 +198,31 @@
 - main: work around nRF Connect initialization (requested by liyafe1997) `#D2129` 2df3b109
 - main(unload): redirect streams to work around trap `EXIT` in bash-5.2 (reported by ragnarov) `#D2142` 38a8d571
 - complete: call the `docker` command through `ble/util/conditional-sync` `#D2150` 6c3f824a
-- util(joblist): fix job detection in Bash 5.3 `#D2157` 6d835818
-  - util(joblist): exclude more foreground dead jobs in Bash 5.3 `#D2174` 8a321424
 - util,complete: work around regex `/=.../` failing in Solaris nawk `#D2162` 46fdf44a
 - main: fix issues in MSYS1 `#D2163` 5f0b88fb
 - util: work around bash-3.1 bug that `10>&-` fails to close the fd `#D2164` b5938192
 - decode: fix the problem that key always timed out in bash-3 `#D2173` 0b176e76
+- term: adjust the result of `tput clear` for `ncurses >= 6.1` (reported by cmndrsp0ck) `#D2185` 18dd51ab
+- main: work around WSL's permission issue on `/run/user/1000` (reported by antonioetv and geoffreyvanwyk) `#D2195` fb826ab6
+- util: detect Zellij heuristically `#D2219` 86034398
+- decode: exclude `/etc/inputrc` in SUSE as well as in openSUSE (reported by Anyborr) `#D2220` 63be48df
+- term: detect iTerm2 `#D2224` da6e71db
+- mandb: support man page format of `rg` (requested by pallaswept) `#D2225` 063bf66b
+- mandb: restore ASCII hyphens from Unicode hyphens before analysis (reported by pallaswept) `#D2230` f160b8f0
+- main: work around the issue WSL clears `/tmp` after Bash starts (reported by LeonardoMor) `#D2235` fcbf1ed0
+- decode(`ble/builtin/bind`): support single quotes in the macro/command strings `#D2236` 2f90120e
+- mandb: process less formatting sequences in parsing `--help` `#D2244` 60d36ba5
+- mandb: hook into bash-completion's `_comp_command_offset` `#D2255` cbcce625
+- canvas: update tables for Unicode 16.0.0 `#D2283` 5b43ca3f 25a10a6f
+- complete: work around `mawk <= 1.3.4-20230525` type-inference bug (reported by KaKi87) `#D2295` 546499b5
+- main: work around macOS sed (reported by Mossop) `#D2298` a16aa594
+- main: delay attaching in kitty, Ghostty, and VS Code Terminal `#D2215` 430a1746
+  - main: update workaround for Ghostty (reported by odili) `#D2322` 4338bbf7
+- edit: adjust cursor position after `bind -x` in vi_nmap (requested by miltieIV2) `#D2317` 36ab934f
+- progcomp: update workaround for the dnf completion (reported by msr8) `#D2321` 2a0c6ba6
+- global: check `LC_COLLATE=C` for range expressions `#D2326` f507a1bc
+- util: update the iTerm2 detection `#D2331` dde63fa3 xxxxxxxx
+- decode: fix unrecoginized <kbd>ESC O A</kbd> in `4.0 <= bash < 5.0` `#D2333` 6f4d0401
 
 ## Contrib
 
@@ -129,11 +235,29 @@
   - histdb: support subcommands `#D2167` 4d7dd1ee
   - histdb: support `top`, `stats`, `calendar`, and `week` `#D2167` 4d7dd1ee
   - histdb: unify the color palette selection `#D2167` 4d7dd1ee
+  - histdb: fix the seasonal default palette names `#D2289` 4fee44e6
+  - histdb: fix the error with missing current working directory `#D2323` 98985f38
 - contrib/fzf-git: update to be consistent with the upstream (motivated by arnoldmashava) `#D2054` c78e5c9f
 - contrib/layer/pattern: add `{pattern}` layer `#D2074` 449d92ca
 - contrib/fzf-git: fix unsupported command modes (reported by dgudim) `#D2083` ba2b8865
 - contrib/bash-preexec: support the latest version of `bash-preexec` (reported by mcarans) `#D2128` 50af4d9c
 - contrib/config/execmark: output error status through `ble/canvas/trace` `#D2136` 64cdcd01
+- contrib/airline: remove dummy faces (reported by alexalekseyenko) `#D2204` 59787ee5
+- contrib/airline: update themes `#D2204` 59787ee5
+- contrib/fzf-git: fix unadjusted terminal states in calling `fzf` (reported by tessus) `#D2237` b154058a
+- contrib/bash-preexec: support `__bp_set_ret_value` (requested by Comnenus) `#D2238` b154058a
+- contrib/colorglass: fix fixed-point round `#D2239` b154058a
+- contrib: add `config/github48{1,3}` for elapsed-mark examples (motivated by paulzzy, TheFantasticWarrior) `#D2249` 67548656 ed5d451b
+- contrib: add `integration/fzf-menu` (motivated by pallaswept) `#D2251` ad6f58b7 `#D2259` 5b9d9ab3
+- contrib/integration/fzf-completion: add `ble/widget/fzf-complete` (motivated by 3ximus) `#D2252` ad6f58b7
+- contrib/colorglass:  color: import themes from `Gogh-Co/Gogh` (motivated by d4rkb4sh8) `#D2274` d2eb75b5
+- contrib/integration/fzf-completion: suppress unexpected quoting by compgen in dynamic completions (reported by mcepl) `#D2284` 32f290df
+- contrib/integration/fzf-initialize: use `fzf --bash` when shell integration files are not found (motivated by louiss0) `#D2285` 32f290df
+  - integration/fzf-initialize: (reported by 3ximus) `#D2285` a36d13ce
+- config: add `github499-append-to-last-modified` (motivated by vaab) `#D2286` 32f290df
+- integration: add `skim` integration for completion (reported by cmm) `#D2287` a36d13ce
+- integration/zoxide: fix the problem of unquoted filenames (reported by tessus) `#D2216` 430a1746
+- integration/{bash,fzf,skim}-completion: adjust dynamically loaded completion functions (motivated by tessus) `#D2327` 788dfd15
 
 ## Documentation
 
@@ -143,6 +267,11 @@
 - blerc: describe keybinding to accept autosuggestion by TAB (motivated by TehFunkWagnalls) `#D2090` cd069860
 - docs: apply Grammarly and fix typos `#D2099` 8b3f6f8c
 - docs(README): add sabbrev example for named directories `#D2115` a9a21a0e
+- docs(README): note `bleopt prompt_command_changes_layout=1` `#D2196` 208eaa9d
+- docs(README): move disclaimers to a later section `#D2250` ad6f58b7
+- README: use `[[ ! ${BLE_VERSION-} ]] || ble-attach` `#D2264` ed11901a
+- github: update GitHub issue templates `#D2294` aa396f60
+- memo: fix syntax error in the testing code for #D1779 (reported by andychu) `#D2329`
 
 ## Test
 
@@ -154,6 +283,8 @@
 - test(vi): fix broken states after test `#D2123` 06ad3a6c
 - test(bash): fix test cases for history expansion `#D2131` 838b4652
 - test(bash): add tests for bash array bugs `#D2149` 6154d71c
+- github/workflows: update versions of GitHub Actions `#D2186` 0c42c8bd 433ac7c2
+- test: skip tests on `ble/test/chdir` failure `#D2234` 467ec48b
 
 ## Internal changes
 
@@ -172,11 +303,29 @@
   - util: support `ble/fd#add-cloexec` and add `O_CLOEXEC` by default `#D2158` 785267e1
   - util: fix error of bad file descriptors (reported by ragnarov) `#D2159` 785267e1
   - util: work around macOS/FreeBSD failure on `exec 32>&2` (reported by tessus, jon-hotaisle) `#D2165` 8f0dfe9b
-  - main: record external file descriptors on `ble-attach` `#D2183` xxxxxxxx
+  - main: record external file descriptors on `ble-attach` `#D2183` a508a827
+  - util: check leftovers of CLOEXEC fds more strictly `#D2215` 79fe2483
 - main: fix unprocessed `-PGID` in `*.pid` for cleanup `#D2143` a5da23c0
 - history: prevent `SIGPIPE` from reverting the TTY state in trap `EXIT` `#D2153` 4b8a0799
-  - history: fix initially shifted history index `#D2180` xxxxxxxx
+  - history: fix initially shifted history index `#D2180` e425dc56
 - edit: support `bleopt internal_exec_int_trace` (motivated by tessus) `#D2171` cebea478 3801a87e
+- global: avoid using the builtin `:` `#D2192` f2fd2955
+- global: pass `--` to `type` and `declare` before arbitrary arguments `#D2194` 5c0efcf6
+- global: fix spelling mistakes `#D2201` 86815f61
+- util (`ble/util/buffer.flush`): write to the TUI stderr `#D2218` b5c88947
+- util (`ble/util/buffer.flush`): use <kbd>DECSET(2026)</kbd> in terminals with the support `#D2226` c3df08be
+- main: refactor initialization sequence `#D2231` cc9d7f39
+- util (`ble/util/is-stdin-ready`): check `$_ble_util_fd_tui_stdin` by default `#D2254` 29c00fd8
+- decode (`ble-decode-key/bind`): reference the argument to check the widget name (contributed by musou1500) `#D2279` 21b1bb3d
+- global: normalize quoting of function names of the form `prefix:$name` `#D2296` 3d7c98bb
+- global: use `[:blank:]` instead of `[:space:]` `#D2299` e2fd8f0f
+- global: rename `ret` not used as `REPLY` `#D2300` 86cbf78e
+- global: avoid raw word splitting `#D2309` b55c4003
+- global: use `ble/util/assign` in more places `#D2312` b0e39732
+- main: show details of the loading time (motivated by tessus, Darukutsu) `#D2313` 3d8f6264
+- canvas: optimize binary search in tables `#D2325` d56c7d2f d4c812b7
+- util: optimize `ble/fd#list` using `compgen -G` `#D2328` 6f34012d
+- bind: clean up old codes to bind to <kbd>ESC</kbd> `#D2334` 514d177e
 
 <!---------------------------------------------------------------------------->
 # ble-0.4.0-devel3
@@ -611,6 +760,7 @@
   - util (`ble/string#split`): optimize `#D1826` 7bb10a7
   - global: avoid passing arbitrary strings through `awk -v var=value` `#D1827` 82232de
   - edit: properly set `LINENO` for `PS1`, `PROMPT_COMMAND`, and `DEBUG` `#D1830` 4d24f84
+- complete: generate command names in background with slow WSL2 `PATH`s (contributed by musou1500) `#D2280` 0914a119
 
 ## Compatibility
 
@@ -689,6 +839,7 @@
 - syntax: suppress brace expansions in designated array initialization in Bash 5.3 `#D1989` 1e7b884
 - progcomp: work around slow `nix` completion `#D1997` 2c1aacf
 - complete: suppress error messages from `_adb` (reported by mozirilla213) `#D2005` f2aa32b0
+- util: test the UTF-8 support of the current `LC_CTYPE` `#D2281` 537c6504 aa1b6f35
 
 ## Test
 

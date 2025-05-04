@@ -143,7 +143,7 @@ function bleopt/default {
 }
 
 ## @fn bleopt args...
-##   @params[in] args
+##   @param[in] args
 ##     args は以下の内の何れかの形式を持つ。
 ##
 ##     var=value
@@ -156,9 +156,11 @@ function bleopt/default {
 ##       変数の設定内容を表示する
 ##
 function bleopt {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
   local flags pvars specs
   bleopt/.read-arguments "$@"
   if [[ $flags == *E* ]]; then
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_leave"
     return 2
   elif [[ $flags == *H* ]]; then
     ble/util/print-lines \
@@ -180,6 +182,7 @@ function bleopt {
       '' \
       '  NAME can contain "@", "*", and "?" as wildcards.' \
       ''
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_leave"
     return 0
   fi
 
@@ -250,6 +253,7 @@ function bleopt {
   fi
 
   [[ $flags != *E* ]]
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
 }
 
 function bleopt/declare/.check-renamed-option {
@@ -278,7 +282,7 @@ function bleopt/declare {
   (-o)
     builtin eval -- "$name='[obsolete: renamed to $3]'"
     builtin eval -- "function bleopt/check:$2 { bleopt/declare/.check-renamed-option $2 $3; }"
-    builtin eval -- "function bleopt/obsolete:$2 { :; }" ;;
+    builtin eval -- "function bleopt/obsolete:$2 { return 0; }" ;;
   (-n)
     builtin eval -- "_ble_opt_def_$2=\$3"
     builtin eval -- ": \"\${$name:=\$default_value}\"" ;;
@@ -307,25 +311,20 @@ function bleopt/reinitialize {
 ## @bleopt input_encoding
 bleopt/declare -n input_encoding UTF-8
 function bleopt/check:input_encoding {
-  if ! ble/is-function "ble/encoding:$value/decode"; then
-    ble/util/print "bleopt: Invalid value input_encoding='$value'." \
-                 "A function 'ble/encoding:$value/decode' is not defined." >&2
+  if ! ble/is-function ble/encoding:"$value"/decode; then
+    ble/util/print "bleopt: Invalid value input_encoding='$value'. A function 'ble/encoding:$value/decode' is not defined." >&2
     return 1
-  elif ! ble/is-function "ble/encoding:$value/b2c"; then
-    ble/util/print "bleopt: Invalid value input_encoding='$value'." \
-                 "A function 'ble/encoding:$value/b2c' is not defined." >&2
+  elif ! ble/is-function ble/encoding:"$value"/b2c; then
+    ble/util/print "bleopt: Invalid value input_encoding='$value'. A function 'ble/encoding:$value/b2c' is not defined." >&2
     return 1
-  elif ! ble/is-function "ble/encoding:$value/c2bc"; then
-    ble/util/print "bleopt: Invalid value input_encoding='$value'." \
-                 "A function 'ble/encoding:$value/c2bc' is not defined." >&2
+  elif ! ble/is-function ble/encoding:"$value"/c2bc; then
+    ble/util/print "bleopt: Invalid value input_encoding='$value'. A function 'ble/encoding:$value/c2bc' is not defined." >&2
     return 1
-  elif ! ble/is-function "ble/encoding:$value/generate-binder"; then
-    ble/util/print "bleopt: Invalid value input_encoding='$value'." \
-                 "A function 'ble/encoding:$value/generate-binder' is not defined." >&2
+  elif ! ble/is-function ble/encoding:"$value"/generate-binder; then
+    ble/util/print "bleopt: Invalid value input_encoding='$value'. A function 'ble/encoding:$value/generate-binder' is not defined." >&2
     return 1
-  elif ! ble/is-function "ble/encoding:$value/is-intermediate"; then
-    ble/util/print "bleopt: Invalid value input_encoding='$value'." \
-                 "A function 'ble/encoding:$value/is-intermediate' is not defined." >&2
+  elif ! ble/is-function ble/encoding:"$value"/is-intermediate; then
+    ble/util/print "bleopt: Invalid value input_encoding='$value'. A function 'ble/encoding:$value/is-intermediate' is not defined." >&2
     return 1
   fi
 
@@ -333,7 +332,7 @@ function bleopt/check:input_encoding {
 
   if [[ $bleopt_input_encoding != "$value" ]]; then
     local bleopt_input_encoding=$value
-    ble/decode/rebind
+    ble/decode/readline/rebind
   fi
   return 0
 }
@@ -413,7 +412,11 @@ function ble/util/save-vars {
   local __ble_name __ble_prefix=$1; shift
   for __ble_name; do
     if ble/is-array "$__ble_name"; then
-      builtin eval "$__ble_prefix$__ble_name=(\"\${$__ble_name[@]}\")"
+      if ble/array#is-sparse "$__ble_name"; then
+        ble/idict#copy "$__ble_prefix$__ble_name" "$__ble_name"
+      else
+        builtin eval "$__ble_prefix$__ble_name=(\"\${$__ble_name[@]}\")"
+      fi
     else
       builtin eval "$__ble_prefix$__ble_name=\"\$$__ble_name\""
     fi
@@ -423,9 +426,13 @@ function ble/util/restore-vars {
   local __ble_name __ble_prefix=$1; shift
   for __ble_name; do
     if ble/is-array "$__ble_prefix$__ble_name"; then
-      # Note: bash-4.2 以下では set -u で空配列に対する "${arr[@]}" が失敗す
-      # るので ${arr[@]+"${arr[@]}"} とする。
-      builtin eval "$__ble_name=(\${$__ble_prefix$__ble_name[@]+\"\${$__ble_prefix$__ble_name[@]}\"})"
+      if ble/array#is-sparse "$__ble_name"; then
+        ble/idict#copy "$__ble_name" "$__ble_prefix$__ble_name"
+      else
+        # Note: bash-4.2 以下では set -u で空配列に対する "${arr[@]}" が失敗す
+        # るので ${arr[@]+"${arr[@]}"} とする。
+        builtin eval "$__ble_name=(\${$__ble_prefix$__ble_name[@]+\"\${$__ble_prefix$__ble_name[@]}\"})"
+      fi
     else
       builtin eval "$__ble_name=\"\${$__ble_prefix$__ble_name-}\""
     fi
@@ -528,6 +535,10 @@ else
     function ble/is-assoc { false; }
 fi
 
+function ble/array#is-sparse {
+  builtin eval "((\${#$1[@]})) && set -- \"\${$1[@]:\${#$1[@]}:1}\"" && (($#))
+}
+
 ## @fn ble/array#set arr value...
 ##   配列に値を設定します。
 ##   Bash 4.4 で arr2=("${arr1[@]}") が遅い問題を回避する為の関数です。
@@ -620,7 +631,7 @@ function ble/array#filter/.eval {
   builtin eval -- "$_ble_local_predicate_cmd"
 }
 function ble/array#filter {
-  local _ble_local_predicate=$2
+  local _ble_local_predicate=$2 _ble_local_predicate_cmd=
   if [[ $2 == *'$'* ]] || ! ble/is-function "$2"; then
     _ble_local_predicate=ble/array#filter/.eval
     _ble_local_predicate_cmd=$2
@@ -734,13 +745,13 @@ function ble/idict#replace {
 }
 
 function ble/idict#copy {
-  local _ble_script='
+  local __ble_script='
     '$1'=()
-    local i'$1$2'
-    for i'$1$2' in "${!'$2'[@]}"; do
-      '$1'[i'$1$2']=${'$2'[i'$1$2']}
+    local __ble_i
+    for __ble_i in "${!'$2'[@]}"; do
+      '$1'[__ble_i]=${'$2'[__ble_i]}
     done'
-  builtin eval -- "$_ble_script"
+  builtin eval -- "$__ble_script"
 }
 
 _ble_string_prototype='        '
@@ -1156,34 +1167,27 @@ function ble/string#escape-for-display {
   local head= tail=$1 opts=$2
 
   local sgr0= sgr1=
-  local rex_csi=$'\e\\[[ -?]*[@-~]'
+  local rex_csi=$'\e\\[[ -?]*[@-~]' # disable=#D1440 (LC_COLLATE=C is set)
   if [[ :$opts: == *:revert:* ]]; then
     ble/color/g2sgr "$_ble_color_gflags_Revert"
     sgr1=$ret sgr0=$_ble_term_sgr0
   else
-    if local rex=':sgr1=(('$rex_csi'|[^:])*):'; [[ :$opts: =~ $rex ]]; then
+    if ble/string#match-safe ":$opts:" ":sgr1=(($rex_csi|[^:])*):"; then
       sgr1=${BASH_REMATCH[1]} sgr0=$_ble_term_sgr0
     fi
-    if local rex=':sgr0=(('$rex_csi'|[^:])*):'; [[ :$opts: =~ $rex ]]; then
+    if ble/string#match-safe ":$opts:" ":sgr0=(($rex_csi|[^:])*):"; then
       sgr0=${BASH_REMATCH[1]}
     fi
   fi
 
   while [[ $tail ]]; do
     if ble/util/isprint+ "$tail"; then
-      head=$head${BASH_REMATCH}
+      head=$head$BASH_REMATCH
       tail=${tail:${#BASH_REMATCH}}
     else
-      ble/util/s2c "${tail::1}"
-      local code=$ret
-      if ((code<32)); then
-        ble/util/c2s "$((code+64))"
-        ret=$sgr1^$ret$sgr0
-      elif ((code==127)); then
-        ret=$sgr1^?$sgr0
-      elif ((128<=code&&code<160)); then
-        ble/util/c2s "$((code-64))"
-        ret=${sgr1}M-^$ret$sgr0
+      ble/util/s2c "${tail::1}"; local code=$ret
+      if ble/unicode/GraphemeCluster/ControlRepresentation "$ret"; then
+        ret=$sgr1$ret$sgr0
       else
         ret=${tail::1}
       fi
@@ -1227,15 +1231,14 @@ fi
 function ble/string#quote-word {
   ret=${1-}
 
-  local rex_csi=$'\e\\[[ -?]*[@-~]'
   local opts=${2-} sgrq= sgr0=
   if [[ $opts ]]; then
-    local rex=':sgrq=(('$rex_csi'|[^:])*):'
-    if [[ :$opts: =~ $rex ]]; then
+    local rex_csi=$'\e\\[[ -?]*[@-~]' # disable=#D1440 (LC_COLLATE is set)
+
+    if ble/string#match-safe ":$opts:" ":sgrq=(($rex_csi|[^:])*):"; then
       sgrq=${BASH_REMATCH[1]} sgr0=$_ble_term_sgr0
     fi
-    rex=':sgr0=(('$rex_csi'|[^:])*):'
-    if [[ :$opts: =~ $rex ]]; then
+    if ble/string#match-safe ":$opts:" ":sgr0=(($rex_csi|[^:])*):"; then
       sgr0=${BASH_REMATCH[1]}
     elif [[ :$opts: == *:ansi:* ]]; then
       sgr0=$'\e[m'
@@ -1391,18 +1394,33 @@ function ble/path#remove {
   fi
   builtin eval -- "$_ble_local_script"
 }
-function ble/path#remove-glob {
-  [[ $2 ]] || return 1
-  local _ble_local_script='
-    opts=:${opts//:/::}:
-    opts=${opts//:$2:}
-    opts=${opts//::/:} opts=${opts#:} opts=${opts%:}'
-  _ble_local_script=${_ble_local_script//opts/"$1"}
+## @fn ble/path#remove-glob/.impl str pat
+##   @var[out] ret
+function ble/path#remove-glob/.impl {
+  local IFS=: nocasematch=
   if shopt -q nocasematch 2>/dev/null; then
     shopt -u nocasematch
-    _ble_local_script=$_ble_local_script';shopt -s nocasematch'
+    nocasematch=1
   fi
-  builtin eval -- "$_ble_local_script"
+
+  local str=$1 pat=$2 paths i
+  ble/string#split paths : "$str"
+  for i in "${!paths[@]}"; do
+    if [[ ${paths[i]} == $pat ]]; then
+      builtin unset -v 'paths[i]'
+    fi
+  done
+  ret="${paths[*]}"
+
+  if [[ $nocasematch ]]; then
+    shopt -s nocasematch
+  fi
+}
+function ble/path#remove-glob {
+  [[ $2 ]] || return 1
+  [[ $1 == ret ]] || local ret
+  IFS=: ble/path#remove-glob/.impl "${!1}" "$2"
+  [[ $1 == ret ]] || builtin eval -- "$1=\$ret"
 }
 function ble/path#contains {
   builtin eval "[[ :\${$1}: == *:\"\$2\":* ]]"
@@ -1418,8 +1436,12 @@ function ble/opts#remove {
   ble/path#remove "$@"
 }
 ## @fn ble/opts#append-unique opts value
+function ble/opts#append {
+  ble/util/set "$1" "${!1:+${!1}:}$2"
+}
+## @fn ble/opts#append-unique opts value
 function ble/opts#append-unique {
-  [[ :${!1}: == *:"$2":* ]] || ble/util/set "$1" "${!1:+${!1}:}$2"
+  [[ :${!1}: == *:"$2":* ]] || ble/opts#append "$1" "$2"
 }
 
 ## @fn ble/opts#extract-first-optarg opts key [default_value]
@@ -1854,7 +1876,7 @@ _ble_bin_awk_libES='
         # \\[uU][0-9]{1,4}
         head = head c2s(s2i(substr(s, 2, RLENGTH - 1), 16));
         s = substr(s, RLENGTH + 1);
-      } else if (match(s, /^c[ -~]/)) {
+      } else if (match(s, /^c[ -~]/)) { # disable=#D1440 (caller is checked)
         # \\c[ -~] (non-ascii characters are unsupported)
         c = es_s2c[substr(s, 2, 1)];
         head = head c2s(_ble_bash >= 40400 && c == 63 ? 127 : c % 32);
@@ -1871,9 +1893,44 @@ _ble_bin_awk_libNLFIX='
   ## @var nlfix_indices
   ## @var nlfix_rep_slash
   ## @var nlfix_rep_double_slash
+  ## @fn nlfix_escape(s)
+  ## @fn nlfix_unescape(s)
+  ## @fn nlfix_put(s)
   ## @fn nlfix_begin()
   ## @fn nlfix_push(elem)
   ## @fn nlfix_end()
+  function nlfix_escape(str) {
+    gsub(/\\/,   nlfix_rep_double_slash, str);
+    gsub(/'\''/, nlfix_rep_slash "'\''", str);
+    gsub(/\007/, nlfix_rep_slash "a",    str);
+    gsub(/\010/, nlfix_rep_slash "b",    str);
+    gsub(/\011/, nlfix_rep_slash "t",    str);
+    gsub(/\012/, nlfix_rep_slash "n",    str);
+    gsub(/\013/, nlfix_rep_slash "v",    str);
+    gsub(/\014/, nlfix_rep_slash "f",    str);
+    gsub(/\015/, nlfix_rep_slash "r",    str);
+    return "$'\''" str "'\''";
+  }
+  function nlfix_unescape(str) {
+    if (str !~ /^\$'\''.*'\''$/) return str;
+    str = substr(str, 3, length(str) - 3);
+    gsub(/\\'\''/, "'\''", str);
+    gsub(/\\a/, "\007", str);
+    gsub(/\\b/, "\010", str);
+    gsub(/\\t/, "\011", str);
+    gsub(/\\n/, "\012", str);
+    gsub(/\\v/, "\013", str);
+    gsub(/\\f/, "\014", str);
+    gsub(/\\r/, "\015", str);
+    gsub(/\\\\/, nlfix_rep_slash, str);
+    return str;
+  }
+  function nlfix_put(s) {
+    if (file)
+      printf("%s", s) > file;
+    else
+      printf("%s", s);
+  }
   function nlfix_begin(_, tmp) {
     nlfix_rep_slash = "\\";
     if (AWKTYPE == "xpg4") nlfix_rep_slash = "\\\\";
@@ -1887,33 +1944,15 @@ _ble_bin_awk_libNLFIX='
   }
   function nlfix_push(elem, file) {
     if (elem ~ /\n/) {
-      gsub(/\\/,   nlfix_rep_double_slash, elem);
-      gsub(/'\''/, nlfix_rep_slash "'\''", elem);
-      gsub(/\007/, nlfix_rep_slash "a",    elem);
-      gsub(/\010/, nlfix_rep_slash "b",    elem);
-      gsub(/\011/, nlfix_rep_slash "t",    elem);
-      gsub(/\012/, nlfix_rep_slash "n",    elem);
-      gsub(/\013/, nlfix_rep_slash "v",    elem);
-      gsub(/\014/, nlfix_rep_slash "f",    elem);
-      gsub(/\015/, nlfix_rep_slash "r",    elem);
-      if (file)
-        printf("$'\''%s'\''\n", elem) > file;
-      else
-        printf("$'\''%s'\''\n", elem);
+      nlfix_put(nlfix_escape(elem) "\n");
       nlfix_indices = nlfix_indices != "" ? nlfix_indices " " nlfix_index : nlfix_index;
     } else {
-      if (file)
-        printf("%s\n", elem) > file;
-      else
-        printf("%s\n", elem);
+      nlfix_put(elem "\n");
     }
     nlfix_index++;
   }
   function nlfix_end(file) {
-    if (file)
-      printf("%s\n", nlfix_indices) > file;
-    else
-      printf("%s\n", nlfix_indices);
+    nlfix_put(nlfix_indices "\n");
   }
 '
 _ble_util_writearray_rawbytes=
@@ -1964,7 +2003,7 @@ function ble/util/writearray {
   local __ble_rex_dq='^"([^\\"]|\\.)*"'
   local __ble_rex_es='^\$'\''([^\\'\'']|\\.)*'\'''
   local __ble_rex_sq='^'\''([^'\'']|'\'\\\\\'\'')*'\'''
-  local __ble_rex_normal=$'^[^'$_ble_term_space'$`"'\''()|&;<>\\]' # Note: []{}?*#!~^, @(), +() は quote されていなくても OK とする
+  local __ble_rex_normal=$'^[^'$_ble_term_blank'$`"'\''()|&;<>\\]' # Note: []{}?*#!~^, @(), +() は quote されていなくても OK とする
   declare -p "$_ble_local_array" | "$__ble_awk" -v _ble_bash="$_ble_bash" '
     '"$__ble_function_gensub_dummy"'
     BEGIN {
@@ -2017,13 +2056,13 @@ function ble/util/writearray {
       if (s ~ /^"/)
         return unquote_dq(substr(s, 2, length(s) - 2));
       else
-        return es_unescape(substr(s, 3, length(s) - 3));
+        return es_unescape(substr(s, 3, length(s) - 3)); # disable=#D1440 (\c? is unused)
     }
     function unquote(s) {
       if (s ~ /^"/)
         return unquote_dq(substr(s, 2, length(s) - 2));
       else if (s ~ /^\$/)
-        return es_unescape(substr(s, 3, length(s) - 3));
+        return es_unescape(substr(s, 3, length(s) - 3)); # disable=#D1440 (\c? is unused)
       else if (s ~ /^'\''/)
         return unquote_sq(substr(s, 2, length(s) - 2));
       else if (s ~ /^\\/)
@@ -2150,8 +2189,8 @@ function ble/util/writearray {
         gsub(/\001\177/, "\177", decl);
       }
 
-      sub(/^([_a-zA-Z][_a-zA-Z0-9]*)=\(['"$_ble_term_space"']*/, "", decl);
-      sub(/['"$_ble_term_space"']*\)['"$_ble_term_space"']*$/, "", decl);
+      sub(/^([_a-zA-Z][_a-zA-Z0-9]*)=\(['"$_ble_term_blank"']*/, "", decl);
+      sub(/['"$_ble_term_blank"']*\)['"$_ble_term_blank"']*$/, "", decl);
 
 #%    # 空配列
       if (decl == "") return 1;
@@ -2214,6 +2253,10 @@ function ble/util/readarray {
 ##   files.  In the function substitutions, the update of the job list is
 ##   suppressed, so the notified dead jobs are not flushed on just running
 ##   ble/util/assign jobs jobs.
+##
+## @remarks This function is intended to work under POSIXLY_CORRECT=y when it
+##   is called by ble/base/adjust-builtin-wrappers/.impl1.
+##
 _ble_util_assign_base=$_ble_base_run/$$.util.assign.tmp
 _ble_util_assign_level=0
 if ((_ble_bash>=40000)); then
@@ -2241,7 +2284,7 @@ function ble/util/assign/rmtmp {
 }
 if ((_ble_bash>=50300)); then
   function ble/util/assign {
-    builtin eval "$1=\${ builtin eval -- \"\$2\"; }"
+    builtin eval -- "$1=\${ builtin eval -- \"\$2\"; }"
   }
 elif ((_ble_bash>=40000)); then
   # mapfile の方が read より高速
@@ -2251,7 +2294,8 @@ elif ((_ble_bash>=40000)); then
     local _ble_local_ret=$? _ble_local_arr=
     mapfile -t _ble_local_arr < "$_ble_local_tmpfile"
     ble/util/assign/rmtmp
-    IFS=$'\n' builtin eval "$1=\"\${_ble_local_arr[*]}\""
+    local IFS=$'\n' # avoid tmpenv to make it POSIXLY_CORRECT-safe
+    builtin eval -- "$1=\"\${_ble_local_arr[*]}\""
     return "$_ble_local_ret"
   }
 else
@@ -2261,7 +2305,7 @@ else
     local _ble_local_ret=$? IFS=
     ble/bash/read -d '' "$1" < "$_ble_local_tmpfile"
     ble/util/assign/rmtmp
-    builtin eval "$1=\${$1%\$_ble_term_nl}"
+    builtin eval -- "$1=\${$1%\$_ble_term_nl}"
     return "$_ble_local_ret"
   }
 fi
@@ -2335,6 +2379,22 @@ function ble/util/assign-words {
   ble/string#split-words "$1" "${!1}"
 }
 
+function ble/util/eval-stdout {
+  local _ble_local_script
+  ble/util/assign _ble_local_script "$1"
+  builtin eval -- "$_ble_local_script"
+}
+
+if ((_ble_bash>=50300)); then
+  function ble/util/compgen { builtin compgen -V "$@"; }
+else
+  function ble/util/compgen {
+    local _ble_local_args
+    _ble_local_compgen_args=("${@:2}")
+    ble/util/assign-array "$1" 'builtin compgen "${_ble_local_compgen_args[@]}"'
+  }
+fi
+
 
 # ble/bin/awk の初期化に ble/util/assign を使うので
 ble/bin/awk/.instantiate
@@ -2351,7 +2411,7 @@ ble/bin/awk/.instantiate
 ##
 if ((_ble_bash>=30200)); then
   function ble/is-function {
-    declare -F "$1" &>/dev/null
+    declare -F -- "$1" &>/dev/null
   }
 else
   # bash-3.1 has bug in declare -f.
@@ -2377,53 +2437,63 @@ if ((_ble_bash>=30200)); then
     local name=$1
     ble/is-function "$name" || return 1
     if [[ -o posix ]]; then
-      ble/util/assign def 'type "$name"'
+      ble/util/assign def 'builtin type -- "$name"'
       def=${def#*$'\n'}
     else
-      ble/util/assign def 'declare -f "$name"'
+      ble/util/assign def 'declare -f -- "$name"'
     fi
   }
 else
   function ble/function#getdef {
     local name=$1
     ble/is-function "$name" || return 1
-    ble/util/assign def 'type "$name"'
+    ble/util/assign def 'builtin type -- "$name"'
     def=${def#*$'\n'}
   }
 fi
 
 ## @fn ble/function#evaldef def
-##   関数を定義します。基本的に eval に等価ですが評価時に extglob を保
-##   証します。
+##   関数を定義します。基本的に eval に等価ですが評価時に shopt -s extglob 及び
+##   shopt -u expand_aliases を保証します。
 function ble/function#evaldef {
-  local reset_extglob=
-  if ! shopt -q extglob; then
-    reset_extglob=1
-    shopt -s extglob
-  fi
-  builtin eval -- "$1"; local ext=$?
-  [[ ! $reset_extglob ]] || shopt -u extglob
-  return "$ext"
+  ble/base/evaldef "$1"
+}
+
+function ble/function#has-attr {
+  local __ble_tmp=$1
+  ble/util/assign-array __ble_tmp 'declare -pf -- "$__ble_tmp" 2>/dev/null'
+  local nline=${#__ble_tmp[@]}
+  ((nline)) &&
+    ble/string#match "${__ble_tmp[nline-1]}" '^declare -([a-zA-Z]*)' &&
+    [[ ${BASH_REMATCH[1]} == *["$2"]* ]]
 }
 
 builtin eval -- "${_ble_util_gdict_declare//NAME/_ble_util_function_traced}"
 function ble/function#trace {
   local func
   for func; do
-    declare -ft "$func" &>/dev/null || continue
+    declare -ft -- "$func" &>/dev/null || continue
     ble/gdict#set _ble_util_function_traced "$func" 1
   done
 }
-function ble/function#has-trace {
+function ble/function#.has-trace {
   ble/gdict#has _ble_util_function_traced "$1"
 }
-function ble/function#has-attr {
-  local __ble_tmp=$1
-  ble/util/assign-array __ble_tmp 'declare -pf "$__ble_tmp" 2>/dev/null'
-  local nline=${#__ble_tmp[@]}
-  ((nline)) &&
-    ble/string#match "${__ble_tmp[nline-1]}" '^declare -([a-zA-Z]*)' &&
-    [[ ${BASH_REMATCH[1]} == *["$2"]* ]]
+function ble/function#has-trace {
+  ble/function#.has-trace "$1" || ble/function#has-attr "$1" t
+}
+function ble/function#copy-trace {
+  ble/function#has-trace "$1" && ble/function#trace "$2"
+}
+
+function ble/function#.copy-primitive {
+  local def
+  ble/function#getdef "$1" || return 1
+  local def_new=${def/#"$1"/"$2"}
+  [[ $def_new == "$def" ]] && return 1
+  ble/function#evaldef "$def_new" || return 1
+  ble/function#copy-trace "$1" "$2"
+  return 0
 }
 
 ## @fn ble/function/is-global-trace-context
@@ -2466,9 +2536,9 @@ function ble/function#try {
 }
 
 function ble/function#get-source-and-lineno {
-  local ret unset_extdebug=
+  local func=$1 ret unset_extdebug=
   shopt -q extdebug || { unset_extdebug=1; shopt -s extdebug; }
-  ble/util/assign ret "declare -F '$1' 2>/dev/null"; local ext=$?
+  ble/util/assign ret 'declare -F -- "$func" 2>/dev/null'; local ext=$?
   [[ ! $unset_extdebug ]] || shopt -u extdebug
   if ((ext==0)); then
     ret=${ret#*' '}
@@ -2479,8 +2549,12 @@ function ble/function#get-source-and-lineno {
   return "$ext"
 }
 
-## @fn ble/function#advice type function proc
+## @fn ble/function#advice [-f] type function proc
 ##   既存の関数の振る舞いを変更します。
+##
+##   @option -f
+##     関数が存在している時にのみ処理を行います。関数が存在しない場合はエラーメッ
+##     セージを表示せずに失敗します。
 ##
 ##   @param[in] type
 ##     before を指定した時、処理 proc を関数 function の前に挿入します。
@@ -2526,24 +2600,33 @@ function ble/function#advice/.proc {
   done
   ble/util/unlocal func
 
-  ble/function#try "ble/function#advice/before:$1"
-  if ble/is-function "ble/function#advice/around:$1"; then
-    "ble/function#advice/around:$1"
+  ble/function#try ble/function#advice/before:"${ADVICE_WORDS[@]}"
+  if ble/is-function ble/function#advice/around:"${ADVICE_WORDS[0]}"; then
+    ble/function#advice/around:"${ADVICE_WORDS[@]}"
   else
     ble/function#advice/do
   fi
-  ble/function#try "ble/function#advice/after:$1"
+  ble/function#try ble/function#advice/after:"${ADVICE_WORDS[@]}"
   return "$ADVICE_EXIT"
 }
+ble/function#trace ble/function#advice/.proc
 function ble/function#advice {
+  local flags=
+  while [[ ${1-} == -[!-]* ]]; do
+    flags=$flags${1#-}
+    shift
+  done
+
   local type=$1 name=$2 proc=$3
   if ! ble/is-function "$name"; then
     local t=; ble/util/type t "$name"
     case $t in
     (builtin|file) builtin eval "function $name { : ZBe85Oe28nBdg; command $name \"\$@\"; }" ;;
     (*)
-      ble/util/print "ble/function#advice: $name is not a function." >&2
-      return 1 ;;
+      if [[ $flags == *f* ]]; then
+        ble/util/print "ble/function#advice: $name is not a function." >&2
+        return 1
+      fi ;;
     esac
   fi
 
@@ -2551,12 +2634,13 @@ function ble/function#advice {
   case $type in
   (remove)
     if [[ $def == *'ble/function#advice/.proc'* ]]; then
-      ble/function#getdef "ble/function#advice/original:$name"
+      ble/function#getdef ble/function#advice/original:"$name"
       if [[ $def ]]; then
         if [[ $def == *ZBe85Oe28nBdg* ]]; then
           builtin unset -f "$name"
         else
           ble/function#evaldef "${def#*:}"
+          ble/function#copy-trace ble/function#advice/original:"$name" "$name"
         fi
       fi
     fi
@@ -2564,12 +2648,15 @@ function ble/function#advice {
     return 0 ;;
   (before|after|around)
     if [[ $def != *'ble/function#advice/.proc'* ]]; then
-      ble/function#evaldef "ble/function#advice/original:$def"
+      ble/function#evaldef ble/function#advice/original:"$def"
+      ble/function#copy-trace "$name" ble/function#advice/original:"$name"
       builtin eval "function $name { ble/function#advice/.proc \"\$FUNCNAME\" \"\$@\"; }"
+      ble/function#copy-trace ble/function#advice/original:"$name" "$name"
     fi
 
     local q=\' Q="'\''"
-    builtin eval "ble/function#advice/$type:$name() { builtin eval '${proc//$q/$Q}'; }"
+    builtin eval "ble/function#advice/$type:$name() { builtin eval -- '${proc//$q/$Q}'; }"
+    ble/function#copy-trace ble/function#advice/original:"$name" ble/function#advice/$type:"$name"
     return 0 ;;
   (*)
     ble/util/print "ble/function#advice unknown advice type '$type'" >&2
@@ -2589,8 +2676,7 @@ function ble/function#push {
       ((++index))
     done
 
-    local def; ble/function#getdef "$name"
-    ble/function#evaldef "ble/function#push/$index:$def"
+    ble/function#.copy-primitive "$name" "ble/function#push/$index:$name"
   fi
 
   if [[ $proc ]]; then
@@ -2620,8 +2706,7 @@ function ble/function#pop {
       return 0
     fi
   else
-    local def; ble/function#getdef "ble/function#push/$index:$name"
-    ble/function#evaldef "${def#*:}"
+    ble/function#.copy-primitive "ble/function#push/$index:$name" "$name"
     builtin unset -f "ble/function#push/$index:$name"
     return 0
   fi
@@ -2645,13 +2730,18 @@ function ble/function#push/call-top {
     "ble/function#push/$((index-1)):$func" "$@"
   fi
 }
+ble/function#trace ble/function#push/call-top
 
 : "${_ble_util_lambda_count:=0}"
 ## @fn ble/function#lambda var body
 ##   無名関数を定義しその実際の名前を変数 var に格納します。
 function ble/function#lambda {
   local _ble_local_q=\' _ble_local_Q="'\''"
-  ble/util/set "$1" ble/function#lambda/$((_ble_util_lambda_count++))
+  if ((_ble_bash>=50300)); then
+    ble/util/set "$1" "ble::function#lambda::$((_ble_util_lambda_count++))" # WA #D2221
+  else
+    ble/util/set "$1" "ble/function#lambda/$((_ble_util_lambda_count++))"
+  fi
   builtin eval -- "function ${!1} { builtin eval -- '${2//$_ble_local_q/$_ble_local_Q}'; }"
 }
 
@@ -2667,16 +2757,64 @@ function ble/function#suppress-stderr {
   # 重複して suppress-stderr した時の為、未定義の時のみ実装を待避
   local lambda=ble/function#suppress-stderr:$name
   if ! ble/is-function "$lambda"; then
-    local def; ble/function#getdef "$name"
-    ble/function#evaldef "ble/function#suppress-stderr:$def"
+    ble/function#.copy-primitive "$name" "$lambda"
   fi
 
   builtin eval "function $name { $lambda \"\$@\" 2>/dev/null; }"
   return 0
 }
 
+## @fn ble/function#copy func1 func2
+##   Copy a function to another name with care of ble/function#advice,
+##   ble/function#push, and ble/function#suppress-error
+##   @var[in] func1
+##     The name of existing function to be copied.
+##   @var[in] func2
+##     The target function name to which func1 is copied.
+function ble/function#copy {
+  [[ $1 == "$2" ]] && return 0
+  ble/function#.copy-primitive "$1" "$2" || return 1
+
+  local prefix
+  for prefix in advice/{original,before,after,around} suppress-stderr; do
+    ble/function#.copy-primitive "ble/function#$prefix:$1" "ble/function#$prefix:$2"
+  done
+
+  local index=0
+  while ble/function#.copy-primitive "ble/function#push/$index:$1" "ble/function#push/$index:$2"; do
+    ((++index))
+  done
+
+  return 0
+}
+
+## @fn ble/function#copy func
+##   Remove a function ble/function#advice, ble/function#push, and
+##   ble/function#suppress-error
+function ble/function#remove {
+  ble/is-function "$1" || return 1
+
+  builtin unset -f "$1"
+
+  local prefix
+  for prefix in advice/{original,before,after,around} suppress-stderr; do
+    builtin unset -f "ble/function#$prefix:$1"
+  done
+
+  local index=0
+  while ble/is-function "ble/function#push/$index:$1"; do
+    builtin unset -f "ble/function#push/$((index++)):$1"
+  done
+
+  return 0
+}
+
+function ble/function#rename {
+  ble/function#copy "$1" "$2" && ble/function#remove "$1"
+}
+
 #
-# miscallaneous utils
+# miscellaneous utils
 #
 
 # Note: "printf -v" for an array element is only allowed in bash-4.1
@@ -2758,11 +2896,16 @@ else
   }
 fi
 
+## @fn ble/util/load-standard-builtin name [check_command]
 function ble/util/load-standard-builtin {
   local ret; ble/util/readlink "$BASH"
   local bash_prefix=${ret%/*/*}
-  if [[ -s $bash_prefix/lib/bash/$1 ]] &&
-    (enable -f "$bash_prefix/lib/bash/$1" "$1" && help "$1") &>/dev/null; then
+  if [[ -s $bash_prefix/lib/bash/$1 ]] && (
+       enable -f "$bash_prefix/lib/bash/$1" "$1" &&
+         help "$1" &&
+         { [[ ! $2 ]] || builtin eval -- "$2"; }
+     ) &>/dev/null
+  then
     enable -f "$bash_prefix/lib/bash/$1" "$1"
     return 0
   else
@@ -2770,27 +2913,35 @@ function ble/util/load-standard-builtin {
   fi
 }
 
-## @fn ble/util/is-stdin-ready [exit]
+## @fn ble/util/is-stdin-ready [fd] [exit]
 ##   Returns if there is already any user inputs pending in stdin.
+##   @param[in,opt] fd
+##     This specifies the file descriptor to check.  If omitted, it uses the
+##     file descriptor saved in $_ble_util_fd_tui_stdin.
 ##   @param[in,opt] exit
 ##     This specifies the exit status when we cannot test it.  The default
 ##     value is 1.
+##   @remarks When stdin (0) is connected to /dev/null, this function succeeds
+##     unconditionally, even though a read from /dev/null will fail.
 if ((_ble_bash>=40000)); then
   # #D1341 対策 変数代入形式だと組み込みコマンドにロケールが適用されない。
   function ble/util/is-stdin-ready {
     local IFS= LC_ALL= LC_CTYPE=C
-    builtin read -t 0
+    # Note: We use the explicit redirection "<&fd" instead of "-u fd" because
+    # it turned out that "builtin read -t 0 -u fd" is slower than "builtin read
+    # -t 0 <&fd".
+    builtin read -t 0 <&"${1:-${_ble_util_fd_tui_stdin:-0}}"
   }
   # suppress locale error #D1440
   ble/function#suppress-stderr ble/util/is-stdin-ready
 else
-  function ble/util/is-stdin-ready { return "${1:-1}"; }
+  function ble/util/is-stdin-ready { return "${2:-1}"; }
 fi
 
 # Note: BASHPID は Bash-4.0 以上
 
 if ((_ble_bash>=40000)); then
-  function ble/util/getpid { :; }
+  function ble/util/getpid { return 0; }
   function ble/util/is-running-in-subshell { [[ $$ != $BASHPID ]]; }
 else
   ## @fn ble/util/getpid
@@ -2888,6 +3039,17 @@ else
   function ble/fd#alloc/.close/.upgrade { builtin unset -f "$FUNCNAME"; }
 fi
 
+## @env[in] _ble_util_fdlist_cloexec
+##   A colon-separated list of the file descriptors that should be closed on
+##   the initialization of ble.sh.  Each element has the form of
+##   /[0-9]+(=[to])?/. These are supposed to be leftovers from the parent
+##   ble.sh sessions that should have been closed by CLOEXEC.  When
+##   ble/fd#add-cloexec failed, the file descriptor is added to this
+##   environment variable.
+## @env[in] _ble_util_fdvars_export
+##   A colon-separated list of the environment variable names that contain file
+##   descriptors that are shared by the parent ble.sh session if possible.
+
 function ble/fd/.validate-shared-fds {
   local -a close_fd=()
   # We first check if the exported fds are still valid.  If an exported fd is
@@ -2923,16 +3085,28 @@ function ble/fd/.validate-shared-fds {
     _ble_util_fdvars_export=
   fi
 
-  # We also close all the fds marked as "cloexec" that were inherited by the
-  # parent ble.sh session.
-  if [[ ${_ble_util_fdlist_cloexit-} ]]; then
+  if [[ ${_ble_util_fdlist_cloexec-} ]]; then
     local ret fd
-    ble/string#split ret : "$_ble_util_fdlist_cloexit"
+    ble/string#split ret : "$_ble_util_fdlist_cloexec"
     for fd in "${ret[@]}"; do
-      [[ $fd && ! ${fd//[0-9]} ]] &&
-        ble/array#push close_fd "$fd"
+      ble/string#match "$fd" '^([0-9]+)(=(.*))?' || continue
+      local fd=${BASH_REMATCH[1]} type=${BASH_REMATCH[3]-}
+
+      # When the type of the file descriptor does not match the recorded one,
+      # we keep the file descriptor because the file descriptor is probably
+      # replaced with another one by other programs.
+      case $type in
+      (L*)
+        [[ -h /proc/$$/fd/$1 ]] &&
+          ble/util/readlink "/proc/$$/fd/$1" &&
+          [[ ${ret//:} == "${type#L}" ]] || continue ;;
+      (t) [[ -t $fd ]] || continue ;;
+      (o) [[ ! -t $fd ]] || continue ;;
+      esac
+
+      ble/array#push close_fd "$fd"
     done
-    _ble_util_fdlist_cloexit=
+    _ble_util_fdlist_cloexec=
   fi
 
   if ((${#close_fd[@]})); then
@@ -2950,7 +3124,8 @@ function ble/fd/.validate-shared-fds {
   fi
 }
 ble/fd/.validate-shared-fds
-export _ble_util_fdlist_cloexit=
+_ble_util_fdlist_cloexit=
+export _ble_util_fdlist_cloexec=
 export _ble_util_fdvars_export=
 
 _ble_util_openat_nextfd=
@@ -3017,7 +3192,7 @@ fi
 ble/fd#alloc/.close/.upgrade
 
 ## @fn ble/fd#alloc/.exec fddst redir
-##   Performs builtin eval "exec $fddst$redir" with sepcial cares for bugs in
+##   Performs builtin eval "exec $fddst$redir" with special cares for bugs in
 ##   old versions of Bash.
 ##   @param fddst
 ##     The file descriptor that is supposed to be modified
@@ -3036,65 +3211,26 @@ function ble/fd#alloc/.exec {
   builtin eval "exec $1$2"
 }
 
-# We now switch to the complete implementation of "ble/fd#is-open" utlizing
+# We now switch to the complete implementation of "ble/fd#is-open" utilizing
 # "ble/fd#alloc/.nextfd", "ble/fd#alloc/.exec", and "$_ble_util_fd_null".
 ble/fd#is-open/.upgrade
 
 ## @fn ble/fd#list
 if [[ -d /proc/$$/fd ]]; then
-  ## @fn ble/fd#list/adjust-glob
-  ##   @var[out] set shopt gignore
-  function ble/fd#list/adjust-glob {
-    set=$- gignore=$GLOBIGNORE
-    if ((_ble_bash>=40100)); then
-      shopt=$BASHOPTS
-    else
-      shopt=
-      shopt -q failglob && shopt=$shopt:failglob
-      shopt -q dotglob && shopt=$shopt:dotglob
-    fi
-    shopt -u failglob
-    set +f
-    GLOBIGNORE=
-  }
-  ## @fn ble/fd#list/restore-glob
-  ##   @var[in] set shopt gignore
-  function ble/fd#list/restore-glob {
-    # Note: dotglob is changed by GLOBIGNORE
-    GLOBIGNORE=$gignore
-    if [[ :$shopt: == *:dotglob:* ]]; then shopt -s dotglob; else shopt -u dotglob; fi
-    [[ $set == *f* ]] && set -f
-    [[ :$shopt: == *:failglob:* ]] && shopt -s failglob
-  }
-  ## @fn ble/fd#list [pid]
-  ##   List the file descriptors opend for the specified process.  If PID is
-  ##   not specified, this returns the list for the current process.
-  ##   @arr[out] ret
-  function ble/fd#list {
-    ret=()
-    local set shopt gignore
-    ble/fd#list/adjust-glob
-
-    local pid=${1-}
-    if [[ ! $pid ]]; then
-      if ((_ble_bash<40000)); then
-        local BASHPID
-        ble/util/getpid
-      fi
-      pid=$BASHPID
-    fi
-
-    local fd
-    for fd in /proc/"$pid"/fd/[0-9]*; do
-      fd=${fd##*/}
-      [[ $fd && ! ${fd//[0-9]} ]] &&
-        ble/array#push ret "$fd"
-    done
-    ble/fd#list/restore-glob
-  }
+  if ((_ble_bash>=50300)); then
+    function ble/fd#list {
+      builtin compgen -V ret -G "/proc/$BASHPID/fd/[0-9]*"
+      ret=("${ret[@]##*/}")
+    }
+  else
+    function ble/fd#list {
+      ble/util/assign-array ret 'builtin compgen -G "/proc/$BASHPID/fd/[0-9]*"'
+      ret=("${ret[@]##*/}")
+    }
+  fi
 else
   ## @fn ble/fd#list
-  ##   List the file descriptors opend for the current process.
+  ##   List the file descriptors opened for the current process.
   ##   @arr[out] ret
   function ble/fd#list {
     ret=()
@@ -3105,13 +3241,13 @@ else
   }
 fi
 
-if ((_ble_bash>=40400)) && ble/util/load-standard-builtin fdflags; then
-  # Implementation of ble/fd#add-cloexec by loadable builtin (8us)
+if ((_ble_bash>=40400)) && ble/util/load-standard-builtin fdflags 'builtin fdflags 0; (($?<=2))'; then
+  # Implementation of ble/fd#cloexec by loadable builtin (8us)
 
-  function ble/fd#add-cloexec { builtin fdflags -s +cloexec "$1"; }
-  function ble/fd#remove-cloexec { builtin fdflags -s -cloexec "$1"; }
+  function ble/fd#cloexec/.add { builtin fdflags -s +cloexec "$1"; }
+  function ble/fd#cloexec/.remove { builtin fdflags -s -cloexec "$1"; }
 elif ((_ble_bash>=40000)); then
-  # Implementation of ble/fd#add-cloexec by undo fd.
+  # Implementation of ble/fd#cloexec by undo fd.
   #
   # In bash >= 4.0, the "undo fd" (i.e., the file descriptor that holds the
   # original stream of the redirected file descriptor) gets O_CLOEXEC.  If we
@@ -3120,20 +3256,30 @@ elif ((_ble_bash>=40000)); then
   # bash >= 4.0, because older versions of bash does not give O_CLOEXEC to the
   # undo fds.
   if [[ -d /proc/$$/fd ]]; then
-    # Implementation of ble/fd#add-cloexec by procfs (1588us)
+    # Implementation of ble/fd#cloexec by procfs (1588us)
+    if ((_ble_bash>=50300)); then
+      function ble/fd#cloexec/.listfd {
+        local ret fd
+        builtin compgen -V ret -G "/proc/$$/fd/[0-9]*"
+        for fd in "${ret[@]##*/}"; do
+          ble/util/set "$1[fd]" 1
+        done
+      }
+    else
+      function ble/fd#cloexec/.listfd {
+        local ret fd
+        ble/util/assign-array ret 'builtin compgen -G "/proc/$$/fd/[0-9]*"'
+        for fd in "${ret[@]##*/}"; do
+          ble/util/set "$1[fd]" 1
+        done
+      }
+    fi
 
-    function ble/fd#add-cloexec/.listfd {
-      local fd
-      for fd in /proc/"$$"/fd/*; do
-        fd=${fd##*/}
-        [[ $fd && ! ${fd//[0-9]} ]] && ble/util/set "$1[fd]" 1
-      done
-    }
-    ## @fn ble/fd#add-cloexec/.probe
+    ## @fn ble/fd#cloexec/.probe
     ##   @var[out] ret
-    function ble/fd#add-cloexec/.probe {
+    function ble/fd#cloexec/.probe {
       local fdset2
-      ble/fd#add-cloexec/.listfd fdset2
+      ble/fd#cloexec/.listfd fdset2
 
       local fd
       for fd in "${!fdset1[@]}"; do builtin unset -v 'fdset2[fd]'; done
@@ -3148,27 +3294,19 @@ elif ((_ble_bash>=40000)); then
       return 1
     }
 
-    ## @fn ble/fd#add-cloexec/.dup-undo-redirection-fd
+    ## @fn ble/fd#cloexec/.dup-undo-redirection-fd
     ##   @var[out] ret
-    function ble/fd#add-cloexec/.dup-undo-redirection-fd {
-      local set shopt gignore
-      ble/fd#list/adjust-glob
-
+    function ble/fd#cloexec/.dup-undo-redirection-fd {
       local fd=$1 fdset1
-      ble/fd#add-cloexec/.listfd fdset1
-
-      builtin eval -- "ble/fd#add-cloexec/.probe $fd</dev/null"
-      local ext=$?
-
-      ble/fd#list/restore-glob
-      return "$ext"
+      ble/fd#cloexec/.listfd fdset1
+      builtin eval -- "ble/fd#cloexec/.probe $fd</dev/null"
     }
   else
-    # Implementation of ble/fd#add-cloexec by manual fd scan (1996us)
+    # Implementation of ble/fd#cloexec by manual fd scan (1996us)
 
-    ## @fn ble/fd#add-cloexec/.probe
+    ## @fn ble/fd#cloexec/.probe
     ##   @var[out] ret
-    function ble/fd#add-cloexec/.probe {
+    function ble/fd#cloexec/.probe {
       local fd
       local -a mark=()
       for fd in "${candidates[@]}"; do
@@ -3184,7 +3322,7 @@ elif ((_ble_bash>=40000)); then
       return 1
     }
 
-    function ble/fd#add-cloexec/.dup-undo-redirection-fd {
+    function ble/fd#cloexec/.dup-undo-redirection-fd {
       local fd=$1
 
       local -a candidates=()
@@ -3196,16 +3334,16 @@ elif ((_ble_bash>=40000)); then
       ble/fd#alloc/.nextfd fdtmp '' no-increment &&
         ble/array#push candidates "$fdtmp"
 
-      builtin eval -- "ble/fd#add-cloexec/.probe $fd</dev/null"
+      builtin eval -- "ble/fd#cloexec/.probe $fd</dev/null"
     }
   fi
 
-  function ble/fd#add-cloexec {
+  function ble/fd#cloexec/.add {
     local fd=$1 ret
-    ble/fd#add-cloexec/.dup-undo-redirection-fd "$fd" &&
+    ble/fd#cloexec/.dup-undo-redirection-fd "$fd" &&
       builtin eval -- "exec $fd>&- $fd>&$ret $ret>&-" # disable=#D2164 (here bash4+)
   } 2>/dev/null
-  function ble/fd#remove-cloexec {
+  function ble/fd#cloexec/.remove {
     local fd=$1
     if ((fd!=0)); then
       builtin eval -- "exec 0<&$fd $fd<&- $fd<&0" </dev/null # disable=#D2164 (here bash4+)
@@ -3214,9 +3352,30 @@ elif ((_ble_bash>=40000)); then
     fi
   }
 else
-  function ble/fd#add-cloexec { false; }
-  function ble/fd#remove-cloexec { false; }
+  function ble/fd#cloexec/.add { false; }
+  function ble/fd#cloexec/.remove { false; }
 fi
+
+function ble/fd#add-cloexec {
+  ble/fd#cloexec/.add "$1" && return 0
+
+  local type
+  if [[ -h /proc/$$/fd/$1 ]] && ble/util/readlink "/proc/$$/fd/$1"; then
+    type=L${ret//:}
+  elif [[ -t ${!1} ]]; then
+    type=t
+  else
+    type=o
+  fi
+
+  ble/opts#remove _ble_util_fdlist_cloexec "$1"
+  ble/opts#append _ble_util_fdlist_cloexec "$1=$type"
+}
+function ble/fd#remove-cloexec {
+  ble/fd#cloexec/.remove "$1" || return "$?"
+  ble/opts#remove _ble_util_fdlist_cloexec "$1"
+  return 0
+}
 
 ## @fn ble/fd#alloc fdvar redirect [opts]
 ##   "exec {fdvar}>foo" に該当する操作を実行します。
@@ -3309,6 +3468,7 @@ function ble/fd#finalize {
     ble/fd#alloc/.close "$fd"
   done
   _ble_util_fdlist_cloexit=
+  _ble_util_fdlist_cloexec=
 }
 function ble/fd#is-cloexit {
   [[ :$_ble_util_fdlist_cloexit: == *:"$fd":* ]]
@@ -3320,6 +3480,7 @@ function ble/fd#close {
   (($1>=3)) || return 1
   ble/fd#alloc/.close "$1"
   ble/opts#remove _ble_util_fdlist_cloexit "$1"
+  ble/opts#remove _ble_util_fdlist_cloexec "$1"
   return 0
 }
 
@@ -3461,9 +3622,9 @@ function ble/util/print-quoted-command {
 function ble/util/declare-print-definitions {
   (($#==0)) && return 0
 
-  # Note (#D2055): mawk 1.3.3-20090705 bug の為に [:space:] を正規表現内部で使
+  # Note (#D2055): mawk 1.3.3-20090705 bug の為に [:blank:] を正規表現内部で使
   # 用する事ができない。Ubuntu 16.04 LTS 及び Ubuntu 18.04 LTS で mawk
-  # 1.3.3-20090705 が使用されている。なので _ble_term_space という変数に
+  # 1.3.3-20090705 が使用されている。なので _ble_term_blank という変数に
   # <SP><TAB> を入れて使う。
 
   declare -p "$@" | ble/bin/awk -v _ble_bash="$_ble_bash" -v OSTYPE="$OSTYPE" '
@@ -3503,7 +3664,7 @@ function ble/util/declare-print-definitions {
       if (match(decl, /^[_a-zA-Z][_a-zA-Z0-9]*=\(/) == 0) return 0;
       name = substr(decl, 1, RLENGTH - 2);
       decl = substr(decl, RLENGTH + 1, length(decl) - RLENGTH - 1);
-      sub(/^['"$_ble_term_space"']+/, decl);
+      sub(/^['"$_ble_term_blank"']+/, decl);
 
       out = name "=()\n";
 
@@ -3512,13 +3673,13 @@ function ble/util/declare-print-definitions {
         decl = substr(decl, RLENGTH + 1);
 
         value = "";
-        if (match(decl, /^('\''[^'\'']*'\''|\$'\''([^\\'\'']|\\.)*'\''|\$?"([^\\"]|\\.)*"|\\.|[^'"$_ble_term_space"'"'\''`;&|()])*/)) {
+        if (match(decl, /^('\''[^'\'']*'\''|\$'\''([^\\'\'']|\\.)*'\''|\$?"([^\\"]|\\.)*"|\\.|[^'"$_ble_term_blank"'"'\''`;&|()])*/)) {
           value = substr(decl, 1, RLENGTH)
           decl = substr(decl, RLENGTH + 1)
         }
 
         out = out name "[" key "]=" fix_value(value) "\n";
-        sub(/^['"$_ble_term_space"']+/, decl);
+        sub(/^['"$_ble_term_blank"']+/, decl);
       }
 
       if (decl != "") return 0;
@@ -3740,15 +3901,7 @@ function ble/util/eval-pathname-expansion {
   if [[ :$2: == *:canonical:* ]]; then
     canon=1
     local set=$- shopt gignore=$GLOBIGNORE
-    if ((_ble_bash>=40100)); then
-      shopt=$BASHOPTS
-    else
-      shopt=
-      shopt -q failglob && shopt=$shopt:failglob
-      shopt -q nullglob && shopt=$shopt:nullglob
-      shopt -q extglob && shopt=$shopt:extglob
-      shopt -q dotglob && shopt=$shopt:dotglob
-    fi
+    ble/base/list-shopt failglob nullglob extglob dotglob
     shopt -u failglob
     shopt -s nullglob
     shopt -s extglob
@@ -3776,7 +3929,7 @@ function ble/util/eval-pathname-expansion {
 
 
 # 正規表現は _ble_bash>=30000
-_ble_util_rex_isprint='^[ -~]+'
+_ble_util_rex_isprint='^[ -~]+' # disable=#D1440 (LC_COLLATE is set)
 ## @fn ble/util/isprint+ str
 ##
 ##   @var[out] BASH_REMATCH ble-exit/text/update/position で使用する。
@@ -3862,7 +4015,7 @@ else
       local fmt=$3 time=$4
       ble/util/assign "$2" "ble/bin/date +\"\$fmt\" $time"
     else
-      ble/bin/date +"$1" $2
+      ble/bin/date +"$1" ${2+"$2"}
     fi
   }
 fi
@@ -4199,7 +4352,11 @@ if ((_ble_bash>=40400)) && ble/util/load-standard-builtin sleep; then
     ble/base/.restore-bash-options set shopt 1
     return "$ext"
   }
-  function sleep { ble/builtin/sleep "$@"; }
+  function sleep {
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+    ble/builtin/sleep "$@"
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
+  }
 elif [[ -f $_ble_base/lib/init-msleep.sh ]] &&
        source "$_ble_base/lib/init-msleep.sh" &&
        ble/util/msleep/.load-compiled-builtin
@@ -4332,7 +4489,7 @@ function ble/util/conditional-sync/.kill {
 ##       at the value specified by WEIGHT.
 ##     @opt timeout=TIMEOUT
 ##       When this is specified, COMMAND is unconditionally terminated when
-##       it does not end until the time specified by TIMEOUT in milliseconds
+##       it does not end within the time specified by TIMEOUT in milliseconds
 ##     @opt killall
 ##       Kill also all the children and descendant processes. When this is
 ##       unspecified, only the subshell used to run COMMAND is killed.
@@ -4341,7 +4498,7 @@ function ble/util/conditional-sync/.kill {
 ##       processes are killed by SIGTERM.
 ##
 ##     @opt pid=PID
-##       When specified, COMMAND is not evaluate, and the function instead
+##       When specified, COMMAND is not evaluated, and the function instead
 ##       waits for the exit of the process specified by PID.  If a negative
 ##       integer is specified, it is treated as PGID.  When the condition is
 ##       unsatisfied or the timeout has been reached, the specified process
@@ -4426,11 +4583,11 @@ function ble/util/cat {
 _ble_util_less_fallback=
 function ble/util/get-pager {
   if [[ ! $_ble_util_less_fallback ]]; then
-    if type -t less &>/dev/null; then
+    if ble/bin#has less; then
       _ble_util_less_fallback=less
-    elif type -t pager &>/dev/null; then
+    elif ble/bin#has pager; then
       _ble_util_less_fallback=pager
-    elif type -t more &>/dev/null; then
+    elif ble/bin#has more; then
       _ble_util_less_fallback=more
     else
       _ble_util_less_fallback=cat
@@ -4565,19 +4722,34 @@ function ble/util/buffer {
 function ble/util/buffer.print {
   ble/util/buffer "$1"$'\n'
 }
+function ble/util/buffer.print-lines {
+  local line
+  for line; do
+    ble/util/buffer "$line"$'\n'
+  done
+}
 function ble/util/buffer.flush {
   IFS= builtin eval 'local text="${_ble_util_buffer[*]-}"'
   _ble_util_buffer=()
   [[ $text ]] || return 0
 
-  # Note: 出力の瞬間だけカーソルを非表示にする。Windows terminal など途中
-  # のカーソル移動も無理やり表示しようとする端末に対する対策。
-  [[ $_ble_term_state == internal ]] &&
-    [[ $_ble_term_cursor_hidden_internal != hidden ]] &&
-    [[ $text != *"$_ble_term_civis"* && $text != *"$_ble_term_rmcivis"* ]] &&
-    text=$_ble_term_civis$text$_ble_term_rmcivis
+  if [[ $_ble_term_state == internal ]]; then
+    # Note: 出力の瞬間だけカーソルを非表示にする。Windows terminal など途中
+    # のカーソル移動も無理やり表示しようとする端末に対する対策。
+    if [[ $_ble_term_cursor_hidden_current == hidden ]]; then
+      # Note: Even if the current cursor-hidden state is "hidden", the TEXT may
+      # contain the transition sequence from "reveal" to "hidden", we anyway
+      # want to prefix civis.
+      text=$_ble_term_civis$text
+    else
+      text=$_ble_term_civis$text$_ble_term_rmcivis
+    fi
 
-  ble/util/put "$text"
+    [[ $bleopt_term_synchronized_update_mode == on ]] &&
+      text=$'\e[?2026h'$text$'\e[?2026l'
+  fi
+
+  ble/util/put "$text" >&"$_ble_util_fd_tui_stderr"
 }
 function ble/util/buffer.clear {
   _ble_util_buffer=()
@@ -4727,7 +4899,7 @@ function ble/util/joblist {
   # Note (#D2157): ble/util/assign uses the function substitution in bash >=
   # 5.3.  However, in the function substitution, the update of the joblist is
   # disabled.  For this reason, reading the output of "jobs" by ble/util/assign
-  # doesn't clear the notified job entries.  To clear job entires, we perform a
+  # doesn't clear the notified job entries.  To clear job entries, we perform a
   # dummy call of the jobs builtin without using a function substitution.
   ((_ble_bash>=50300)) && jobs >/dev/null
 
@@ -4794,7 +4966,7 @@ function ble/util/joblist {
 # works in `bind -x', foreground completed subshells also remain in the job
 # list and can be unexpectedly notified to users.  To avoid it, we mark
 # foreground subshells by including the call to this dummy function.
-function ble/util/joblist/__suppress__ { ((1)); }
+function ble/util/joblist/__suppress__ { return 0; }
 
 function ble/util/joblist.split {
   local arr=$1; shift
@@ -4945,7 +5117,7 @@ function ble/util/rlvar#bind-bleopt {
     ble/util/rlvar#load
   fi
 
-  # Bash が readlie 変数に対応している場合、bleopt に対する代入と合わせて
+  # Bash が readline 変数に対応している場合、bleopt に対する代入と合わせて
   # readline 変数にも対応する値を設定する。
   if ble/util/rlvar#has "$name"; then
     # 値の同期
@@ -5014,7 +5186,7 @@ function ble/util/rlvar#bind-bleopt {
 function ble/util/invoke-hook {
   local -a hooks; builtin eval "hooks=(\"\${$1[@]}\")"
   local hook ext=0
-  for hook in "${hooks[@]}"; do builtin eval -- "$hook \"\${@:2}\"" || ext=$?; done
+  for hook in "${hooks[@]}"; do builtin eval -- "$hook" || ext=$?; done
   return "$ext"
 }
 
@@ -5124,17 +5296,21 @@ function ble/util/autoload/.read-arguments {
   file=${args[0]} functions=("${args[@]:1}")
 }
 function ble-autoload {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
   local file flags
   local -a functions=()
   ble/util/autoload/.read-arguments "$@"
   if [[ $flags == *[eh]* ]]; then
     [[ $flags == *e* ]] && builtin printf '\n'
     ble/util/autoload/.print-usage
-    [[ $flags == *e* ]] && return 2
-    return 0
+    local ext=0
+    [[ $flags == *e* ]] && ext=2
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_leave"
+    return "$ext"
   fi
 
   ble/util/autoload "$file" "${functions[@]}"
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
 }
 
 ## @fn ble-import scriptfile...
@@ -5329,7 +5505,7 @@ function ble/util/import {
     ble/is-function "$guard" && return 0
     [[ -e $file ]] || return 1
     source "$file" || { ext=$?; continue; }
-    builtin eval "function $guard { :; }"
+    builtin eval "function $guard { return 0; }"
     ble/array#push _ble_util_import_files "$file"
 
     local onload=ble/util/import/onload:$enc
@@ -5354,7 +5530,7 @@ function ble/util/import/option:query {
   fi
 }
 
-function ble-import {
+function ble/util/import/.dispatch {
   local files flags callbacks
   ble/util/import/.read-arguments "$@"
   if [[ $flags == *[Eh]* ]]; then
@@ -5377,7 +5553,7 @@ function ble-import {
       '                  already imported files.' \
       '    -C, --callback=CALLBACK' \
       '                  Specify a command that will be evaluated when all of' \
-      '                  SCRIPTFILEs are loaded.  If all of SCRIPTFILESs are already' \
+      '                  SCRIPTFILEs are loaded.  If all of SCRIPTFILEs are already' \
       '                  loaded, the callback is immediately evaluated.' \
       '' \
       >&2
@@ -5420,6 +5596,11 @@ function ble-import {
 
   ((${#callbacks[@]})) || ble/util/import "${files[@]}"
 }
+function ble-import {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+  ble/util/import/.dispatch "$@"
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
+}
 
 _ble_util_import_onload_count=0
 function ble/util/import/eval-after-load {
@@ -5443,6 +5624,7 @@ function ble/util/import/eval-after-load {
   fi
 }
 
+## @fn ble/util/stackdump [message]
 ## @fn ble-stackdump [message]
 ##   現在のコールスタックの状態を出力します。
 ##
@@ -5473,8 +5655,10 @@ function ble/util/stackdump {
   done
   ble/util/put "$message"
 }
-function ble-stackdump {
-  local flags args
+
+function ble/util/stackdump/.read-arguments {
+  ext=0
+  local flags
   ble/util/.read-arguments-for-no-option-command ble-stackdump "$@"
   if [[ $flags == *[eh]* ]]; then
     [[ $flags == *e* ]] && ble/util/print
@@ -5482,15 +5666,25 @@ function ble-stackdump {
       ble/util/print 'usage: ble-stackdump command [message]'
       ble/util/print '  Print stackdump.'
     } >&2
-    [[ $flags == *e* ]] && return 2
-    return 0
+    [[ $flags == *e* ]] && ext=2
+    return 1
   fi
-
-  local _ble_util_stackdump_start=2
-  local IFS=$_ble_term_IFS
-  ble/util/stackdump "${args[*]}"
+  return 0
+}
+function ble-stackdump {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+  local args ext
+  if ble/util/stackdump/.read-arguments "$@"; then
+    local _ble_util_stackdump_start=2
+    local IFS=$_ble_term_IFS
+    ble/util/stackdump "${args[*]}"
+    ext=$?
+  fi
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_leave"
+  return "$ext"
 }
 
+## @fn ble/util/assert command [message]
 ## @fn ble-assert command [message]
 ##   コマンドを評価し失敗した時にメッセージを表示します。
 ##
@@ -5511,8 +5705,12 @@ function ble/util/assert {
     return 0
   fi
 }
-function ble-assert {
-  local flags args
+
+## @fn ble/util/assert/.read-arguments args...
+##   @var[out] args ext
+function ble/util/assert/.read-arguments {
+  ext=0
+  local flags
   ble/util/.read-arguments-for-no-option-command ble-assert "$@"
   if [[ $flags != *h* ]]; then
     if ((${#args[@]}==0)); then
@@ -5526,12 +5724,21 @@ function ble-assert {
       ble/util/print 'usage: ble-assert command [message]'
       ble/util/print '  Evaluate command and print stackdump on fail.'
     } >&2
-    [[ $flags == *e* ]] && return 2
-    return 0
+    [[ $flags == *e* ]] && ext=2
+    return 1
   fi
-
-  local IFS=$_ble_term_IFS
-  ble/util/assert "${args[0]}" "${args[*]:1}"
+  return 0
+}
+function ble-assert {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+  local args ext
+  if ble/util/assert/.read-arguments "$@"; then
+    local IFS=$_ble_term_IFS
+    ble/util/assert "${args[0]}" "${args[*]:1}"
+    ext=$?
+  fi
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_leave"
+  return "$ext"
 }
 
 #------------------------------------------------------------------------------
@@ -5629,12 +5836,12 @@ if ((_ble_bash>=40000)); then
   }
 
   function ble/util/idle.clock/.initialize {
-    function ble/util/idle.clock/.initialize { :; }
+    function ble/util/idle.clock/.initialize { return 0; }
 
     ## @fn ble/util/idle.clock
     ##   タスクスケジューリングに使用する時計
     ##   @var[out] ret
-    function ble/util/idle.clock/.restart { :; }
+    function ble/util/idle.clock/.restart { return 0; }
     if [[ ! $_ble_util_clock_type || $_ble_util_clock_type == date ]]; then
       function ble/util/idle.clock {
         ret=$_ble_util_idle_sclock
@@ -5745,7 +5952,7 @@ if ((_ble_bash>=40000)); then
     local IFS=$_ble_term_IFS
     ble/util/idle/IS_IDLE || return 1
     ((${#_ble_util_idle_task[@]}==0)) && return 1
-    ble/util/buffer.flush >&2
+    ble/util/buffer.flush
 
     local ret
     ble/util/idle.clock/.initialize
@@ -5767,8 +5974,8 @@ if ((_ble_bash>=40000)); then
         case ${_ble_idle_status::1} in
         (R) _ble_idle_to_process=1 ;;
         (I) [[ $_ble_idle_is_first ]] && _ble_idle_to_process=1 ;;
-        (S) ble/util/idle/.check-clock "$_ble_idle_status" && _ble_idle_to_process=1 ;;
-        (W) ble/util/idle/.check-clock "$_ble_idle_status" && _ble_idle_to_process=1 ;;
+        (S) ble/util/idle.do/.check-clock "$_ble_idle_status" && _ble_idle_to_process=1 ;;
+        (W) ble/util/idle.do/.check-clock "$_ble_idle_status" && _ble_idle_to_process=1 ;;
         (F) [[ -s ${_ble_idle_status:1} ]] && _ble_idle_to_process=1 ;;
         (E) [[ -e ${_ble_idle_status:1} ]] && _ble_idle_to_process=1 ;;
         (P) ! builtin kill -0 ${_ble_idle_status:1} &>/dev/null && _ble_idle_to_process=1 ;;
@@ -5851,10 +6058,10 @@ if ((_ble_bash>=40000)); then
     fi
     return "$ext"
   }
-  ## @fn ble/util/idle/.check-clock status
+  ## @fn ble/util/idle.do/.check-clock status
   ##   @var[in,out] _ble_idle_next_itime
   ##   @var[in,out] _ble_idle_next_time
-  function ble/util/idle/.check-clock {
+  function ble/util/idle.do/.check-clock {
     local status=$1
     if [[ $status == W* ]]; then
       local next=_ble_idle_next_itime
@@ -5947,10 +6154,16 @@ if ((_ble_bash>=40000)); then
       esac
 
       if [[ $sleep ]]; then
-        local ret; ble/util/idle.clock
+        local ret
+        ble/util/idle.clock/.initialize
+        ble/util/idle.clock
         status=S$((ret+sleep))
+        ble/util/is-running-in-idle &&
+          ble/util/idle.do/.check-clock "$status"
       elif [[ $isleep ]]; then
         status=W$((_ble_util_idle_sclock+isleep))
+        ble/util/is-running-in-idle &&
+          ble/util/idle.do/.check-clock "$status"
       fi
     done
     ble/util/idle.push/.impl "$nice" "$status$_ble_util_idle_SEP$1"
@@ -6030,23 +6243,24 @@ if ((_ble_bash>=40000)); then
     ble_util_idle_status=R
   }
 
-  function ble/util/idle/.delare-external-modifier {
+  function ble/util/idle/.declare-external-modifier {
     local name=$1
-    builtin eval -- 'function ble/util/idle#'$name' {
+    builtin eval -- 'function ble/util/idle#'"$name"' {
       local index=$1
       [[ ${_ble_util_idle_task[index]+set} ]] || return 2
       local ble_util_idle_status=${_ble_util_idle_task[index]%%"$_ble_util_idle_SEP"*}
       local ble_util_idle_command=${_ble_util_idle_task[index]#*"$_ble_util_idle_SEP"}
-      ble/util/idle.'$name' "${@:2}"
+      ble/util/idle.clock/.initialize
+      ble/util/idle.'"$name"' "${@:2}"
       _ble_util_idle_task[index]=$ble_util_idle_status$_ble_util_idle_SEP$ble_util_idle_command
     }'
   }
   # @fn ble/util/idle#suspend
   # @fn ble/util/idle#sleep time
   # @fn ble/util/idle#isleep time
-  ble/util/idle/.delare-external-modifier suspend
-  ble/util/idle/.delare-external-modifier sleep
-  ble/util/idle/.delare-external-modifier isleep
+  ble/util/idle/.declare-external-modifier suspend
+  ble/util/idle/.declare-external-modifier sleep
+  ble/util/idle/.declare-external-modifier isleep
 
   ble/util/idle.push-background 'ble/util/msleep/calibrate'
 else
@@ -6109,7 +6323,7 @@ function ble/util/fiberchain#clear {
 
 bleopt/declare -v vbell_default_message ' Wuff, -- Wuff!! '
 bleopt/declare -v vbell_duration 2000
-bleopt/declare -n vbell_align left
+bleopt/declare -n vbell_align right
 
 function ble/term:cygwin/initialize.hook {
   # RIの修正
@@ -6180,7 +6394,7 @@ function ble/term/flush {
 # **** vbell/abell ****
 
 function ble/term/audible-bell {
-  ble/util/put '' 1>&2
+  ble/util/put '' >&2
 }
 
 # visible-bell の表示の管理について。
@@ -6249,12 +6463,12 @@ function ble/term/visible-bell:canvas/init {
   ble/canvas/trace-text "$message" nonewline:external-sgr
   message=$ret
 
-  local x0=0 y0=0
-  if [[ $bleopt_vbell_align == right ]]; then
-    ((x0=COLUMNS-1-x,x0<0&&(x0=0)))
-  elif [[ $bleopt_vbell_align == center ]]; then
-    ((x0=(COLUMNS-1-x)/2,x0<0&&(x0=0)))
-  fi
+  local x0=$((COLUMNS-1-x)) y0=0
+  ((x0<0)) && x0=0
+  case :$bleopt_vbell_align: in
+  (*:left:*) x0=0 ;;
+  (*:center:*) ((x0/=2)) ;;
+  esac
 
   _ble_term_visible_bell_prev=(canvas "$message" "$x0" "$y0" "$x" "$y")
 }
@@ -6287,7 +6501,7 @@ function ble/term/visible-bell:canvas/show {
     ble/canvas/put-hpa.draw "$((1+_ble_canvas_x))"
   fi
   ble/canvas/bflush.draw
-  ble/util/buffer.flush >&2
+  ble/util/buffer.flush
 }
 function ble/term/visible-bell:canvas/update {
   ble/term/visible-bell:canvas/show "$@"
@@ -6313,7 +6527,7 @@ function ble/term/visible-bell:canvas/clear {
     #[[ $_ble_attached ]] && ble/canvas/panel/load-position.draw "$ret" # WA #D1495
   else
     : # 親プロセスの _ble_canvas_x が分からないので座標がずれる
-    # ble/util/buffer.flush >&2
+    # ble/util/buffer.flush
     # ble/canvas/put.draw "$_ble_term_ri_or_cuu1$_ble_term_sgr0"
     # ble/canvas/put-hpa.draw "$((1+x0))"
     # ble/canvas/put.draw "$sgr"
@@ -6387,7 +6601,7 @@ function ble/term/visible-bell/.worker {
   fi
 
   # load time duration settings
-  local msec=$bleopt_vbell_duration
+  local msec=$((bleopt_vbell_duration))
 
   # wait
   ble/util/msleep "$msec"
@@ -6407,6 +6621,10 @@ function ble/term/visible-bell {
   # Note: 1行しかない時は表示しない。0行の時は全てログに行くので出力する。空文
   # 字列の時は設定されていないだけなので表示する。
   ((LINES==1)) && return 0
+
+  [[ :$bleopt_vbell_align: == *:panel:* ]] &&
+    ble/function#try ble/edit/visible-bell "$message" "$opts" &&
+    return 0
 
   local sgr0=$_ble_term_sgr0
   local sgr1=${_ble_term_setaf[2]}$_ble_term_rev
@@ -6485,7 +6703,7 @@ function ble/term/stty/.initialize-flags {
   # # ^U, ^V, ^W, ^?
   # # Note: lnext, werase は POSIX にはないので stty の項目に存在する
   # #   かチェックする。
-  # # Note (#D1683): ble/decode/bind/adjust-uvw が正しい対策。以下の対
+  # # Note (#D1683): ble/decode/readline/adjust-uvw が正しい対策。以下の対
   # #   策の効果は不明。寧ろ vim :term 内部で ^? が効かなくなるなど問
   # #   題を起こす様なので取り敢えず無効化する。
   # ble/array#push _ble_term_stty_flags_enter kill undef erase undef
@@ -6721,12 +6939,13 @@ function ble/term/cursor-state/.update {
     esac
   fi
   local ret=${_ble_term_Ss//@1/"$state"}
+  if [[ $ret ]]; then
+    # Note: 既に pass-through seq が含まれている時はスキップする。
+    [[ $ret != $'\eP'*$'\e\\' ]] &&
+      ble/term/quote-passthrough "$ret" '' all
 
-  # Note: 既に pass-through seq が含まれている時はスキップする。
-  [[ $ret && $ret != $'\eP'*$'\e\\' ]] &&
-    ble/term/quote-passthrough "$ret" '' all
-
-  ble/util/buffer "$ret"
+    ble/util/buffer "$ret"
+  fi
 
   _ble_term_cursor_current=$state
 }
@@ -6739,14 +6958,8 @@ function ble/term/cursor-state/set-internal {
 function ble/term/cursor-state/.update-hidden {
   local state=$1
   [[ $state != hidden ]] && state=reveal
-  [[ $_ble_term_cursor_hidden_current == "$state" ]] && return 0
 
-  if [[ $state == hidden ]]; then
-    ble/util/buffer "$_ble_term_civis"
-  else
-    ble/util/buffer "$_ble_term_rmcivis"
-  fi
-
+  # Note: the actual sequence is added by ble/util/buffer.flush.
   _ble_term_cursor_hidden_current=$state
 }
 function ble/term/cursor-state/hide {
@@ -6804,9 +7017,23 @@ function ble/term/bracketed-paste-mode/leave {
 }
 if [[ $TERM == minix ]]; then
   # Minix console は DECSET も使えない
-  function ble/term/bracketed-paste-mode/enter { :; }
-  function ble/term/bracketed-paste-mode/leave { :; }
+  function ble/term/bracketed-paste-mode/enter { return 0; }
+  function ble/term/bracketed-paste-mode/leave { return 0; }
 fi
+
+#---- DECSET(2026): synchronized update ---------------------------------------
+
+bleopt/declare -v term_synchronized_update_mode auto
+function ble/term/synchronized-update-mode/resolve-auto {
+  [[ $bleopt_term_synchronized_update_mode == auto ]] || return 0
+
+  case $_ble_term_TERM in
+  (mintty:*|foot:*|wezterm:*|iTerm2:*|kitty:*|alacritty:*|zellij:*)
+    bleopt_term_synchronized_update_mode=on ;;
+  (*)
+    bleopt_term_synchronized_update_mode= ;;
+  esac
+}
 
 #---- DA2 ---------------------------------------------------------------------
 
@@ -6814,6 +7041,21 @@ _ble_term_TERM=()
 _ble_term_DA1R=()
 _ble_term_DA2R=()
 _ble_term_TERM_done=
+
+function ble/term/DA2/request {
+  case $TERM in
+  (linux)
+    # Note #D1213: linux コンソール (kernel 5.0.0) は "\e[>"
+    #  でエスケープシーケンスを閉じてしまう。5.4.8 は大丈夫。
+    _ble_term_TERM=linux:- ;;
+  (st|st-*)
+    # st の unknown csi sequence メッセージに対して文句を言う人がいた。
+    # st は TERM で判定できるので DA2 はスキップできる。
+    _ble_term_TERM=st:- ;;
+  (*)
+    ble/util/buffer $'\e[>c' # DA2 要求 (ble-decode-char/csi/.decode で受信)
+  esac
+}
 
 ## @fn ble/term/DA2/initialize-term [depth]
 ##   @var[out] _ble_term_TERM
@@ -6854,12 +7096,39 @@ function ble/term/DA2/initialize-term {
   ('1;277;0')  _ble_term_TERM[depth]=mlterm:30402 ;; # Note: wezterm:20220408 と同じ。wezterm の方を優先
   ('24;279;0') _ble_term_TERM[depth]=mlterm:30702 ;;
 
+  # iTerm2
+  # * 0;95;     v1.0.0.20110724 (2010-08-07) https://github.com/gnachman/iTerm2/commit/732e2016a488f9e06a88cd2ab3925436e437864e
+  # - 0:95      v2.9.20151111   (2015-02-24) https://github.com/gnachman/iTerm2/commit/e5b7db007c9340b93607096f64f4895fe4cef544
+  # * 0;95;0    v2.9.20151111   (2015-03-02) https://github.com/gnachman/iTerm2/commit/5a613a9c1bf7ddd0fea34135a391fd3fa7c53585
+  # - 0;95;0    v3.3.0beta1     (2018-10-10) https://github.com/gnachman/iTerm2/commit/b3058e6806c22f345329923a15394502e2b4a251 (LC_TERMINAL_VERSION)
+  # - 1;95;0    v3.5.0beta1     (2021-08-14) https://github.com/gnachman/iTerm2/commit/6c923fab1e78147b00a5867aa7e20617739608db
+  # - 41;95;0   v3.5.0beta3     (2021-10-13) https://github.com/gnachman/iTerm2/commit/05dd985955736e222b4144c45dc7e33cafd76948
+  # * 41;2500;0 v3.5.0beta3     (2021-10-13) https://github.com/gnachman/iTerm2/commit/2fef388179057cf0090d536350ed644c7d4499d7
+  # * 64;2500;0 v3.5.5beta1     (2024-07-28) https://github.com/gnachman/iTerm2/commit/cd9445d59c667cbae57987f1de0100e0a031d666
+  ('0;95;0')    _ble_term_TERM[depth]=iTerm2:${LC_TERMINAL_VERSION-2.9+} ;;
+  ('41;2500;0') _ble_term_TERM[depth]=iTerm2:${LC_TERMINAL_VERSION-3.5.0+} ;;
+  ('64;2500;0') _ble_term_TERM[depth]=iTerm2:${LC_TERMINAL_VERSION-3.5.6+} ;;
+
   ('0;10;1') # Windows Terminal
     # 現状ハードコードされている。
     # https://github.com/microsoft/terminal/blob/bcc38d04/src/terminal/adapter/adaptDispatch.cpp#L779-L782
     _ble_term_TERM[depth]=wt:0 ;;
   ('0;'*';1')
-    if ((da2r_vec[1]>=1001)); then
+    if ((da2r_vec[1]>=3000)); then
+      # Zellij seems to use the same range as Alacritty with the same scheme,
+      # which makes it essentially difficult to differentiate it from
+      # Alacritty.  Zellij has introduce DA2 in PR [1], whose primary purpose
+      # was cursor position, etc.  The design of its DA2 was not specifically
+      # discussed/mentioned.  The first release with the support for DA2 report
+      # was 0.10.0 [2], so the minimum value by Zellij would be 1000, which
+      # clearly conflicts with the recent versions of Alacritty.  We currently
+      # use 3000 to distinguish Zellij and Alacritty, but this value needs to
+      # be updated before Alacritty's version reaches v0.30.0.
+      #
+      # [1] https://github.com/zellij-org/zellij/pull/500 (2021-05-13)
+      # [2] https://github.com/zellij-org/zellij/releases/tag/v0.10.0
+      _ble_term_TERM[depth]=zellij:$((da2r_vec[1]))
+    elif ((da2r_vec[1]>=1001)); then
       # Alacritty
       # https://github.com/alacritty/alacritty/blob/4734b2b8/alacritty_terminal/src/term/mod.rs#L1315
       # https://github.com/alacritty/alacritty/blob/4734b2b8/alacritty_terminal/src/term/mod.rs#L3104
@@ -6954,6 +7223,9 @@ function ble/term/DA2/notify {
       _ble_term_sc=$'\e7' _ble_term_rc=$'\r\e8' ;;
     esac
 
+    if ((depth==0)); then
+      ble/term/synchronized-update-mode/resolve-auto
+    fi
     if [[ $is_outermost ]]; then
       _ble_term_TERM_done=1
       ble/term/modifyOtherKeys/reset
@@ -7308,30 +7580,42 @@ function ble/term/rl-convert-meta/leave {
 
 #---- terminal enter/leave ----------------------------------------------------
 
+_ble_term_attached=
+_ble_term_state=external
+
+## @fn ble/term/enter-for-widget [opts]
+##   @param[opt] opts
+##     @opt noflush
 function ble/term/enter-for-widget {
   ble/term/bracketed-paste-mode/enter
   ble/term/modifyOtherKeys/enter
   ble/term/cursor-state/.update "$_ble_term_cursor_internal"
   ble/term/cursor-state/.update-hidden "$_ble_term_cursor_hidden_internal"
-  ble/util/buffer.flush >&2
+  [[ :$1: == *:noflush:* ]] || ble/util/buffer.flush
 }
+## @fn ble/term/leave-for-widget
 function ble/term/leave-for-widget {
   ble/term/visible-bell/erase
   ble/term/bracketed-paste-mode/leave
   ble/term/modifyOtherKeys/leave
   ble/term/cursor-state/.update "$bleopt_term_cursor_external"
   ble/term/cursor-state/.update-hidden reveal
-  ble/util/buffer.flush >&2
+  # Note: To reveal the cursor, we need to make sure that ble/util/buffer.flush
+  # is called this timing (where _ble_term_cursor_hidden_current=reveal).
+  ble/util/buffer.flush
 }
 
-_ble_term_state=external
+## @fn ble/term/enter [opts]
+##   @param[opt] opts
+##     @opt noflush
 function ble/term/enter {
   [[ $_ble_term_state == internal ]] && return 0
+  _ble_term_state=internal
   ble/term/stty/enter
   ble/term/rl-convert-meta/enter
-  ble/term/enter-for-widget
-  _ble_term_state=internal
+  ble/term/enter-for-widget "$1"
 }
+## @fn ble/term/leave
 function ble/term/leave {
   [[ $_ble_term_state == external ]] && return 0
   ble/term/stty/leave
@@ -7343,15 +7627,31 @@ function ble/term/leave {
   _ble_term_state=external
 }
 
-function ble/term/finalize {
+## @fn ble/term/initialize [opts]
+##   @param[opt] opts
+##     @opt noflush
+function ble/term/initialize {
+  ble/term/DA2/request
+  ble/term/test-DECSTBM
+}
+## @fn ble/term/attach [opts]
+##   @param[opt] opts
+##     @opt noflush
+function ble/term/attach {
+  [[ $_ble_term_attached ]] && return 0
+  _ble_term_attached=1
+  ble/term/stty/initialize
+  ble/term/enter "$1"
+}
+## @fn ble/term/enter [opts]
+##   @param[opt] opts
+##     @opt noflush
+function ble/term/detach {
+  [[ $_ble_term_attached ]] || return 0
+  _ble_term_attached=
   ble/term/stty/finalize
   ble/term/leave
-  ble/util/buffer.flush >&2
-}
-function ble/term/initialize {
-  ble/term/stty/initialize
-  ble/term/test-DECSTBM
-  ble/term/enter
+  ble/util/buffer.flush
 }
 
 #------------------------------------------------------------------------------
@@ -7385,7 +7685,7 @@ elif ((_ble_bash>=40000&&!_ble_bash_loaded_in_function)); then
   _ble_util_s2c_table_enabled=1
   function ble/util/s2c {
     [[ $_ble_util_locale_triple != "$LC_ALL:$LC_CTYPE:$LANG" ]] &&
-      ble/util/.cache/update-locale
+      ble/util/.update-locale-cache
 
     local s=${1::1}
     ret=${_ble_util_s2c_table[x$s]}
@@ -7418,14 +7718,14 @@ else
     fi
 
     local bytes byte
-    ble/util/assign bytes '
+    ble/util/assign-words bytes '
       local IFS=
       while ble/bash/read -n 1 byte; do
         builtin printf "%d " "'\''$byte"
       done <<< "$s"
       IFS=$_ble_term_IFS
     '
-    "ble/encoding:$bleopt_input_encoding/b2c" $bytes
+    ble/encoding:"$bleopt_input_encoding"/b2c "${bytes[@]}"
   }
 fi
 
@@ -7533,7 +7833,7 @@ _ble_util_c2s_table=()
 ##   @var[out] ret
 function ble/util/c2s {
   [[ $_ble_util_locale_triple != "$LC_ALL:$LC_CTYPE:$LANG" ]] &&
-    ble/util/.cache/update-locale
+    ble/util/.update-locale-cache
 
   ret=${_ble_util_c2s_table[$1]-}
   if [[ ! $ret ]]; then
@@ -7551,7 +7851,7 @@ function ble/util/c2s.cached {
 }
 function ble/util/chars2s {
   [[ $_ble_util_locale_triple != "$LC_ALL:$LC_CTYPE:$LANG" ]] &&
-    ble/util/.cache/update-locale
+    ble/util/.update-locale-cache
   ble/util/chars2s.impl "$@"
 }
 
@@ -7561,24 +7861,40 @@ function ble/util/chars2s {
 ##   @param[in]  $1 = code
 ##   @param[out] ret
 function ble/util/c2bc {
-  "ble/encoding:$bleopt_input_encoding/c2bc" "$1"
+  ble/encoding:"$bleopt_input_encoding"/c2bc "$1"
 }
 
-## @fn ble/util/.cache/update-locale
+## @fn ble/util/.update-locale-cache
 ##
 ##  使い方
 ##
 ##    [[ $_ble_util_locale_triple != "$LC_ALL:$LC_CTYPE:$LANG" ]] &&
-##      ble/util/.cache/update-locale
+##      ble/util/.update-locale-cache
 ##
 _ble_util_locale_triple=
 _ble_util_locale_ctype=
 _ble_util_locale_encoding=UTF-8
-function ble/util/.cache/update-locale {
+_ble_util_locale_broken=
+function ble/util/.test-utf8-locale {
+  # Note: To test the specified locale in WSL, it seems one needs to activate
+  # the locale by setting the locale to another one at least once.  We first
+  # set the locale to "C" and use it to obtain the number of bytes, 3, and then
+  # check the target locale.
+  local LC_ALL= LC_CTYPE= LANG=C
+  local s='あ' ext=0
+  ((${#s}==3)) || ext=1
+  LANG=$ctype
+  ((${#s}==1)) || ext=1
+  ble/util/unlocal LC_ALL LC_CTYPE LANG
+  return "$ext"
+} 2>/dev/null # suppress locale error #D1440
+
+function ble/util/.update-locale-cache {
   _ble_util_locale_triple=$LC_ALL:$LC_CTYPE:$LANG
 
   # clear cache if LC_CTYPE is changed
-  local ret; ble/string#tolower "${LC_ALL:-${LC_CTYPE:-$LANG}}"
+  local ctype=${LC_ALL:-${LC_CTYPE:-$LANG}}
+  local ret; ble/string#tolower "$ctype"
   if [[ $_ble_util_locale_ctype != "$ret" ]]; then
     _ble_util_locale_ctype=$ret
     _ble_util_c2s_table=()
@@ -7586,21 +7902,74 @@ function ble/util/.cache/update-locale {
       _ble_util_s2c_table=()
 
     _ble_util_locale_encoding=C
+    _ble_util_locale_broken=
     if local rex='\.([^@]+)'; [[ $_ble_util_locale_ctype =~ $rex ]]; then
       local enc=${BASH_REMATCH[1]}
       if [[ $enc == utf-8 || $enc == utf8 ]]; then
         enc=UTF-8
       fi
 
-      ble/is-function "ble/encoding:$enc/b2c" &&
+      if [[ $enc == UTF-8 ]] && ! ble/util/.test-utf8-locale "$ctype"; then
+        _ble_util_locale_broken=1
+
+        # Note #D2281: In WSL, even when the current locale is broken, builtin
+        # printf seems to produce the UTF-8 representation of the specified
+        # codepoint, which will be stored in "_ble_edit_str".  This causes
+        # problems because they cannot be properly processed by textmap,
+        # syntax, etc. within the current locale.  In such a case, we
+        # explicitly generate the fallback string of the form \uXXXX or
+        # \UXXXXXXXX for the multibyte UTF-8 characters.
+        if ble/base/is-wsl; then
+          ble/function#advice around ble/util/c2s.impl '
+            local char=${ADVICE_WORDS[1]}
+            if [[ $_ble_util_locale_broken ]] && ((char>=0x80)); then
+              if ((char<0x10000)); then
+                ble/util/sprintf ret '\''\\u%04X'\'' "$char"
+              else
+                ble/util/sprintf ret '\''\\U%08X'\'' "$char"
+              fi
+            else
+              ble/function#advice/do
+            fi
+          '
+
+          ble/function#advice around ble/util/chars2s.impl '
+            local char=${ADVICE_WORDS[1]}
+            if [[ $_ble_util_locale_broken ]]; then
+              local out= char
+              for char in "${ADVICE_WORDS[@]:1}"; do
+                ble/util/c2s "$char"
+                out=$out$ret
+              done
+              ret=$out
+            else
+              ble/function#advice/do
+            fi
+          '
+        fi
+      elif ble/is-function ble/encoding:"$enc"/b2c; then
         _ble_util_locale_encoding=$enc
+      fi
     fi
   fi
 }
 
+builtin eval -- "${_ble_util_gdict_declare//NAME/_ble_util_locale_broken_notified}"
+function ble/util/notify-broken-locale {
+  [[ $_ble_util_locale_triple != "$LC_ALL:$LC_CTYPE:$LANG" ]] &&
+    ble/util/.update-locale-cache
+
+  [[ $_ble_util_locale_broken ]] || return 0
+
+  local lc_ctype=${LC_ALL:-${LC_CTYPE:-$LANG}}
+  ble/gdict#has _ble_util_locale_broken_notified "$lc_ctype" && return 0
+  ble/gdict#set _ble_util_locale_broken_notified "$lc_ctype" 1
+  ble/util/print "ble.sh: The locale '$lc_ctype' (LC_CTYPE) seems broken. Please check that the locale exists in the system." >&2
+}
+
 function ble/util/is-unicode-output {
   [[ $_ble_util_locale_triple != "$LC_ALL:$LC_CTYPE:$LANG" ]] &&
-    ble/util/.cache/update-locale
+    ble/util/.update-locale-cache
   [[ $_ble_util_locale_encoding == UTF-8 ]]
 }
 
@@ -7621,7 +7990,7 @@ function ble/util/s2bytes {
   local LC_ALL= LC_CTYPE=C
   ble/util/s2chars "$1"; local ext=$?
   ble/util/unlocal LC_ALL LC_CTYPE
-  ble/util/.cache/update-locale
+  ble/util/.update-locale-cache
   return "$?"
 } &>/dev/null
 
@@ -7857,7 +8226,7 @@ blehook internal_PREEXEC!='_ble_builtin_readonly_message_count=0'
 function ble/builtin/readonly/.print-warning {
   [[ -t 2 ]] || return 0
 
-  # If the caller iformation has not been initialized:
+  # If the caller information has not been initialized:
   if [[ ! $_ble_local_caller ]]; then
     _ble_local_caller=-
     local i n=${#FUNCNAME[@]}
@@ -7929,7 +8298,11 @@ function ble/builtin/readonly {
   return "$?"
 }
 
-function readonly { ble/builtin/readonly "$@"; }
+function readonly {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+  ble/builtin/readonly "$@"
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
+}
 
 #------------------------------------------------------------------------------
 # ble/util/message

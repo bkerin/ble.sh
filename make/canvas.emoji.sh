@@ -16,8 +16,8 @@ function make/canvas.emoji/get-emoji-data {
   fi
 
   local gawk_script='
-      /^[[:space:]]*#/ { next; }
-      sub(/;.*$/, "") { print $0; }'
+    /^[[:blank:]]*#/ { next; }
+    sub(/;.*$/, "") { print $0; }'
   ble/util/assign-array emoji_data 'gawk "$gawk_script" "$emoji_cache_file"'
 }
 
@@ -25,7 +25,7 @@ function make/canvas.emoji/sub:help {
   ble/util/print "usage: source ${BASH_SOURCE##*/}${BASH_SOURCE:-canvas.emoji.sh} SUBCOMMAND ARGS..."
   ble/util/print
   ble/util/print "SUBCOMMAND"
-  declare -F | sed -n 's/^declare -f make\/canvas.emoji\/sub:\([^[:space:]]*\)/  \1/p'
+  declare -F | sed -n 's/^declare -f make\/canvas.emoji\/sub:\([^[:blank:]]*\)/  \1/p'
   ble/util/print
 }
 
@@ -33,7 +33,7 @@ function make/canvas.emoji/sub:save-emoji-type {
   local emoji_data emoji_cache_file
   make/canvas.emoji/get-emoji-data
   gawk '
-    /^[[:space:]]*#/ { next; }
+    /^[[:blank:]]*#/ { next; }
     {
       if (/unqualified/) {
         type = "UQ";
@@ -105,13 +105,13 @@ function inspect1/callback-final {
 function make/canvas.emoji/sub:measure-emoji.impl1 {
   local emoji_data emoji_cache_file
   make/canvas.emoji/get-emoji-data
-  ble/util/buffer.flush >&2
+  ble/util/buffer.flush
   local line
   for line in "${emoji_data[@]}"; do
     eval "inspect1/proc $line"
   done
   ble/term/CPR/request.buff inspect1/callback-final
-  ble/util/buffer.flush >&2
+  ble/util/buffer.flush
 }
 
 #------------------------------------------------------------------------------
@@ -130,7 +130,7 @@ function inspect2/start {
   _term_emojiw_index_rcv=0
   _term_emojiw_data=("${emoji_data[@]}")
   _term_emojiw_output=emoji.txt
-  : > "$_term_emojiw_output"
+  >| "$_term_emojiw_output"
   inspect2/next
 }
 
@@ -163,7 +163,7 @@ function inspect2/next {
 
     ble/util/buffer $'\r'"$s"
     ble/term/CPR/request.buff inspect2/wait
-    ble/util/buffer.flush >&2
+    ble/util/buffer.flush
   done
   ble/edit/info/show text "Measuring #$_term_emojiw_index_rcv..$_term_emojiw_index_req"
 }

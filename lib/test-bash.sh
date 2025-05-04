@@ -2,7 +2,7 @@
 
 ble-import lib/core-test
 
-ble/test/start-section 'bash' 65
+ble/test/start-section 'bash' 72
 
 # case $word を quote する必要がある条件は?
 
@@ -51,6 +51,22 @@ ble/test/start-section 'bash' 65
   ble/test 'read -r ret <<< $b' ret="/*"
 )
 
+# Arithmetic bugs
+(
+  # BUG bash 3.0..4.1
+  #   && の遅延評価が働かない。従って愚直な条件付き算術式再帰はできない。
+  L='0&&L'
+  if ((40200<=_ble_bash)); then
+    ble/test '((L,1))'
+  else
+    ble/test '! ((L,1))'
+  fi
+
+  i=0 M='i++,M[i>=10]'
+  ble/test '((M,1))'
+  ble/test code:'ret=$i' ret=10
+)
+
 # Variable bugs
 (
   # BUG bash-3.1
@@ -83,13 +99,49 @@ ble/test/start-section 'bash' 65
   #   local GLOBIGNORE すると、関数を出てもパス名展開の時にその影響が残っている。
   #   (直接変数の中身を見ても何もない様に見えるが。) unset GLOBIGNORE などとす
   #   ると直る。
-  ble/test/chdir
+  ble/test/chdir || exit
   touch {a..c}.txt
   function f1 { local GLOBIGNORE='*.txt'; }
   if ((_ble_bash<30200)); then
     ble/test 'f1; echo *' stdout='*'
   else
     ble/test 'f1; echo *' stdout='a.txt b.txt c.txt'
+  fi
+
+  # BUG bash-3.0..3.1 (#D2221)
+  #   local POSIXLY_CORRECT すると、関数を出ても set -o posix が有効の儘になる。
+  #   変数は何も定義されていないが、[[ -o posix ]] や echo "$SHELLOPTS" や実際
+  #   の振る舞いで確認すると POSIX mode が有効になっている。unset -v
+  #   POSIXLY_CORRECT とすると直る。
+  function f1 { local POSIXLY_CORRECT=y; builtin unset -v POSIXLY_CORRECT; }
+  set +o posix
+  if ((_ble_bash<30200)); then
+    ble/test 'f1; [[ -o posix ]]'
+  else
+    ble/test 'f1; [[ ! -o posix ]]'
+  fi
+  builtin unset -v POSIXLY_CORRECT
+  ble/test '[[ ! -o posix ]]'
+  set +o posix
+
+  # BUG bash-3.0..4.3 (#D2221)
+  #   関数内で local POSIXLY_CORRECT; unset -v POSIXLY_CORRECT とすると寧ろ
+  #   posix mode は有効になる。
+  function f1 { local POSIXLY_CORRECT; builtin unset -v POSIXLY_CORRECT; [[ ! -o posix ]]; }
+  if ((_ble_bash<40400)); then
+    ble/test '! f1'
+  else
+    ble/test 'f1'
+  fi
+  set +o posix
+
+  # COMPAT bash-5.3+ (#D2221)
+  #   Bash 5.3 以降ではスラッシュを名前に含む関数は POSIX mode で呼び出せない。
+  function f1/sub { true; }
+  if ((_ble_bash<50300)); then
+    ble/test 'set -o posix; f1/sub; ret=$?; set +o posix' ret=0
+  else
+    ble/test 'set -o posix; f1/sub; ret=$?; set +o posix' ret=127
   fi
 
   # BUG bash-3.0
@@ -299,7 +351,7 @@ ble/test/start-section 'bash' 65
   fi
 
   # BUG bash-3.0
-  #   IFS がデフォルト以外の時 declare -a arr2=("${arr1[@]}") (disbale=#D0525)
+  #   IFS がデフォルト以外の時 declare -a arr2=("${arr1[@]}") (disable=#D0525)
   #   も正しく動かない。
   a=(1 2 3)
   IFS=x

@@ -8,38 +8,29 @@
 <a href="https://github.com/akinomyoga/ble.sh/wiki/Recipes">Recipes</a> ]
 </p>
 
-*Bash Line Editor* (`ble.sh`) is a command line editor written in pure Bash which replaces the default GNU Readline.
+*Bash Line Editor* (`ble.sh`<sup><a href="#discl-pronun">†1</a></sup>) is a command line editor written in pure Bash<sup><a href="#discl-pure">†2</a></sup> which replaces the default GNU Readline.
 
 The current devel version is 0.4.
 This script supports Bash 3.0 or higher although we recommend using `ble.sh` with release versions of **Bash 4.0 or higher**.
+The POSIX standard utilities are also required.
 Currently, only `UTF-8` encoding is supported for non-ASCII characters.
 This script is provided under the [**BSD License**](LICENSE.md) (3-clause BSD license).
 
-Disclaimer: The core part of the line editor is written in **pure Bash**, but
-`ble.sh` relies on POSIX `stty` to set up TTY states before and after the execution of user commands.
-It also uses other POSIX utilities for acceleration
-in some parts of initialization and cleanup code,
-processing of large data in completions, pasting large data, etc.
-
-Pronunciation: The easiest pronunciation of `ble.sh` that users use is /blɛʃ/, but you can pronounce it as you like.
-I do not specify the canonical way of pronouncing `ble.sh`.
-In fact, I personally call it simply /biːɛliː/ or verbosely read it as /biːɛliː dɑt ɛseɪtʃ/ in my head.
-
 ## Quick instructions
 
-To use `ble.sh`, Bash 3.0+ and POSIX standard utilities are required.
 <!-- In macOS, you might additionally need to install `gawk`, `nawk`, or `mawk` since macOS `/usr/bin/awk` (awk-32 and later) seems to have a problem with some multibyte charsets. -->
-There are two ways to get `ble.sh`: to download and build `ble.sh` using `git`, or to download the nightly build using `curl` or `wget`.
-For the detailed descriptions, see [Sec 1.1](#get-from-source) and [Sec 1.2](#get-from-tarball) for trial/installation,
-and [Sec 1.3](#set-up-bashrc) for the setup of your `~/.bashrc`.
+There are two ways to get `ble.sh`: to get the source using `git` and build
+`ble.sh`, or to download the [nightly build](https://github.com/akinomyoga/ble.sh/releases/tag/nightly) using `curl` or `wget`.
+See [Sec 1.1](#get-from-source) and [Sec 1.2](#get-from-tarball) for the details of trial and installation.
+See [Sec 1.3](#set-up-bashrc) for the details of the setup of your `~/.bashrc`.
 
 > [!NOTE]
 > If you want to **use fzf with `ble.sh`**, you need to check [Sec
 > 2.8](#fzf-integration).
 
-<details open><summary><b>Download and generate <code>ble.sh</code> using <code>git</code></b></summary>
+<details open><summary><b>Download source using <code>git</code> and make <code>ble.sh</code></b></summary>
 
-This requires the commands `git`, `make` (GNU make), and `gawk` (GNU awk).
+This requires the commands `git`, `make` (GNU make), and `gawk` (GNU awk)<sup><a href="#discl-pronun">†3</a></sup>.
 In the following, please replace `make` with `gmake` if your system provides GNU make as `gmake` (such as in BSD).
 
 ```bash
@@ -56,22 +47,9 @@ make -C ble.sh install PREFIX=~/.local
 echo 'source ~/.local/share/blesh/ble.sh' >> ~/.bashrc
 ```
 
-The build process integrates multiple Bash script files into a single Bash script `ble.sh` with pre-processing,
-places other module files in appropriate places, and strips code comments for a shorter initialization time.
-
-Note: This does not involve any C/C++/Fortran compilations and generating binaries, so C/C++/Fortran compilers are not needed.
-Some people seem to believe that one always needs to use `make` with C/C++/Fortran compilers to generate binaries.
-They complain about `ble.sh`'s make process, but it comes from the lack of knowledge on the general principle of `make`.
-You may find C/C++ programs in the repository, but they are used to update the Unicode character table from the Unicode database when a new Unicode standard appears.
-The generated table is included in the repository:
-[`canvas.GraphemeClusterBreak.sh`](https://github.com/akinomyoga/ble.sh/blob/master/src/canvas.GraphemeClusterBreak.sh),
-[`canvas.c2w.musl.sh`](https://github.com/akinomyoga/ble.sh/blob/master/src/canvas.c2w.musl.sh),
-[`canvas.c2w.sh`](https://github.com/akinomyoga/ble.sh/blob/master/src/canvas.c2w.sh),
-and [`canvas.emoji.sh`](https://github.com/akinomyoga/ble.sh/blob/master/src/canvas.emoji.sh),
-so there is no need to run these C/C++ programs in the build process.
-Another C file is used as an adapter in an old system MSYS1,
-which is used with an old compiler toolchain in Windows, but it will never be used in Unix-like systems.
-Each file used in the build process is explained in [`make/README.md`](make/README.md).
+The build process integrates multiple Bash script files into a single Bash script `ble.sh` with pre-processing.
+It also places other module files in appropriate places and strips code comments for a shorter initialization time.
+The build process does not involve any C/C++/Fortran compilations and generating binaries, so C/C++/Fortran compilers are not needed.
 </details>
 
 <details><summary><b>Download the nightly build with <code>curl</code></b></summary>
@@ -138,8 +116,8 @@ bash /path/to/ble.sh --update
 
 <details><summary><b>Create a package of <code>ble.sh</code></b></summary>
 
-Since `ble.sh` is just a set of shell scripts and do not contain any binary (i.e., "`noarch`"), 
-you may just download the pre-built tarball from release pages and put the extracted contents in e.g. `/tmp/blesh-package/usr/local`.
+Since `ble.sh` is just a set of shell scripts and do not contain any binary (i.e., "`noarch`"),
+you may just download the pre-built tarball from a release page and put the extracted contents in e.g. `/tmp/blesh-package/usr/local`.
 Nevertheless, if you need to build the package from the source, please use the following commands.
 Note that the git repository (`.git`) is required for the build.
 
@@ -150,27 +128,22 @@ git clone --recursive https://github.com/akinomyoga/ble.sh.git
 make -C ble.sh install DESTDIR=/tmp/blesh-package PREFIX=/usr/local
 ```
 
-When you would like to tell `ble.sh` the way to update the package for `ble-update`,
+For a detailed control of the install locations of the main files, the license
+files, and the documentation files, please also check the later sections
+[Install](#install) and [Package](#package).
+
+If you want to tell `ble.sh` the way to update the package for `ble-update`,
 you can place `_package.bash` at `${prefix}/share/blesh/lib/_package.bash`.
-The file `_package.bash` is supposed to define a shell variable and a shell function
-as illustrated in the following example (please replace `XXX` with the package management system):
+Please check [`_package.bash`](#_packagebash) for the details.
 
 ```bash
 # ${prefix}/share/blesh/lib/_package.bash
 
 _ble_base_package_type=XXX
-
 function ble/base/package:XXX/update {
   update-the-package-in-a-proper-way
-  return 0
 }
 ```
-
-When the shell function returns exit status 0, it means that the update has been successfully done, and the reload of `ble.sh` will be automatically happen.
-When the shell function returns exit status 6, the timestamp of `ble.sh` is checked, and the reload of `ble.sh` only happens when `ble.sh` is actually update.
-When the shell function returns exit status 125, the default `ble.sh` update procedure is attempted.
-Otherwise, the updating procedure is canceled, where any message explaining situation should be output by the shell function.
-An example `_package.bash` for `AUR` can be found [here](https://aur.archlinux.org/cgit/aur.git/tree/blesh-update.sh?h=blesh-git).
 </details>
 
 ## Features
@@ -234,15 +207,22 @@ I started working on the enhancement of the completion in August 2018 and releas
 - 20xx-xx v0.5 (plan) -- TUI configuration
 - 20xx-xx v0.6 (plan) -- error diagnostics?
 
-## Limitations
+## Limitations and assumptions
 
 There are some limitations due to the way `ble.sh` is implemented.
 Also, some user configurations or other Bash frameworks may conflict with ble.sh.
 For example,
 
-- `ble.sh` does not set `PIPESTATUS` for the previous command line by default because it adds extra execution costs.
-  Instead, the array `BLE_PIPESTATUS` contains the values of `PIPESTATUS` of the previous command line.
-  If you need to access the values directly through the variable `PIPESTATUS`, please use the option `bleopt exec_restore_pipestatus=1`.
+- By default, `ble.sh` does not set `PIPESTATUS` for the previous command line
+  because it adds extra execution costs.  Instead, the array `BLE_PIPESTATUS`
+  contains the values of `PIPESTATUS` of the previous command line.  If you
+  need to access the values directly through the variable `PIPESTATUS`, please
+  set the option `bleopt exec_restore_pipestatus=1`.
+- By default, `ble.sh` assumes that `PROMPT_COMMAND` and `PRECMD` hooks do not
+  change the cursor position and the layout in the terminal display to offer
+  smooth rendering.  If you have settings that output texts or changes the
+  cursor position in `PROMPT_COMMAND` and `PRECMD`, please set the option
+  `bleopt prompt_command_changes_layout=1`.
 - `ble.sh` assumes that common variable names and environment variables (such as `LC_*`) are not used for the global readonly variables.
   In Bash, global readonly variables take effect in any scope including the local scope of the function, which means that we cannot even define a local variable that has the same name as a global readonly variable.
   This is not the problem specific to `ble.sh`, but any Bash framework may suffer from the global readonly variables.
@@ -254,14 +234,65 @@ For example,
   If the user or another framework directly calls the original builtins through `builtin BUILTIN`, or if the user or another framework replaces the shell functions, the behavior is undefined.
 - The shell and terminal settings for the line editor and the command execution
   are different.  `ble.sh` adjusts them for the line editor and try to restore
-  the settigns for the command execution.  However, there are settings that
+  the settings for the command execution.  However, there are settings that
   cannot be restored or are intentionally not restored for various reasons.
-  Some of them are summarlized on [a wiki
+  Some of them are summarized on [a wiki
   page](https://github.com/akinomyoga/ble.sh/wiki/Internals#internal-and-external).
+
+## Criticism
+
+- <sup><a id="discl-pronun" href="#discl-pronun">†1</a></sup>Q. *It is hard to
+  pronounce "ble-sh". How should I pronounce it?* --- A. The easiest
+  pronunciation of `ble.sh` that users use is /blɛʃ/, but you can pronounce it
+  as you like.  I do not specify the canonical way of pronouncing `ble.sh`.  In
+  fact, I personally call it simply /biːɛliː/ or verbosely read it as /biːɛliː
+  dɑt ɛseɪtʃ/ in my head.
+- <sup><a id="discl-pure" href="#discl-pure">†2</a></sup>Q. *It cannot be pure
+  Bash because the user should be able to input and run external commands.
+  What does the pure Bash mean?* --- A. It means that the core part of the line
+  editor is written in pure Bash.  Of course, the external commands will be run
+  when the user inputs them and requests the execution of them.  In addition,
+  before and after the execution of user commands, `ble.sh` relies on POSIX
+  `stty` to set up the correct TTY states for user commands.  It also uses
+  other POSIX utilities for acceleration in some parts of initialization and
+  cleanup code, processing of large data in completions, pasting large data,
+  etc.  The primary goal of the `ble.sh` implementation is not being pure Bash,
+  but the performance in the Bash implementation with the POSIX environment.
+  Being pure Bash is usually useful for reducing the `fork`/`exec` cost, but if
+  implementation by external commands is more efficient in specific parts,
+  `ble.sh` will use the external commands there.
+- <sup><a id="discl-make" href="#discl-make">†3</a></sup>Q. *Why does `ble.sh`
+  use `make` to generate the script files? You should not use `make` for a
+  script framework.* --- A. Because it is not a good idea to directly edit a
+  large script file of tens of thousands of lines.  I split the codebase of
+  `ble.sh` into source files of reasonable sizes and edit the source files.  In
+  the build process, some source files are combined to form the main script
+  `ble.sh`, and some other files are arranged in appropriate places.  The
+  reason for combining the files into one file instead of sourcing the related
+  files in runtime is to minimize the shell startup time, which has a large
+  impact on the shell experience.  Opening and reading many files can take a
+  long time.  Some people seem to be angry about `ble.sh` using `make` to build
+  and arrange script files.  They seem to believe that one always needs to use
+  `make` with C/C++/Fortran compilers to generate binaries.  They complain
+  about `ble.sh`'s make process, but it comes from the lack of knowledge on the
+  general principle of `make`.  Some people seem to be angry about `ble.sh`
+  having C/C++ source codes in the repository, but they are used to update the
+  Unicode character table from the Unicode database when a new Unicode standard
+  appears.  The generated table is included in the repository:
+  [`canvas.GraphemeClusterBreak.sh`](https://github.com/akinomyoga/ble.sh/blob/master/src/canvas.GraphemeClusterBreak.sh),
+  [`canvas.c2w.musl.sh`](https://github.com/akinomyoga/ble.sh/blob/master/src/canvas.c2w.musl.sh),
+  [`canvas.c2w.sh`](https://github.com/akinomyoga/ble.sh/blob/master/src/canvas.c2w.sh),
+  and
+  [`canvas.emoji.sh`](https://github.com/akinomyoga/ble.sh/blob/master/src/canvas.emoji.sh),
+  so there is no need to run these C/C++ programs in the build process.
+  Another C file is used as an adapter in an old system MSYS1, which is used
+  with an old compiler toolchain in Windows, but it will never be used in
+  Unix-like systems.  Each file used in the build process is explained in
+  [`make/README.md`](make/README.md).
 
 # 1 Usage
 
-## 1.1 Try `ble.sh` generated from source (version ble-0.4 devel)<sup><a id="get-from-source" href="#get-from-source">†</a></sup>
+## 1.1 Build from source<sup><a id="get-from-source" href="#get-from-source">†</a></sup>
 
 ### Generate
 
@@ -287,33 +318,91 @@ source out/ble.sh
 
 To install `ble.sh` in a specified directory, use `make install`.
 
-```bash
-# INSTALL to ~/.local/share/blesh
+```
+# INSTALL to ~/.local/share/blesh and ~/.local/share/doc/blesh
 make install
 
-# INSTALL to a specified directory
+# INSTALL into a specified directory
 make install INSDIR=/path/to/blesh
-
-# PACKAGE (for package maintainers)
-make install DESTDIR=/tmp/blesh-package PREFIX=/usr/local
 ```
 
-If either the make variables `DESTDIR` or `PREFIX` is supplied, `ble.sh` will be copied to `$DESTDIR/$PREFIX/share/blesh`.
-Otherwise, if the make variables `INSDIR` is specified, it will be installed directly on `$INSDIR`.
-Otherwise, if the environment variable `$XDG_DATA_HOME` is defined, the install location will be `$XDG_DATA_HOME/blesh`.
-If none of these variables are specified, the default install location is `~/.local/share/blesh`.
+The install locations of `ble.sh` and related script files can be specified by
+make variable `INSDIR`.  The locations of the license files and the
+documentation files can be specified by make variables `INSDIR_LICENSE` and
+`INSDIR_DOC`, respectively.  When `INSDIR` is specified, the default values of
+`INSDIR_LICENSE` and `INSDIR_DOC` are `$INSDIR/licenses` and `$INSDIR/doc`.
+When `INSDIR` and the below-mentioned `DESTDIR`/`PREFIX` are not specified, the
+default values of `INSDIR`, `INSDIR_LICENSES`, and `INSDIR_DOC` are
+`$data/blesh`, `$data/blesh/licenses`, and `$data/doc/blesh`, respectively,
+where `$data` represents `${XDG_DATA_HOME:-$HOME/.local/share}/blesh`.
 
-The comment lines and blank lines in the script files are stripped in the installation process.
-If you would like to keep these lines in the script files, please specify the argument `strip_comment=no` to `make`.
+When `USE_DOC=no` is specified, the documentation files are disabled.
+
+By default, the comment lines and blank lines in the script files are stripped
+in the installation process.  If you would like to keep these lines in the
+script files, please specify the argument `strip_comment=no` to `make`.
 
 To set up `.bashrc` see [Sec. 1.3](#set-up-bashrc).
 
-## 1.2 Or, use a tar ball of `ble.sh` obtained from GitHub releases<sup><a id="get-from-tarball" href="#get-from-tarball">†</a></sup>
+### Package
 
-For download, trial and install, see the description at each release page.
-The stable versions are significantly old compared to the devel version, so many features are unavailable.
+Package maintainers may use make variables `DESTDIR` and `PREFIX` to quickly
+set up the default values for `INSDIR`, `INSDIR_LICENSE`, and `INSDIR_DOC`.
 
-- Devel [v0.4.0-devel3](https://github.com/akinomyoga/ble.sh/releases/tag/v0.4.0-devel3) (2020-12), [nightly build](https://github.com/akinomyoga/ble.sh/releases/tag/nightly)
+```bash
+# PACKAGE - Example 1
+make install DESTDIR=/tmp/blesh-package PREFIX=/usr/local
+
+# PACKAGE - Example 2
+make install DESTDIR="$build" PREFIX="$prefix" \
+  INSDIR_LICENSE="$build/$prefix/share/licenses/blesh"
+
+# PACKAGE - Example 3
+make install DESTDIR="$build" PREFIX="$prefix" \
+  INSDIR_LICENSE="$build/$prefix/share/blesh/doc" \
+  INSDIR_DOC="$build/$prefix/share/blesh/doc"
+
+# PACKAGE - Example 4
+make install USE_DOC=no DESTDIR="$build" PREFIX="$prefix"
+```
+
+If make variable `DESTDIR` or `PREFIX` is specified instead of `INSDIR`, the
+value of `INSDIR` is set to `$DESTDIR/$PREFIX/share/blesh`, and the default
+install locations of the license and documentation files, `INSDIR_LICENSE` and
+`INSDIR_DOC`, will be `$DESTDIR/$PREFIX/share/doc/blesh`.
+
+#### `_package.bash`
+
+When you want to tell `ble.sh` the way to update the package for `ble-update`,
+you can place `_package.bash` at `${prefix}/share/blesh/lib/_package.bash`.
+The file `_package.bash` is supposed to define a shell variable and a shell
+function as illustrated in the following example (please replace `XXX` with a
+name representing the package management system):
+
+```bash
+# ${prefix}/share/blesh/lib/_package.bash
+
+_ble_base_package_type=XXX
+
+function ble/base/package:XXX/update {
+  update-the-package-in-a-proper-way
+  return 0
+}
+```
+
+When the shell function returns exit status 0, it means that the update has been successfully completed, and `ble.sh` will be reloaded automatically.
+When the shell function returns exit status 6, the timestamp of `ble.sh` will be checked so `ble.sh` is reloaded only when `ble.sh` is actually updated.
+When the shell function returns exit status 125, the default `ble.sh` update procedure is attempted.
+Otherwise, the updating procedure is canceled, where any message explaining situation should be output by the shell function.
+An example `_package.bash` for `AUR` can be found [here](https://aur.archlinux.org/cgit/aur.git/tree/blesh-update.sh?h=blesh-git).
+
+## 1.2 Download a tarball<sup><a id="get-from-tarball" href="#get-from-tarball">†</a></sup>
+
+You can also download a tarball of `ble.sh` from GitHub releases.
+See each release page for the description of downloading, trial and installation.
+Many features are unavailable in the stable versions since they are significantly old compared to the devel version.
+
+- Devel [v0.4.0-devel3](https://github.com/akinomyoga/ble.sh/releases/tag/v0.4.0-devel3) (2023-04), [nightly build](https://github.com/akinomyoga/ble.sh/releases/tag/nightly)
 - Stable [v0.3.4](https://github.com/akinomyoga/ble.sh/releases/tag/v0.3.4) (2019-02 fork) Enhanced completions
 - Stable [v0.2.7](https://github.com/akinomyoga/ble.sh/releases/tag/v0.2.7) (2018-03 fork) Vim mode
 - Stable [v0.1.15](https://github.com/akinomyoga/ble.sh/releases/tag/v0.1.15) (2015-12 fork) Syntax highlighting
@@ -332,7 +421,7 @@ but a more reliable way is to add the following codes to your `.bashrc` file:
 # your bashrc settings come here...
 
 # Add this line at the end of .bashrc:
-[[ ${BLE_VERSION-} ]] && ble-attach
+[[ ! ${BLE_VERSION-} ]] || ble-attach
 ```
 
 Basically, when `source /path/to/ble.sh` and `ble-attach` are performed,
@@ -400,6 +489,13 @@ Basically you can simply delete the installed directory and the settings that th
   directory created by extracting the tarball is the installed directory.
 - Remove the cache directory `~/.cache/blesh` if any.
 - Remove the temporary directory `/tmp/blesh` if any [ Only needed when your system does not automatically clear `/tmp` ].
+
+## 1.7 Troubleshooting
+
+- [Performance](https://github.com/akinomyoga/ble.sh/wiki/Performance)
+  describes hints for perfomance issue.
+- [Reporting Issue](https://github.com/akinomyoga/ble.sh/wiki/Reporting-Issue)
+  describes information that you may check before reporting an issue.
 
 # 2 Basic settings
 
@@ -494,18 +590,28 @@ bleopt input_encoding='C'
 
 ## 2.5 Bell
 
-The options `edit_abell` and `edit_vbell` control the behavior of the edit function `bell`. If `edit_abell` is a non-empty string, the audible bell is enabled, i.e. ASCII Control Character `BEL` (0x07) will be written to `stderr`. If `edit_vbell` is a non-empty string, the visual bell is enabled. By default, the audible bell is enabled while the visual bell is disabled.
+The option `edit_bell` controls the behavior of the edit function (widget)
+called `bell`.  It is a colon-separated list of the values `vbell`, `abell`,
+and `visual`.  When a value is contained, the corresponding type of the bell is
+enabled.  The value `abell` corresponds to the audible bell, which prints ASCII
+Control Character <kbd>BEL</kbd> (0x07) will be written to `stderr`.  The value
+`vbell` corresponds to the visible bell, which shows the message in the
+terminal display.  The value `visual` corresponds to the visual bell, which
+flashes the terminal screen by turning on the <kbd>DECSCNM</kbd> mode for a
+short moment.  By default, only the audible bell is enabled.
 
-The option `vbell_default_message` specifies the message shown as the visual bell. The default value is `' Wuff, -- Wuff!! '`. The option `vbell_duration` specifies the display duration of the visual-bell message. The unit is a millisecond. The default value is `2000`.
+The option `vbell_default_message` specifies the default message shown by the
+visual bell. The default value of this setting is `' Wuff, -- Wuff!! '`. The
+option `vbell_duration` specifies the display duration of the visual-bell
+message. The unit is a millisecond. The default value is `2000`.  The option
+`vbell_align` specifies the position of `vbell` by `left`, `center`, or
+`right`.
 
-For example, the visual bell can be enabled as:
-```
-bleopt edit_vbell=1 vbell_default_message=' BEL ' vbell_duration=3000
-```
+For example, the audible bell can be disabled, and the visual bell can be set
+up as:
 
-For another instance, the audible bell is disabled as:
-```
-bleopt edit_abell=
+```bash
+bleopt edit_bell=vbell vbell_{default_message=' BEL ',duration=3000,align=right}
 ```
 
 ## 2.6 Highlight Colors
@@ -513,15 +619,12 @@ bleopt edit_abell=
 The colors and attributes used in the syntax highlighting are controlled by the function `ble-face`. The following code reproduces the default configuration:
 ```bash
 # highlighting related to editing
-ble-face -s region                    bg=60,fg=white
+ble-face -s region                    bg=60,fg=231
 ble-face -s region_target             bg=153,fg=black
-ble-face -s region_match              bg=55,fg=white
-ble-face -s region_insert             fg=12,bg=252
+ble-face -s region_match              bg=55,fg=231
+ble-face -s region_insert             fg=27,bg=254
 ble-face -s disabled                  fg=242
 ble-face -s overwrite_mode            fg=black,bg=51
-ble-face -s auto_complete             fg=238,bg=254
-ble-face -s menu_filter_fixed         bold
-ble-face -s menu_filter_input         fg=16,bg=229
 ble-face -s vbell                     reverse
 ble-face -s vbell_erase               bg=252
 ble-face -s vbell_flash               fg=green,reverse
@@ -533,38 +636,40 @@ ble-face -s syntax_command            fg=brown
 ble-face -s syntax_quoted             fg=green
 ble-face -s syntax_quotation          fg=green,bold
 ble-face -s syntax_escape             fg=magenta
-ble-face -s syntax_expr               fg=26
+ble-face -s syntax_expr               fg=33
 ble-face -s syntax_error              bg=203,fg=231
 ble-face -s syntax_varname            fg=202
 ble-face -s syntax_delimiter          bold
-ble-face -s syntax_param_expansion    fg=purple
+ble-face -s syntax_param_expansion    fg=133
 ble-face -s syntax_history_expansion  bg=94,fg=231
-ble-face -s syntax_function_name      fg=92,bold
+ble-face -s syntax_function_name      fg=99,bold
 ble-face -s syntax_comment            fg=242
 ble-face -s syntax_glob               fg=198,bold
 ble-face -s syntax_brace              fg=37,bold
-ble-face -s syntax_tilde              fg=navy,bold
-ble-face -s syntax_document           fg=94
-ble-face -s syntax_document_begin     fg=94,bold
+ble-face -s syntax_tilde              fg=63,bold
+ble-face -s syntax_document           fg=100
+ble-face -s syntax_document_begin     fg=100,bold
 ble-face -s command_builtin_dot       fg=red,bold
 ble-face -s command_builtin           fg=red
 ble-face -s command_alias             fg=teal
-ble-face -s command_function          fg=92
+ble-face -s command_function          fg=99
 ble-face -s command_file              fg=green
 ble-face -s command_keyword           fg=blue
 ble-face -s command_jobs              fg=red
-ble-face -s command_directory         fg=26,underline
-ble-face -s filename_directory        underline,fg=26
-ble-face -s filename_directory_sticky underline,fg=white,bg=26
+ble-face -s command_directory         fg=33,underline
+ble-face -s command_suffix            fg=231,bg=28
+ble-face -s command_suffix_new        fg=231,bg=124
+ble-face -s filename_directory        underline,fg=33
+ble-face -s filename_directory_sticky underline,fg=231,bg=26
 ble-face -s filename_link             underline,fg=teal
-ble-face -s filename_orphan           underline,fg=teal,bg=224
+ble-face -s filename_orphan           underline,fg=16,bg=224
 ble-face -s filename_executable       underline,fg=green
 ble-face -s filename_setuid           underline,fg=black,bg=220
 ble-face -s filename_setgid           underline,fg=black,bg=191
 ble-face -s filename_other            underline
 ble-face -s filename_socket           underline,fg=cyan,bg=black
 ble-face -s filename_pipe             underline,fg=lime,bg=black
-ble-face -s filename_character        underline,fg=white,bg=black
+ble-face -s filename_character        underline,fg=231,bg=black
 ble-face -s filename_block            underline,fg=yellow,bg=black
 ble-face -s filename_warning          underline,fg=red
 ble-face -s filename_url              underline,fg=blue
@@ -572,15 +677,25 @@ ble-face -s filename_ls_colors        underline
 ble-face -s varname_array             fg=orange,bold
 ble-face -s varname_empty             fg=31
 ble-face -s varname_export            fg=200,bold
-ble-face -s varname_expr              fg=92,bold
+ble-face -s varname_expr              fg=99,bold
 ble-face -s varname_hash              fg=70,bold
+ble-face -s varname_new               fg=34
 ble-face -s varname_number            fg=64
 ble-face -s varname_readonly          fg=200
 ble-face -s varname_transform         fg=29,bold
-ble-face -s varname_unset             fg=124
+ble-face -s varname_unset             fg=245
 ble-face -s argument_option           fg=teal
 ble-face -s argument_error            fg=black,bg=225
 
+# highlighting for completions
+ble-face -s auto_complete             fg=238,bg=254
+ble-face -s menu_complete_match       bold
+ble-face -s menu_complete_selected    reverse
+ble-face -s menu_desc_default         none
+ble-face -s menu_desc_type            ref:syntax_delimiter
+ble-face -s menu_desc_quote           ref:syntax_quoted
+ble-face -s menu_filter_fixed         bold
+ble-face -s menu_filter_input         fg=16,bg=229
 ```
 
 The current list of faces can be obtained by the following command (`ble-face` without arguments):
@@ -636,6 +751,8 @@ The list of widgets is shown by the following command:
 $ ble-bind -L
 ```
 
+Descriptions of widgets can be found in the manual on the wiki.
+
 If you want to run multiple widgets with a key, you can define your own widget by creating a function of the name `ble/widget/YOUR_WIDGET_NAME`
 as illustrated in the following example.
 It is highly recommended to prefix the widget name with `YOUR_NAME/`, `my/`, `blerc/`, `dotfiles/`, etc.
@@ -652,7 +769,7 @@ function ble/widget/my/example1 {
 ble-bind -f C-t my/example1
 ```
 
-## 2.8 fzf integration<sup><a id="fzf-integration" href="#get-from-source">†</a></sup>
+## 2.8 fzf integration<sup><a id="fzf-integration" href="#fzf-integration">†</a></sup>
 
 If you would like to use `fzf` in combination with `ble.sh`, you need to configure `fzf` using [the `contrib/fzf` integration](https://github.com/akinomyoga/blesh-contrib#pencil-fzf-integration).
 Please follow the instructions in the link for the detailed description.
@@ -661,7 +778,7 @@ Please follow the instructions in the link for the detailed description.
 # blerc
 
 # Note: If you want to combine fzf-completion with bash_completion, you need to
-# load bash_completion earilier than fzf-completion.  This is required
+# load bash_completion earlier than fzf-completion.  This is required
 # regardless of whether to use ble.sh or not.
 source /etc/profile.d/bash_completion.sh
 
@@ -669,21 +786,32 @@ ble-import -d integration/fzf-completion
 ble-import -d integration/fzf-key-bindings
 ```
 
-The option `-d` of `ble-import` delays the initialization.  In thise way, the
+The option `-d` of `ble-import` delays the initialization.  In this way, the
 fzf settings are loaded in background after the prompt is shown.  See
 [`ble-import` - Manual §8](https://github.com/akinomyoga/ble.sh/wiki/Manual-%C2%A78-Miscellaneous#user-content-fn-ble-import)
-for details.  If you would like to additionally configure the fzf settings
-after loading them, there are four options.  The easiest way is to drop the
-`-d` option (Option 1 below).  As another option, you may also delay the
-additional settings with `ble-import -d` [2] or `ble/util/idle.push` [3].  Or,
-you can hook into the loading of the fzf settings by `ble-import -C` [4].
+for details.
+
+### When you have additional configuration for fzf
+
+When you want to run codes of the additional configuration after the fzf
+settings are loaded, you cannot simply write them after the above settings
+because of the delayed loading of the fzf settings.  In this case, there are
+four options.  The easiest way is to drop the `-d` option (Option 1 below) to
+disable the delayed loading:
 
 ```bash
 # [1] Drop -d
 ble-import integration/fzf-completion
 ble-import integration/fzf-key-bindings
 <settings>
+```
 
+However, the above setting may make the initialization time longer.  As another
+option, you may also delay the additional settings with `ble-import -d` [2] or
+`ble/util/idle.push` [3].  Or, you can hook into the loading of the fzf
+settings by `ble-import -C` [4].
+
+```bash
 # [2] Use ble-import -d for additional settings
 ble-import -d integration/fzf-completion
 ble-import -d integration/fzf-key-bindings
@@ -757,7 +885,7 @@ ble-sabbrev "~mybin=$HOME/bin"
 
 # 4 Contributors
 
-I received many feedbacks from many people in GitHub Issues/PRs.
+I received much feedback from many people in GitHub Issues/PRs.
 I thank all such people for supporting the project.
 Among them, the following people have made particularly significant contributions.
 

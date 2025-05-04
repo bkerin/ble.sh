@@ -4,7 +4,7 @@
 #%if target == "ksh"
 #%% $ echo _ble_measure_target=ksh
 #%end
-if ! type ble/util/print &>/dev/null; then
+if ! builtin type ble/util/print &>/dev/null; then
   function ble/util/unlocal { builtin unset -v "$@"; }
   function ble/util/print { builtin printf '%s\n' "$1"; }
   function ble/util/print-lines { builtin printf '%s\n' "$@"; }
@@ -257,11 +257,17 @@ function ble-measure/.read-arguments {
 ##   @var[out] nsec
 ##     実行時間を nsec 単位で返します。
 function ble-measure {
+  builtin eval -- "${_ble_bash_POSIXLY_CORRECT_local_adjust-}"
   local __ble_level=${#FUNCNAME[@]} __ble_base=
   [[ ${ZSH_VERSION-} ]] && __ble_level=${#funcstack[@]}
   local flags= command= count=$_ble_measure_count
   local measure_threshold=$_ble_measure_threshold
-  ble-measure/.read-arguments "$@" || return "$?"
+  ble-measure/.read-arguments "$@"; local ext=$?
+  if ((ext)); then
+    builtin eval -- "${_ble_bash_POSIXLY_CORRECT_local_leave-}"
+    return "$ext"
+  fi
+
   if [[ $flags == *h* ]]; then
     ble/util/print-lines \
       'usage: ble-measure [-q|-ac COUNT|-TB TIME] [--] COMMAND' \
@@ -282,6 +288,7 @@ function ble-measure {
       '  Exit status:' \
       '    Returns 1 for the failure in measuring the time.  Returns 2 after printing' \
       '    help.  Otherwise, returns 0.'
+    builtin eval -- "${_ble_bash_POSIXLY_CORRECT_local_leave-}"
     return 2
   fi
 
@@ -331,7 +338,10 @@ function ble-measure {
 
     local utot=0
     [[ $flags != *V* ]] && printf '%s (x%d)...' "$command" "$n" >&2
-    ble-measure/.time "$n" "$command" || return 1
+    if ! ble-measure/.time "$n" "$command"; then
+      builtin eval -- "${_ble_bash_POSIXLY_CORRECT_local_leave-}"
+      return 1
+    fi
     [[ $flags != *V* ]] && printf '\r\e[2K' >&2
     ((utot=ret,utot>=measure_threshold||n==__ble_max_n)) || continue
 
@@ -356,7 +366,7 @@ function ble-measure {
       fi
     fi
 
-    # upate base if the result is shorter than base
+    # update base if the result is shorter than base
     if ((min_utot<0x7FFFFFFFFFFFFFFF/1000)); then
       local __ble_real=$((min_utot*1000/n))
       [[ ${_ble_measure_base_real[__ble_level]} ]] &&
@@ -373,7 +383,7 @@ function ble-measure {
     if [[ $flags != *q* ]]; then
       local reso=$_ble_measure_resolution
       local awk=ble/bin/awk
-      type "$awk" &>/dev/null || awk=awk
+      builtin type -- "$awk" &>/dev/null || awk=awk
       local -x title="$command (x$n)"
       "$awk" -v utot="$utot" -v nsec0="$nsec0" -v n="$n" -v reso="$reso" '
         function genround(x, mod) { return int(x / mod + 0.5) * mod; }
@@ -389,8 +399,10 @@ function ble-measure {
     fi
     ((out-=nsec0/1000,nsec-=nsec0))
     ret=$out
+    builtin eval -- "${_ble_bash_POSIXLY_CORRECT_local_leave-}"
     return 0
   done
+  builtin eval -- "${_ble_bash_POSIXLY_CORRECT_local_return-}"
 }
 #%end
 #%if target == "ksh"

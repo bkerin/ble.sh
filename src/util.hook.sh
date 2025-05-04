@@ -184,6 +184,7 @@ function blehook/.read-arguments {
 }
 
 function blehook {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
   local set shopt
   ble/base/adjust-BASH_REMATCH
   ble/base/.adjust-bash-options set shopt
@@ -203,6 +204,7 @@ function blehook {
     ble/util/unlocal LC_ALL LC_COLLATE 2>/dev/null # suppress locale error #D1440
     ble/base/.restore-bash-options set shopt
     ble/base/restore-BASH_REMATCH
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_leave"
     return "$ext"
   fi
 
@@ -253,7 +255,8 @@ function blehook {
   ble/util/unlocal LC_ALL LC_COLLATE 2>/dev/null # suppress locale error #D1440
   ble/base/.restore-bash-options set shopt
   ble/base/restore-BASH_REMATCH
-  return "$ext"
+  ble/util/setexit "$ext"
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
 }
 blehook/.compatibility-ble-0.3
 
@@ -264,7 +267,7 @@ function blehook/has-hook {
 ## @fn blehook/invoke.sandbox
 ##   @var[in] _ble_local_hook _ble_local_lastexit _ble_local_lastarg
 function blehook/invoke.sandbox {
-  if type "$_ble_local_hook" &>/dev/null; then
+  if ble/bin#has "$_ble_local_hook"; then
     ble/util/setexit "$_ble_local_lastexit" "$_ble_local_lastarg"
     "$_ble_local_hook" "$@" 2>&3
   else
@@ -415,7 +418,7 @@ function ble/builtin/trap/sig#new {
   fi
 }
 function ble/builtin/trap/sig#init {
-  function ble/builtin/trap/sig#init { :; }
+  function ble/builtin/trap/sig#init { return 0; }
   local ret i
   ble/util/assign-words ret 'builtin trap -l' 2>/dev/null
   for ((i=0;i<${#ret[@]};i+=2)); do
@@ -729,7 +732,11 @@ function ble/builtin/trap {
   ble/base/.restore-bash-options set shopt
   return 0
 }
-function trap { ble/builtin/trap "$@"; }
+function trap {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+  ble/builtin/trap "$@"
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
+}
 ble/builtin/trap/user-handler#init
 
 function ble/builtin/trap/.TRAPRETURN {
@@ -748,7 +755,7 @@ function ble/builtin/trap/.TRAPRETURN {
     (*) return 126 ;;
     esac ;;
   # 待避処理をしていないユーザーコマンド実行後に呼び出される関数達。
-  (*' ble-edit/exec:gexec/.save-lastarg ' | ' _ble_edit_exec_gexec__TRAPDEBUG_adjust ') return 126 ;;
+  (*' _ble_edit_exec_gexec__save_lastarg ' | ' _ble_edit_exec_gexec__TRAPDEBUG_adjust ') return 126 ;;
   esac
   return 0
 }
@@ -978,11 +985,11 @@ function ble/builtin/trap/.handler {
 
     # user hook
     local install_opts=${_ble_builtin_trap_sig_opts[_ble_trap_sig]}
-    if [[ :$_ble_tra_opts: == *:user-trap-in-postproc:* ]]; then
+    if [[ :$install_opts: == *:user-trap-in-postproc:* ]]; then
       # ユーザートラップを外で実行 (Note: user-trap lastarg は反映されず)
       local q=\' Q="'\''" _ble_trap_handler postproc=
       ble/builtin/trap/user-handler#load "$_ble_trap_sig"
-      if [[ $_ble_trap_handler == *[![:space:]]* ]]; then
+      if [[ $_ble_trap_handler == *[!$_ble_term_IFS]* ]]; then
         postproc="ble/util/setexit $_ble_trap_lastexit '${_ble_trap_lastarg//$q/$Q}'"
         postproc=$postproc";LINENO=$BLE_TRAP_LINENO builtin eval -- '${_ble_trap_handler//$q/$Q}'"
       else
@@ -1080,7 +1087,7 @@ function ble/builtin/trap/install-hook {
       # る事は想定していないので、builtin trap から読み取った結果は ble.sh ロー
       # ド前と想定して良い。
       ! ble/builtin/trap/user-handler#has "$sig" &&
-      builtin eval -- "ble/builtin/$trap_string"
+      builtin eval -- ble/builtin/"$trap_string"
   fi
 
   return "$ext"

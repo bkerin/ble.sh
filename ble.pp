@@ -6,14 +6,40 @@
 #%[leakvar = ""]
 #%#----------------------------------------------------------------------------
 #%if measure_load_time
+_ble_init_measure_prev=
+_ble_init_measure_section=
+function ble/init/measure/section {
+  local now=${EPOCHREALTIME:-$(date +'%s.%N')}
+
+  local s=${now%%[!0-9]*} u=000000
+  if [[ $s != "$now" ]]; then
+    u=${now##*[!0-9]}000000
+    u=${u::6}
+  fi
+  local stime=$s.$u time=$((s*1000000+10#0$u))
+
+  if [[ $_ble_init_measure_section ]]; then
+    local elapsed=$((time-_ble_init_measure_prev))
+    s=$((elapsed/1000))
+    u=00$((elapsed%1000))
+    u=${u:${#u}-3}
+    elapsed=$s.${u}ms
+    builtin printf '[ble.sh init %s] %s done (%s)\n' "$stime" "$_ble_init_measure_section" "$elapsed" >&2
+  else
+    builtin printf '[ble.sh init %s] start\n' "$stime" >&2
+  fi
+
+  _ble_init_measure_section=$1
+  _ble_init_measure_prev=$time
+}
 _ble_debug_measure_fork_count=$(echo $BASHPID)
-TIMEFORMAT='[Elapsed %Rs; CPU U:%Us S:%Ss (%P%%)]'
+TIMEFORMAT='  [Elapsed %Rs; CPU U:%Us S:%Ss (%P%%)]'
 function ble/debug/measure-set-timeformat {
   local title=$1 opts=$2
   local new=$(echo $BASHPID)
   local fork=$(((new-_ble_debug_measure_fork_count-1)&0xFFFF))
   _ble_debug_measure_fork_count=$new
-  TIMEFORMAT="[Elapsed %Rs; CPU U:%Us S:%Ss (%P%%)] $title"
+  TIMEFORMAT="  [Elapsed %Rs; CPU U:%Us S:%Ss (%P%%)] $title"
   [[ :$opts: != *:nofork:* ]] &&
     TIMEFORMAT=$TIMEFORMAT" ($fork forks)"
 }
@@ -60,9 +86,9 @@ ble/debug/leakvar#check $"leakvar" "[after include @.sh]"
 #
 
 #%if measure_load_time
-echo "ble.sh: $EPOCHREALTIME load start" >&2
+ble/init/measure/section 'parse'
 time {
-echo "ble.sh: $EPOCHREALTIME parsed" >&2
+ble/init/measure/section 'source'
 # load_time (2015-12-03)
 #   core           12ms
 #   decode         10ms
@@ -76,7 +102,7 @@ time {
 # check --help or --version
 
 {
-  #%[commit_hash = system("git show -s --format=%h")]
+  #%[commit_hash = getenv("BLE_GIT_COMMIT_ID")]
   #%[ble_version = getenv("FULLVER") + "+" + commit_hash]
   #%expand
   ##%if commit_hash != ""
@@ -148,6 +174,15 @@ time {
              '  --keep-rlvars' \
              '    Do not change readline settings for ble.sh' \
              '' \
+             '  --bash-debug-version=TYPE' \
+             '    This controls the warning mesage for the debug version of Bash.  When' \
+             '    "full" is specified to TYPE, ble.sh prints the full message to the terminal' \
+             '    when it is loaded in a debug version of Bash.  This is the default.  When' \
+             '    "short" is specified, a short version of the message is printed.  When' \
+             '    "once" is specified, the full message is printed only once for a specific' \
+             '    version of debug Bash.  When "ignore" is specified, the message is not' \
+             '    printed even when ble.sh is loaded in a debug version of Bash.' \
+             '' \
              '  -o BLEOPT=VALUE' \
              '    Set a value for the specified bleopt option.' \
              '  --debug-bash-output' \
@@ -156,11 +191,11 @@ time {
     --test | --update | --clear-cache | --lib | --install) _ble_init_command=1 ;;
     esac
   done
+  unset _ble_init_arg
   if [ -n "$_ble_init_exit" ]; then
-    unset _ble_init_version
-    unset _ble_init_arg
     unset _ble_init_exit
     unset _ble_init_command
+    unset _ble_init_version
     return 0 2>/dev/null || exit 0
   fi
 } 2>/dev/null # set -x 対策 #D0930
@@ -170,53 +205,62 @@ time {
 
 if [ -z "${BASH_VERSION-}" ]; then
   echo "ble.sh: This shell is not Bash. Please use this script with Bash." >&3
+  unset _ble_init_exit
+  unset _ble_init_command
+  unset _ble_init_version
   return 1 2>/dev/null || exit 1
 fi 3>&2 >/dev/null 2>&1 # set -x 対策 #D0930
 
 if [ -z "${BASH_VERSINFO-}" ] || [ "${BASH_VERSINFO-0}" -lt 3 ]; then
   echo "ble.sh: Bash with a version under 3.0 is not supported." >&3
+  unset -v _ble_init_exit _ble_init_command _ble_init_version
   return 1 2>/dev/null || exit 1
 fi 3>&2 >/dev/null 2>&1 # set -x 対策 #D0930
 
 if [[ ! $_ble_init_command ]]; then
-  if [[ ${BASH_EXECUTION_STRING+set} ]]; then
-    # builtin echo "ble.sh: ble.sh will not be activated for Bash started with '-c' option." >&3
-    return 1 2>/dev/null || builtin exit 1
-  fi
-
   # We here check the cases where we do not want a line editor.  We first check
   # the cases that Bash provides.  We also check the cases where other
   # frameworks try to do a hack using an interactive Bash.  We honestly do not
   # want to add exceptions for every random framework that tries to do a naive
   # hack using interactive sessions, but it is easier than instructing users to
-  # add a proper workaroud/check by themselves.
-  if ((BASH_SUBSHELL)); then
+  # add a proper workaround/check by themselves.
+  if [[ ${BASH_EXECUTION_STRING+set} ]]; then
+    # builtin echo "ble.sh: ble.sh will not be activated for Bash started with '-c' option." >&3
+    _ble_init_exit=1
+  elif ((BASH_SUBSHELL)); then
     builtin echo "ble.sh: ble.sh cannot be loaded into a subshell." >&3
-    return 1 2>/dev/null || builtin exit 1
+    _ble_init_exit=1
   elif [[ $- != *i* ]]; then
     case " ${BASH_SOURCE[*]##*/} " in
     (*' .bashrc '* | *' .bash_profile '* | *' .profile '* | *' bashrc '* | *' profile '*) ((0)) ;;
     esac &&
       builtin echo "ble.sh: This is not an interactive session." >&3 || ((1))
-    return 1 2>/dev/null || builtin exit 1
-  elif ! [[ -t 4 && -t 5 ]] && ! { [[ ${bleopt_connect_tty-} ]] && ((1)) >/dev/tty; } then
+    _ble_init_exit=1
+  elif ! [[ -t 4 && -t 5 ]] && ! { [[ ${bleopt_connect_tty-} ]] && >/dev/tty; }; then
     if [[ ${bleopt_connect_tty-} ]]; then
       builtin echo "ble.sh: cannot find a controlling TTY/PTY in this session." >&3
     else
       builtin echo "ble.sh: stdout/stdin are not connected to TTY/PTY." >&3
     fi
-    return 1 2>/dev/null || builtin exit 1
+    _ble_init_exit=1
   elif [[ ${NRF_CONNECT_VSCODE-} && ! -t 3 ]]; then
     # Note #D2129: VS Code Extension "nRF Connect" tries to extract an
     # interactive setting by sending multiline commands to an interactive
     # session.  We may turn off accept_line_threshold for an nRF Connect
     # session as we do for Midnight Commander, but we do not need to enable the
     # line editor for nRF Connect in the first place.
+    _ble_init_exit=1
+  fi
+
+  if [[ $_ble_init_exit ]]; then
+    builtin unset -v _ble_init_exit _ble_init_command _ble_init_version
     return 1 2>/dev/null || builtin exit 1
   fi
 fi 3>&2 4<&0 5>&1 &>/dev/null # set -x 対策 #D0930
 
 {
+  _ble_bash=$((BASH_VERSINFO[0]*10000+BASH_VERSINFO[1]*100+BASH_VERSINFO[2]))
+
   ## @var _ble_bash_POSIXLY_CORRECT_adjusted
   ##   現在 POSIXLY_CORRECT 状態を待避した状態かどうかを保持します。
   ## @var _ble_bash_POSIXLY_CORRECT_set
@@ -244,7 +288,7 @@ fi 3>&2 4<&0 5>&1 &>/dev/null # set -x 対策 #D0930
       _ble_bash_FUNCNEST_adjusted=1
       _ble_bash_FUNCNEST_set=${FUNCNEST+set}
       _ble_bash_FUNCNEST=${FUNCNEST-}
-      builtin unset -v FUNCNEST
+      \builtin unset -v FUNCNEST
     fi 2>/dev/null'
   _ble_bash_FUNCNEST_restore='
     if [[ $_ble_bash_FUNCNEST_adjusted ]]; then
@@ -252,35 +296,66 @@ fi 3>&2 4<&0 5>&1 &>/dev/null # set -x 対策 #D0930
       if [[ $_ble_bash_FUNCNEST_set ]]; then
         FUNCNEST=$_ble_bash_FUNCNEST
       else
-        builtin unset -v FUNCNEST
+        \builtin unset -v FUNCNEST
       fi
     fi 2>/dev/null'
+  _ble_bash_FUNCNEST_local_adjust='
+    \local _ble_local_FUNCNEST _ble_local_FUNCNEST_set
+    _ble_local_FUNCNEST_set=${FUNCNEST+set}
+    _ble_local_FUNCNEST=${FUNCNEST-}
+    if [[ $_ble_local_FUNCNEST_set ]]; then
+      \local FUNCNEST
+      \builtin unset -v FUNCNEST
+    fi'
+  _ble_bash_FUNCNEST_local_leave='
+    if [[ $_ble_local_FUNCNEST_set ]]; then
+      FUNCNEST=$_ble_local_FUNCNEST
+    fi'
   \builtin eval -- "$_ble_bash_FUNCNEST_adjust"
 
   \builtin unset -v POSIXLY_CORRECT
+
+  _ble_bash_POSIXLY_CORRECT_adjust='
+    if [[ ! ${_ble_bash_POSIXLY_CORRECT_adjusted-} ]]; then
+      _ble_bash_POSIXLY_CORRECT_adjusted=1
+      _ble_bash_POSIXLY_CORRECT_set=${POSIXLY_CORRECT+set}
+      _ble_bash_POSIXLY_CORRECT=${POSIXLY_CORRECT-}
+      if [[ $_ble_bash_POSIXLY_CORRECT_set ]]; then
+        \builtin unset -v POSIXLY_CORRECT
+      fi
+
+      # ユーザが触ったかもしれないので何れにしても workaround を呼び出す。
+      ble/base/workaround-POSIXLY_CORRECT
+    fi'
+  _ble_bash_POSIXLY_CORRECT_unset='
+    if [[ ${POSIXLY_CORRECT+set} ]]; then
+      \builtin unset -v POSIXLY_CORRECT
+      ble/base/workaround-POSIXLY_CORRECT
+    fi'
+  _ble_bash_POSIXLY_CORRECT_local_adjust='
+    \builtin local _ble_local_POSIXLY_CORRECT _ble_local_POSIXLY_CORRECT_set
+    _ble_local_POSIXLY_CORRECT_set=${POSIXLY_CORRECT+set}
+    _ble_local_POSIXLY_CORRECT=${POSIXLY_CORRECT-}
+    '$_ble_bash_POSIXLY_CORRECT_unset
+  _ble_bash_POSIXLY_CORRECT_local_leave='
+    if [[ $_ble_local_POSIXLY_CORRECT_set ]]; then
+      POSIXLY_CORRECT=$_ble_local_POSIXLY_CORRECT
+    fi'
+  _ble_bash_POSIXLY_CORRECT_local_enter='
+    _ble_local_POSIXLY_CORRECT_set=${POSIXLY_CORRECT+set}
+    _ble_local_POSIXLY_CORRECT=${POSIXLY_CORRECT-}
+    '$_ble_bash_POSIXLY_CORRECT_unset
+  _ble_bash_POSIXLY_CORRECT_local_return='
+    \builtin local _ble_local_POSIXLY_CORRECT_ext=$?
+    if [[ $_ble_local_POSIXLY_CORRECT_set ]]; then
+      POSIXLY_CORRECT=$_ble_local_POSIXLY_CORRECT
+    fi
+    \return "$_ble_local_POSIXLY_CORRECT_ext"'
 } 2>/dev/null
 
 function ble/base/workaround-POSIXLY_CORRECT {
   # This function will be overwritten by ble-decode
   true
-}
-function ble/base/unset-POSIXLY_CORRECT {
-  if [[ ${POSIXLY_CORRECT+set} ]]; then
-    builtin unset -v POSIXLY_CORRECT
-    ble/base/workaround-POSIXLY_CORRECT
-  fi
-}
-function ble/base/adjust-POSIXLY_CORRECT {
-  if [[ $_ble_bash_POSIXLY_CORRECT_adjusted ]]; then return 0; fi # Note: set -e 対策
-  _ble_bash_POSIXLY_CORRECT_adjusted=1
-  _ble_bash_POSIXLY_CORRECT_set=${POSIXLY_CORRECT+set}
-  _ble_bash_POSIXLY_CORRECT=${POSIXLY_CORRECT-}
-  if [[ $_ble_bash_POSIXLY_CORRECT_set ]]; then
-    builtin unset -v POSIXLY_CORRECT
-  fi
-
-  # ユーザが触ったかもしれないので何れにしても workaround を呼び出す。
-  ble/base/workaround-POSIXLY_CORRECT
 }
 function ble/base/restore-POSIXLY_CORRECT {
   if [[ ! $_ble_bash_POSIXLY_CORRECT_adjusted ]]; then return 0; fi # Note: set -e の為 || は駄目
@@ -288,84 +363,151 @@ function ble/base/restore-POSIXLY_CORRECT {
   if [[ $_ble_bash_POSIXLY_CORRECT_set ]]; then
     POSIXLY_CORRECT=$_ble_bash_POSIXLY_CORRECT
   else
-    ble/base/unset-POSIXLY_CORRECT
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_unset"
   fi
 }
+## @fn ble/base/is-POSIXLY_CORRECT
+##   Check if the POSIX mode is enabled in the user context.  This function is
+##   assumed to be called in the adjusted state.
 function ble/base/is-POSIXLY_CORRECT {
-  if [[ $_ble_bash_POSIXLY_CORRECT_adjusted ]]; then
-    [[ $_ble_bash_POSIXLY_CORRECT_set ]]
+  [[ $_ble_bash_POSIXLY_CORRECT_adjusted && $_ble_bash_POSIXLY_CORRECT_set ]]
+}
+
+function ble/variable#load-user-state/variable:FUNCNEST {
+  if [[ $_ble_bash_FUNCNEST_adjusted ]]; then
+    __ble_var_set=$_ble_bash_FUNCNEST_set
+    __ble_var_val=$_ble_bash_FUNCNEST
+    return 0
+  elif [[ ${_ble_local_FUNCNEST_set-} ]]; then
+    __ble_var_set=$_ble_local_FUNCNEST_set
+    __ble_var_set=$_ble_local_FUNCNEST
+    return 0
   else
-    [[ ${POSIXLY_CORRECT+set} ]]
+    return 1
   fi
 }
+
+function ble/variable#load-user-state/variable:POSIXLY_CORRECT {
+  if [[ $_ble_bash_POSIXLY_CORRECT_adjusted ]]; then
+    __ble_var_set=$_ble_bash_POSIXLY_CORRECT_set
+    __ble_var_val=$_ble_bash_POSIXLY_CORRECT
+    return 0
+  elif [[ ${_ble_local_POSIXLY_CORRECT_set-} ]]; then
+    __ble_var_set=$_ble_local_POSIXLY_CORRECT_set
+    __ble_var_set=$_ble_local_POSIXLY_CORRECT
+    return 0
+  else
+    return 1
+  fi
+}
+
+## @fn ble/base/list-shopt names...
+##   @var[out] shopt
+if ((_ble_bash>=40100)); then
+  function ble/base/list-shopt { shopt=$BASHOPTS; }
+else
+  function ble/base/list-shopt {
+    shopt=
+    local name
+    for name; do
+      shopt -q "$name" 2>/dev/null && shopt=$shopt:$name
+    done
+  }
+fi 2>/dev/null # set -x 対策
+function ble/base/evaldef {
+  local shopt
+  ble/base/list-shopt extglob expand_aliases
+  shopt -s extglob
+  shopt -u expand_aliases
+  builtin eval -- "$1"; local ext=$?
+  [[ :$shopt: == *:extglob:* ]] || shopt -u extglob
+  [[ :$shopt: != *:expand_aliases:* ]] || shopt -s expand_aliases
+  return "$ext"
+}
+
+# will be overwritten by src/util.sh
+if ((_ble_bash>=50300)); then
+  function ble/util/assign { builtin eval -- "$1=\${ builtin eval -- \"\$2\"; }"; }
+else
+  function ble/util/assign { builtin eval -- "$1=\$(builtin eval -- \"\$2\")"; }
+fi
 
 {
   _ble_bash_builtins_adjusted=
   _ble_bash_builtins_save=
 } 2>/dev/null # set -x 対策
-## @fn ble/base/adjust-builtin-wrappers/.assign
-##   @remarks This function may be called with POSIXLY_CORRECT=y
-function ble/base/adjust-builtin-wrappers/.assign {
-  if [[ ${_ble_util_assign_base-} ]]; then
-    local _ble_local_tmpfile; ble/util/assign/mktmp
-    builtin eval -- "$1" >| "$_ble_local_tmpfile"
-    local IFS=
-    ble/bash/read -d '' defs < "$_ble_local_tmpfile"
-    IFS=$_ble_term_IFS
-    ble/util/assign/rmtmp
-  else
-    defs=$(builtin eval -- "$1")
-  fi || ((1))
-}
-function ble/base/adjust-builtin-wrappers-1 {
+function ble/base/adjust-builtin-wrappers/.impl1 {
   # Note: 何故か local POSIXLY_CORRECT の効果が
   #   builtin unset -v POSIXLY_CORRECT しても残存するので関数に入れる。
   # Note: set -o posix にしても read, type, builtin, local 等は上書き
   #   された儘なので難しい。unset -f builtin さえすれば色々動く様になる
   #   ので builtin は unset -f builtin してしまう。
   unset -f builtin
-  builtin local POSIXLY_CORRECT=y builtins1 keywords1
+  builtin local builtins1 keywords1
   builtins1=(builtin unset enable unalias return break continue declare local typeset eval exec set)
   keywords1=(if then elif else case esac while until for select do done '{' '}' '[[' function)
   if [[ ! $_ble_bash_builtins_adjusted ]]; then
     _ble_bash_builtins_adjusted=1
 
     builtin local defs
-    ble/base/adjust-builtin-wrappers/.assign '
+    ble/util/assign defs '
       \builtin declare -f "${builtins1[@]}" || ((1))
       \builtin alias "${builtins1[@]}" "${keywords1[@]}" || ((1))' # set -e 対策
     _ble_bash_builtins_save=$defs
   fi
+  builtin local POSIXLY_CORRECT=y
   builtin unset -f "${builtins1[@]}"
   builtin unalias "${builtins1[@]}" "${keywords1[@]}" || ((1)) # set -e 対策
-  ble/base/unset-POSIXLY_CORRECT
-} 2>/dev/null
-function ble/base/adjust-builtin-wrappers-2 {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_unset"
+}
+function ble/base/adjust-builtin-wrappers/.impl2 {
   # Workaround (bash-3.0..4.3) #D0722
   #
-  #   builtin unset -v POSIXLY_CORRECT でないと unset -f : できないが、
-  #   bash-3.0 -- 4.3 のバグで、local POSIXLY_CORRECT の時、
-  #   builtin unset -v POSIXLY_CORRECT しても POSIXLY_CORRECT が有効であると判断されるので、
-  #   "unset -f :" (非POSIX関数名) は別関数で adjust-POSIXLY_CORRECT の後で実行することにする。
+  #   builtin unset -v POSIXLY_CORRECT でないと unset -f : できないが、bash-3.0
+  #   -- 4.3 のバグで、local POSIXLY_CORRECT の時、builtin unset -v
+  #   POSIXLY_CORRECT しても POSIXLY_CORRECT が有効であると判断されるので、
+  #   "unset -f :" (非POSIX関数名) は別関数で実行する事にする。呼び出し元で既に
+  #   builtin unset -v POSIXLY_CORRECT されている事を前提とする。
 
   # function :, alias : の保存
   local defs
-  ble/base/adjust-builtin-wrappers/.assign 'LC_ALL= LC_MESSAGES=C builtin type :; alias :' || ((1)) # set -e 対策
+  ble/util/assign defs 'LC_ALL= LC_MESSAGES=C builtin type :; alias :' || ((1)) # set -e 対策
   defs=${defs#$': is a shell builtin\n'}
   _ble_bash_builtins_save=$_ble_bash_builtins_save$'\n'$defs
 
   builtin unset -f :
   builtin unalias : || ((1)) # set -e 対策
+}
+## @fn ble/base/adjust-builtin-wrappers
+##
+##   Note: This function needs to be called after adjusting POSIXLY_CORRECT by
+##   calling « builtin eval -- "$_ble_bash_POSIXLY_CORRECT_adjust" »
+##
+##   Note (#D2221) We have been delayed the execution of "unset -f :"
+##   (adjust-builtin-wrappers-2) until POSIXLY_CORRECT is unset.  However, .
+##   we can now call "ble/base/adjust-builtin-wrappers/.impl2" immediately
+##   after "ble/base/adjust-builtin-wrappers/.impl1" because we now unset
+##   POSIXLY_CORRECT earlier.  We combine those two functions again.
+##
+function ble/base/adjust-builtin-wrappers {
+  ble/base/adjust-builtin-wrappers/.impl1
+
+  # Note (#D2221): In Bash 3.0 and 3.1, when "local POSIXLY_CORRECT" is used in
+  # a function, the POSIX mode remains effective even after the function
+  # returns.  This can be fixed by calling "unset -v POSIXLY_CORRECT".
+  builtin unset -v POSIXLY_CORRECT
+
+  ble/base/adjust-builtin-wrappers/.impl2
 } 2>/dev/null
 function ble/base/restore-builtin-wrappers {
   if [[ $_ble_bash_builtins_adjusted ]]; then
     _ble_bash_builtins_adjusted=
-    builtin eval -- "$_ble_bash_builtins_save"
+    ble/base/evaldef "$_ble_bash_builtins_save"
+    return 0
   fi
 }
 {
-  ble/base/adjust-builtin-wrappers-1
-  ble/base/adjust-builtin-wrappers-2
+  ble/base/adjust-builtin-wrappers
 
   # 対策 expand_aliases (暫定) 終了
   if [[ $_ble_bash_expand_aliases ]]; then
@@ -396,7 +538,7 @@ function ble/variable#copy-state {
   _ble_bash_PS4=
 } 2>/dev/null # set -x 対策
 # From src/util.sh (ble/fd#is-open and ble/fd#alloc/.nextfd)
-function ble/base/xtrace/.fdcheck { builtin : >&"$1"; } 2>/dev/null
+function ble/base/xtrace/.fdcheck { >&"$1"; } 2>/dev/null
 function ble/base/xtrace/.fdnext {
   local _ble_local_init=${_ble_util_openat_nextfd:=${bleopt_openat_base:-30}}
   for (($1=_ble_local_init;$1<_ble_local_init+1024;$1++)); do
@@ -405,14 +547,15 @@ function ble/base/xtrace/.fdnext {
   (($1<_ble_local_init+1024)) ||
     { (($1=_ble_local_init,_ble_util_openat_nextfd++)); builtin eval "exec ${!1}>&-"; } ||
     ((1))
-} 
+}
 function ble/base/xtrace/.log {
-  local bash=${_ble_bash:-$((BASH_VERSINFO[0]*10000+BASH_VERSINFO[1]*100+BASH_VERSINFO[2]))}
   local open=---- close=----
-  if ((bash>=40200)); then
+  if ((_ble_bash>=40200)); then
     builtin printf '%s [%(%F %T %Z)T] %s %s\n' "$open" -1 "$1" "$close"
   else
-    builtin printf '%s [%s] %s %s\n' "$open" "$(date 2>/dev/null)" "$1" "$close"
+    local date
+    ble/util/assign date 'date 2>/dev/null'
+    builtin printf '%s [%s] %s %s\n' "$open" "$date" "$1" "$close"
   fi >&"${BASH_XTRACEFD:-2}"
 }
 function ble/base/xtrace/adjust {
@@ -482,7 +625,7 @@ function ble/base/xtrace/restore {
     if [[ $_ble_bash_XTRACEFD_dup ]]; then
       # BASH_XTRACEFD の fd を元の出力先に繋ぎ直す
       builtin eval "exec $BASH_XTRACEFD>&$_ble_bash_XTRACEFD_dup" &&
-        builtin eval "exec $_ble_bash_XTRACEFD_dup>&-" || ((1)) # disble=#D2164 (here bash4+)
+        builtin eval "exec $_ble_bash_XTRACEFD_dup>&-" || ((1)) # disable=#D2164 (here bash4+)
     else
       # BASH_XTRACEFD の fd は新しく割り当てた fd なので値上書きで閉じて良い
       if [[ $_ble_bash_XTRACEFD_set ]]; then
@@ -494,20 +637,17 @@ function ble/base/xtrace/restore {
   fi
 }
 
+## @fn ble/base/.adjust-bash-options vset vshopt
+##   @var[out] $vset
+##   @var[out] $vshopt
 function ble/base/.adjust-bash-options {
   builtin eval -- "$1=\$-"
   set +evukT -B
   ble/base/xtrace/adjust
 
   [[ $2 == shopt ]] || local shopt
-  if ((_ble_bash>=40100)); then
-    shopt=$BASHOPTS
-  else
-    # Note: nocasematch は bash-3.1 以上
-    shopt=
-    shopt -q extdebug 2>/dev/null && shopt=$shopt:extdebug
-    shopt -q nocasematch 2>/dev/null && shopt=$shopt:nocasematch
-  fi
+  # Note: nocasematch は bash-3.1 以上
+  ble/base/list-shopt extdebug nocasematch
   [[ $2 == shopt ]] || builtin eval -- "$2=\$shopt"
   shopt -u extdebug
   shopt -u nocasematch 2>/dev/null
@@ -601,15 +741,51 @@ function ble/base/recover-bash-options {
   fi
 }
 
+function ble/variable#load-user-state/variable:LC_ALL/.impl {
+  local __ble_save=_ble_bash_$1
+  __ble_var_set=${!__ble_save+set}
+  __ble_var_val=${!__ble_save-}
+  [[ $__ble_var_set ]] && ble/variable#get-attr -v __ble_var_att "$1"
+  return 0
+}
+function ble/variable#load-user-state/variable:LC_COLLATE {
+  ble/variable#load-user-state/variable:LC_ALL/.impl LC_COLLATE
+}
+function ble/variable#load-user-state/variable:LC_ALL {
+  ble/variable#load-user-state/variable:LC_ALL/.impl LC_ALL
+}
+function ble/variable#load-user-state/variable:LC_CTYPE {
+  [[ $_ble_bash_LC_ALL ]] && ble/variable#load-user-state/variable:LC_ALL/.impl LC_CTYPE
+}
+function ble/variable#load-user-state/variable:LC_MESSAGES {
+  [[ $_ble_bash_LC_ALL ]] && ble/variable#load-user-state/variable:LC_ALL/.impl LC_MESSAGES
+}
+function ble/variable#load-user-state/variable:LC_NUMERIC {
+  [[ $_ble_bash_LC_ALL ]] && ble/variable#load-user-state/variable:LC_ALL/.impl LC_NUMERIC
+}
+function ble/variable#load-user-state/variable:LC_TIME {
+  [[ $_ble_bash_LC_ALL ]] && ble/variable#load-user-state/variable:LC_ALL/.impl LC_TIME
+}
+function ble/variable#load-user-state/variable:LANG {
+  [[ $_ble_bash_LC_ALL ]] && ble/variable#load-user-state/variable:LC_ALL/.impl LANG
+}
+
 { ble/base/adjust-bash-options; } &>/dev/null # set -x 対策 #D0930
 
-builtin bind &>/dev/null # force to load .inputrc
+function ble/init/force-load-inputrc {
+  builtin unset -f "$FUNCNAME"
 
-# WA #D1534 workaround for msys2 .inputrc
-if [[ $OSTYPE == msys* ]]; then
-  [[ $(builtin bind -m emacs -p 2>/dev/null | grep '"\\C-?"') == '"\C-?": backward-kill-line' ]] &&
-    builtin bind -m emacs '"\C-?": backward-delete-char' 2>/dev/null
-fi
+  builtin bind &>/dev/null # force to load .inputrc
+
+  # WA #D1534 workaround for msys2 .inputrc
+  if [[ $OSTYPE == msys* ]]; then
+    local bind_emacs
+    ble/util/assign bind_emacs 'builtin bind -m emacs -p 2>/dev/null'
+    [[ $'\n'$bind_emacs$'\n' == *$'\n"\\C-?": backward-kill-line\n' ]] &&
+      builtin bind -m emacs '"\C-?": backward-delete-char' 2>/dev/null
+  fi
+}
+ble/init/force-load-inputrc
 
 if [[ ! -o emacs && ! -o vi && ! $_ble_init_command ]]; then
   builtin echo "ble.sh: ble.sh is not intended to be used with the line-editing mode disabled (--noediting)." >&2
@@ -617,6 +793,7 @@ if [[ ! -o emacs && ! -o vi && ! $_ble_init_command ]]; then
   ble/base/restore-builtin-wrappers
   ble/base/restore-POSIXLY_CORRECT
   builtin eval -- "$_ble_bash_FUNCNEST_restore"
+  builtin unset -v _ble_bash
   return 1 2>/dev/null || builtin exit 1
 fi
 
@@ -626,6 +803,7 @@ if shopt -q restricted_shell; then
   ble/base/restore-builtin-wrappers
   ble/base/restore-POSIXLY_CORRECT
   builtin eval -- "$_ble_bash_FUNCNEST_restore"
+  builtin unset -v _ble_bash
   return 1 2>/dev/null || builtin exit 1
 fi
 
@@ -647,7 +825,14 @@ function ble/init/restore-IFS {
   builtin unset -v _ble_init_original_IFS
 }
 
-if ((BASH_VERSINFO[0]>5||BASH_VERSINFO[0]==5&&BASH_VERSINFO[1]>=1)); then
+function ble/variable#load-user-state/variable:IFS {
+  __ble_var_set=${_ble_init_original_IFS_set-}
+  __ble_var_val=${_ble_init_original_IFS-}
+  ble/variable#get-attr -v __ble_var_att IFS
+  return 0
+}
+
+if ((_ble_bash>=50100)); then
   _ble_bash_BASH_REMATCH_level=0
   _ble_bash_BASH_REMATCH=()
   function ble/base/adjust-BASH_REMATCH {
@@ -756,6 +941,17 @@ else
   }
 fi
 
+function ble/variable#load-user-state/variable:BASH_REMATCH {
+  if ((_ble_bash_BASH_REMATCH_level)); then
+    __ble_var_set=${BASH_REMATCH+set}
+    __ble_var_val=("${_ble_bash_BASH_REMATCH[@]}")
+    ble/variable#get-attr -v __ble_var_att BASH_REMATCH
+    return 0
+  else
+    return 1
+  fi
+}
+
 ble/init/adjust-IFS
 ble/base/adjust-BASH_REMATCH
 
@@ -765,7 +961,6 @@ function ble/init/clean-up {
 
   # 一時グローバル変数消去
   builtin unset -v _ble_init_version
-  builtin unset -v _ble_init_arg
   builtin unset -v _ble_init_exit
   builtin unset -v _ble_init_command
   builtin unset -v _ble_init_attached
@@ -848,6 +1043,24 @@ function ble/base/read-blesh-arguments {
       _ble_base_arguments_rcfile=/dev/null ;;
     (--keep-rlvars)
       opts=$opts:keep-rlvars ;;
+    (--bash-debug-version=*|--bash-debug-version)
+      local value=
+      if [[ $arg == *=* ]]; then
+        value=${arg#*=}
+      elif (($#)); then
+        value=$1; shift
+      else
+        opts=$opts:E
+        ble/util/print "ble.sh ($arg): an option argument is missing." >&2
+        continue
+      fi
+      case $value in
+      (full|short|once|ignore)
+        opts=$opts:bash-debug-version=$value ;;
+      (*)
+        opts=$opts:E
+        ble/util/print "ble.sh ($arg): unrecognized value '$value'." >&2
+      esac ;;
     (--debug-bash-output)
       bleopt_internal_suppress_bash_output= ;;
     (--test | --update | --clear-cache | --lib | --install)
@@ -907,12 +1120,13 @@ function ble/base/read-blesh-arguments {
 if ! ble/base/read-blesh-arguments "$@"; then
   builtin echo "ble.sh: cancel initialization." >&2
   ble/init/clean-up 2>/dev/null # set -x 対策 #D0930
+  builtin unset -v _ble_bash
   return 2 2>/dev/null || builtin exit 2
 fi
 
 if [[ ${_ble_base-} ]]; then
   [[ $_ble_init_command ]] && _ble_init_attached=$_ble_attached
-  if ! ble/base/unload-for-reload; then
+  if ! _ble_bash=$_ble_bash ble/base/unload-for-reload; then
     builtin echo "ble.sh: an old version of ble.sh seems to be already loaded." >&2
     ble/init/clean-up 2>/dev/null # set -x 対策 #D0930
     return 1 2>/dev/null || builtin exit 1
@@ -922,16 +1136,6 @@ fi
 #------------------------------------------------------------------------------
 # Initialize version information
 
-# DEBUG version の Bash では遅いという通知
-case ${BASH_VERSINFO[4]} in
-(alp*|bet*|dev*|rc*|releng*|maint*)
-  ble/util/print-lines \
-    "ble.sh may become very slow because this is a debug version of Bash" \
-    "  (version '$BASH_VERSION', release status: '${BASH_VERSINFO[4]}')." \
-    "  We recommend using ble.sh with a release version of Bash." >&2 ;;
-esac
-
-_ble_bash=$((BASH_VERSINFO[0]*10000+BASH_VERSINFO[1]*100+BASH_VERSINFO[2]))
 _ble_bash_loaded_in_function=0
 local _ble_local_test 2>/dev/null && _ble_bash_loaded_in_function=1
 
@@ -1001,14 +1205,24 @@ fi
 #------------------------------------------------------------------------------
 # check environment
 
-# will be overwritten by src/util.sh
-if ((_ble_bash>=50300)); then
-  function ble/util/assign { builtin eval "$1=\${ builtin eval -- \"\$2\"; }"; }
+# ble/bin
+
+if ((_ble_bash>=40000)); then
+  function ble/bin#has { builtin type -t -- "$@" &>/dev/null; }
 else
-  function ble/util/assign { builtin eval "$1=\$(builtin eval -- \"\$2\")"; }
+  function ble/bin#has {
+    local cmd
+    for cmd; do builtin type -t -- "$cmd" || return 1; done &>/dev/null
+    return 0
+  }
 fi
 
-# ble/bin
+## @fn ble/bin#get-path command
+##   @var[out] path
+function ble/bin#get-path {
+  local cmd=$1
+  ble/util/assign path 'builtin type -P -- "$cmd" 2>/dev/null' && [[ $path ]]
+}
 
 ## @fn ble/bin/.default-utility-path commands...
 ##   取り敢えず ble/bin/* からコマンドを呼び出せる様にします。
@@ -1031,9 +1245,9 @@ function ble/bin#freeze-utility-path {
       flags=n$flags
       continue
     fi
-    [[ $flags == *n* ]] && ble/bin#has "ble/bin/$cmd" && continue
-    ble/bin#has "ble/bin/.frozen:$cmd" && continue
-    if ble/util/assign path "builtin type -P -- $cmd 2>/dev/null" && [[ $path ]]; then
+    [[ $flags == *n* ]] && ble/bin#has ble/bin/"$cmd" && continue
+    ble/bin#has ble/bin/.frozen:"$cmd" && continue
+    if ble/bin#get-path "$cmd"; then
       [[ $path == ./* || $path == ../* ]] && path=$PWD/$path
       builtin eval "function ble/bin/$cmd { '${path//$q/$Q}' \"\$@\"; }"
     else
@@ -1042,16 +1256,6 @@ function ble/bin#freeze-utility-path {
   done
   ((!fail))
 }
-
-if ((_ble_bash>=40000)); then
-  function ble/bin#has { type -t "$@" &>/dev/null; }
-else
-  function ble/bin#has {
-    local cmd
-    for cmd; do type -t "$cmd" || return 1; done &>/dev/null
-    return 0
-  }
-fi
 
 # POSIX utilities
 
@@ -1067,7 +1271,8 @@ function ble/init/check-environment {
     ble/util/print "ble.sh: insane environment: The command(s), ${commandMissing}not found. Check your environment variable PATH." >&2
 
     # try to fix PATH
-    local default_path=$(command -p getconf PATH 2>/dev/null)
+    local default_path
+    ble/util/assign default_path 'command -p getconf PATH 2>/dev/null'
     [[ $default_path ]] || return 1
 
     local original_path=$PATH
@@ -1083,7 +1288,7 @@ function ble/init/check-environment {
 
   if [[ ! ${USER-} ]]; then
     ble/util/print "ble.sh: insane environment: \$USER is empty." >&2
-    if USER=$(id -un 2>/dev/null) && [[ $USER ]]; then
+    if ble/util/assign USER 'id -un 2>/dev/null' && [[ $USER ]]; then
       export USER
       ble/util/print "ble.sh: modified USER=$USER" >&2
     fi
@@ -1092,7 +1297,7 @@ function ble/init/check-environment {
 
   if [[ ! ${HOSTNAME-} ]]; then
     ble/util/print "ble.sh: suspicious environment: \$HOSTNAME is empty."
-    if HOSTNAME=$(uname -n 2>/dev/null) && [[ $HOSTNAME ]]; then
+    if ble/util/assign HOSTNAME 'uname -n 2>/dev/null' && [[ $HOSTNAME ]]; then
       export HOSTNAME
       ble/util/print "ble.sh: fixed HOSTNAME=$HOSTNAME" >&2
     fi
@@ -1102,7 +1307,7 @@ function ble/init/check-environment {
   if [[ ! ${HOME-} ]]; then
     ble/util/print "ble.sh: insane environment: \$HOME is empty." >&2
     local home
-    if home=$(getent passwd 2>/dev/null | awk -F : -v UID="$UID" '$3 == UID {print $6}') && [[ $home && -d $home ]] ||
+    if ble/util/assign home 'getent passwd 2>/dev/null | awk -F : -v UID="$UID" '\''$3 == UID {print $6}'\''' && [[ $home && -d $home ]] ||
         { [[ $USER && -d /home/$USER && -O /home/$USER ]] && home=/home/$USER; } ||
         { [[ $USER && -d /Users/$USER && -O /Users/$USER ]] && home=/Users/$USER; } ||
         { [[ $home && ! ( -e $home && -h $home ) ]] && ble/bin/mkdir -p "$home" 2>/dev/null; }
@@ -1157,7 +1362,7 @@ function ble/init/check-environment {
   return 0
 }
 if ! ble/init/check-environment; then
-  ble/util/print "ble.sh: failed to adjust the environment. canceling the load of ble.sh." 1>&2
+  ble/util/print "ble.sh: failed to adjust the environment. canceling the load of ble.sh." >&2
   ble/base/clear-version-variables
   ble/init/clean-up 2>/dev/null # set -x 対策 #D0930
   return 1
@@ -1168,11 +1373,13 @@ _ble_bin_awk_type=
 function ble/bin/awk/.instantiate {
   local path q=\' Q="'\''" ext=1
 
-  if ble/util/assign path "builtin type -P -- nawk 2>/dev/null" && [[ $path ]]; then
+  if ble/bin#get-path nawk; then
     [[ $path == ./* || $path == ../* ]] && path=$PWD/$path
     # Note: Some distribution (like Ubuntu) provides gawk as "nawk" by
-    # default. To avoid wrongly picking gawk as nawk, we need to check the
-    # version output from the command.
+    # default. To avoid wrongly picking up gawk as nawk, we need to check the
+    # version output from the command.  2024-12-10 In KaKi87's server [1],
+    # Debian 12 provided mawk as "nawk".
+    # [1] https://github.com/akinomyoga/ble.sh/issues/535#issuecomment-2528258996
     local version
     ble/util/assign version '"$path" -W version' 2>/dev/null </dev/null
     if [[ $version != *'GNU Awk'* && $version != *mawk* ]]; then
@@ -1184,7 +1391,7 @@ function ble/bin/awk/.instantiate {
     fi
   fi
 
-  if ble/util/assign path "builtin type -P -- mawk 2>/dev/null" && [[ $path ]]; then
+  if ble/bin#get-path mawk; then
     [[ $path == ./* || $path == ../* ]] && path=$PWD/$path
     builtin eval "function ble/bin/mawk { '${path//$q/$Q}' -v AWKTYPE=mawk \"\$@\"; }"
     if [[ ! $_ble_bin_awk_type ]]; then
@@ -1193,7 +1400,7 @@ function ble/bin/awk/.instantiate {
     fi
   fi
 
-  if ble/util/assign path "builtin type -P -- gawk 2>/dev/null" && [[ $path ]]; then
+  if ble/bin#get-path gawk; then
     [[ $path == ./* || $path == ../* ]] && path=$PWD/$path
     builtin eval "function ble/bin/gawk { '${path//$q/$Q}' -v AWKTYPE=gawk \"\$@\"; }"
     if [[ ! $_ble_bin_awk_type ]]; then
@@ -1207,10 +1414,11 @@ function ble/bin/awk/.instantiate {
       # Solaris の既定の awk は全然駄目なので /usr/xpg4 以下の awk を使う。
       _ble_bin_awk_type=xpg4
       function ble/bin/awk { /usr/xpg4/bin/awk -v AWKTYPE=xpg4 "$@"; } && ext=0
-    elif ble/util/assign path "builtin type -P -- awk 2>/dev/null" && [[ $path ]]; then
+    elif ble/bin#get-path awk; then
       [[ $path == ./* || $path == ../* ]] && path=$PWD/$path
       local version
-      ble/util/assign version '"$path" -W version || "$path" --version' 2>/dev/null </dev/null
+      ble/util/assign version '"$path" -W version' 2>/dev/null </dev/null && [[ $version ]] ||
+        ble/util/assign version '"$path" --version' 2>/dev/null </dev/null
       if [[ $version == *'GNU Awk'* ]]; then
         _ble_bin_awk_type=gawk
       elif [[ $version == *mawk* ]]; then
@@ -1228,12 +1436,12 @@ function ble/bin/awk/.instantiate {
         #   る。テスト不可能だが、そもそも nawk は UTF-8 に対応していない前提な
         #   ので、取り敢えず LC_CTYPE=C で実行する。
         function ble/bin/awk {
-          local LC_ALL= LC_CTYPE=C 2>/dev/null
+          local -x LC_ALL= LC_CTYPE=C LC_COLLATE=C 2>/dev/null
           /usr/bin/awk -v AWKTYPE=nawk "$@"; local ext=$?
-          ble/util/unlocal LC_ALL LC_CTYPE 2>/dev/null
+          ble/util/unlocal LC_ALL LC_CTYPE LC_COLLATE 2>/dev/null
           return "$ext"
         }
-      elif [[ $_ble_bin_awk_type == [gmn]awk ]] && ! ble/is-function "ble/bin/$_ble_bin_awk_type" ; then
+      elif [[ $_ble_bin_awk_type == [gmn]awk ]] && ! ble/is-function ble/bin/"$_ble_bin_awk_type" ; then
         builtin eval "function ble/bin/$_ble_bin_awk_type { '${path//$q/$Q}' -v AWKTYPE=$_ble_bin_awk_type \"\$@\"; }"
       fi
     fi
@@ -1250,11 +1458,44 @@ function ble/bin/awk {
   fi
 }
 
-# Do not overwrite by .freeze-utility-path
-function ble/bin/.frozen:awk { :; }
-function ble/bin/.frozen:nawk { :; }
-function ble/bin/.frozen:mawk { :; }
-function ble/bin/.frozen:gawk { :; }
+# Do not overwrite by ble/bin#freeze-utility-path
+function ble/bin/.frozen:awk { return 0; }
+function ble/bin/.frozen:nawk { return 0; }
+function ble/bin/.frozen:mawk { return 0; }
+function ble/bin/.frozen:gawk { return 0; }
+
+if [[ $OSTYPE == darwin* ]]; then
+  function ble/bin/sed/.instantiate {
+    local path=
+    ble/bin#get-path sed || return 1
+
+    if [[ $path == /usr/bin/sed ]]; then
+      # macOS sed seems to have the same issue as macOS awk.  In macOS, we
+      # always run "sed" in the C locale.
+      function ble/bin/sed {
+        local -x LC_ALL= LC_CTYPE=C LC_COLLATE=C 2>/dev/null
+        /usr/bin/sed "$@"; local ext=$?
+        ble/util/unlocal LC_ALL LC_CTYPE LC_COLLATE 2>/dev/null
+        return "$ext"
+      }
+    else
+      [[ $path == ./* || $path == ../* ]] && path=$PWD/$path
+      local q=\' Q="'\''"
+      builtin eval "function ble/bin/sed { '${path//$q/$Q}' \"\$@\"; }"
+    fi
+    return 0
+  }
+  function ble/bin/sed {
+    if ble/bin/sed/.instantiate; then
+      ble/bin/sed "$@"
+    else
+      command sed "$@"
+    fi
+  }
+  function ble/bin/.frozen:sed { return 0; }
+else
+  function ble/bin/sed/.instantiate { return 0; }
+fi
 
 ## @fn ble/bin/awk0
 ##   awk implementation that supports NUL record separator
@@ -1271,24 +1512,38 @@ function ble/bin/awk0.available {
     if ble/bin#freeze-utility-path -n "$awk" &&
         ble/bin/awk0.available/test ble/bin/"$awk" &&
         builtin eval -- "function ble/bin/awk0 { ble/bin/$awk -v AWKTYPE=$awk \"\$@\"; }"; then
-      function ble/bin/awk0.available { ((1)); }
+      function ble/bin/awk0.available { return 0; }
       return 0
     fi
   done
 
   if ble/bin/awk0.available/test ble/bin/awk &&
       function ble/bin/awk0 { ble/bin/awk "$@"; }; then
-    function ble/bin/awk0.available { ((1)); }
+    function ble/bin/awk0.available { return 0; }
     return 0
   fi
 
-  function ble/bin/awk0.available { ((0)); }
+  function ble/bin/awk0.available { return 1; }
   return 1
 }
 
 function ble/base/is-msys1 {
   local cr; cr=$'\r'
   [[ $OSTYPE == msys && ! $cr ]]
+}
+
+function ble/base/is-wsl {
+  local kernel_version
+  if [[ -d /usr/lib/wsl/lib && -r /proc/version ]] &&
+       ble/bash/read kernel_version < /proc/version &&
+       [[ $kernel_version == *-microsoft-* ]]
+  then
+    function ble/base/is-wsl { return 0; }
+    return 0
+  else
+    function ble/base/is-wsl { return 1; }
+    return 1
+  fi
 }
 
 function ble/util/mkd {
@@ -1415,6 +1670,20 @@ function ble/util/readlink {
 
 #---------------------------------------
 
+function ble/init/adjust-environment {
+  builtin unset -f "$FUNCNAME"
+
+  if [[ ${IN_NIX_SHELL-} ]]; then
+    # Since "nix-shell" overwrites BASH to the path to a binary image different
+    # from the current one, the Bash process crashes on attempting loading
+    # loadable builtins.  We rewrite it to the correct one.
+    local ret=
+    ble/util/readlink "/proc/$$/exe" 2>/dev/null
+    [[ -x $ret ]] && BASH=$ret
+  fi
+}
+ble/init/adjust-environment
+
 _ble_bash_path=
 function ble/bin/.load-builtin {
   local name=$1 path=$2
@@ -1503,7 +1772,7 @@ function ble/base/initialize-base-directory {
   [[ -d $_ble_base ]]
 }
 if ! ble/base/initialize-base-directory "${BASH_SOURCE[0]}"; then
-  ble/util/print "ble.sh: ble base directory not found!" 1>&2
+  ble/util/print "ble.sh: ble base directory not found!" >&2
   ble/base/clear-version-variables
   ble/init/clean-up 2>/dev/null # set -x 対策 #D0930
   return 1
@@ -1539,6 +1808,10 @@ function ble/base/initialize-runtime-directory/.xdg {
     [[ -d $runtime_dir && -O $runtime_dir ]] || return 1
   fi
 
+  # Note: Some versions of WSL around 2023-09 seem to have an issue with the
+  # permission of /run/user/*, so we avoid to use them in WSL.
+  [[ $runtime_dir == /run/user/* ]] && ble/base/is-wsl && return 1
+
   if ! [[ -r $runtime_dir && -w $runtime_dir && -x $runtime_dir ]]; then
     [[ $runtime_dir == "$XDG_RUNTIME_DIR" ]] &&
       ble/util/print "ble.sh: XDG_RUNTIME_DIR='$XDG_RUNTIME_DIR' doesn't have a proper permission." >&2
@@ -1549,6 +1822,12 @@ function ble/base/initialize-runtime-directory/.xdg {
 }
 function ble/base/initialize-runtime-directory/.tmp {
   [[ -r /tmp && -w /tmp && -x /tmp ]] || return 1
+
+  # Note: WSL seems to clear /tmp after the first instance of Bash starts,
+  # which causes a problem of missing /tmp after blesh's initialization.
+  # https://github.com/microsoft/WSL/issues/8441#issuecomment-1139434972
+  # https://github.com/akinomyoga/ble.sh/discussions/462
+  ble/base/is-wsl && return 1
 
   local tmp_dir=/tmp/blesh
   if [[ ! -d $tmp_dir ]]; then
@@ -1566,11 +1845,7 @@ function ble/base/initialize-runtime-directory/.tmp {
 
   ble/base/.create-user-directory _ble_base_run "$tmp_dir/$UID"
 }
-function ble/base/initialize-runtime-directory {
-  ble/base/initialize-runtime-directory/.xdg && return 0
-  ble/base/initialize-runtime-directory/.tmp && return 0
-
-  # fallback
+function ble/base/initialize-runtime-directory/.base {
   local tmp_dir=$_ble_base/run
   if [[ ! -d $tmp_dir ]]; then
     ble/bin/mkdir -p "$tmp_dir" || return 1
@@ -1578,15 +1853,41 @@ function ble/base/initialize-runtime-directory {
   fi
   ble/base/.create-user-directory _ble_base_run "$tmp_dir/${USER:-$UID}@$HOSTNAME"
 }
+function ble/base/initialize-runtime-directory/.home {
+  local cache_dir=${XDG_CACHE_HOME:-$HOME/.cache}
+  if [[ ! -d $cache_dir ]]; then
+    if [[ $XDG_CACHE_HOME ]]; then
+      ble/util/print "ble.sh: XDG_CACHE_HOME='$XDG_CACHE_HOME' is not a directory." >&2
+      return 1
+    else
+      ble/bin/mkdir -p "$cache_dir" || return 1
+    fi
+  fi
+  if ! [[ -r $cache_dir && -w $cache_dir && -x $cache_dir ]]; then
+    if [[ $XDG_CACHE_HOME ]]; then
+      ble/util/print "ble.sh: XDG_CACHE_HOME='$XDG_CACHE_HOME' doesn't have a proper permission." >&2
+    else
+      ble/util/print "ble.sh: '$cache_dir' doesn't have a proper permission." >&2
+    fi
+    return 1
+  fi
+  ble/base/.create-user-directory _ble_base_run "$cache_dir/blesh/run"
+}
+function ble/base/initialize-runtime-directory {
+  ble/base/initialize-runtime-directory/.xdg && return 0
+  ble/base/initialize-runtime-directory/.tmp && return 0
+  ble/base/initialize-runtime-directory/.base && return 0
+  ble/base/initialize-runtime-directory/.home
+}
 if ! ble/base/initialize-runtime-directory; then
-  ble/util/print "ble.sh: failed to initialize \$_ble_base_run." 1>&2
+  ble/util/print "ble.sh: failed to initialize \$_ble_base_run." >&2
   ble/base/clear-version-variables
   ble/init/clean-up 2>/dev/null # set -x 対策 #D0930
   return 1
 fi
 
 # ロード時刻の記録 (ble-update で使う為)
-: >| "$_ble_base_run/$$.load"
+>| "$_ble_base_run/$$.load"
 
 ## @fn ble/base/clean-up-runtime-directory [opts]
 ##   既に存在しないプロセスに属する実行時ファイルを削除します。*.pid のファイル
@@ -1736,7 +2037,7 @@ function ble/base/migrate-cache-directory {
   [[ $failglob ]] && shopt -s failglob
 }
 if ! ble/base/initialize-cache-directory; then
-  ble/util/print "ble.sh: failed to initialize \$_ble_base_cache." 1>&2
+  ble/util/print "ble.sh: failed to initialize \$_ble_base_cache." >&2
   ble/base/clear-version-variables
   ble/init/clean-up 2>/dev/null # set -x 対策 #D0930
   return 1
@@ -1794,7 +2095,7 @@ function ble/base/initialize-state-directory {
   ble/base/.create-user-directory _ble_base_state "$state_dir/$UID"
 }
 if ! ble/base/initialize-state-directory; then
-  ble/util/print "ble.sh: failed to initialize \$_ble_base_state." 1>&2
+  ble/util/print "ble.sh: failed to initialize \$_ble_base_state." >&2
   ble/base/clear-version-variables
   ble/init/clean-up 2>/dev/null # set -x 対策 #D0930
   return 1
@@ -1810,26 +2111,41 @@ function ble/base/print-usage-for-no-argument-command {
   return 0
 }
 function ble-reload {
-  local -a options=()
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+  local -a _ble_local_options=()
+
   [[ ! -e $_ble_base_rcfile ]] ||
-    ble/array#push options --rcfile="${_ble_base_rcfile:-/dev/null}"
+    ble/array#push _ble_local_options --rcfile="${_ble_base_rcfile:-/dev/null}"
   [[ $_ble_base_arguments_inputrc == auto ]] ||
-    ble/array#push options --inputrc="$_ble_base_arguments_inputrc"
+    ble/array#push _ble_local_options --inputrc="$_ble_base_arguments_inputrc"
+
   local name
   for name in keep-rlvars; do
     if [[ :$_ble_base_arguments_opts: == *:"$name":* ]]; then
-      ble/array#push options "--$name"
+      ble/array#push _ble_local_options "--$name"
     fi
   done
-  source "$_ble_base/ble.sh" "${options[@]}"
+  ble/util/unlocal name
+
+  ble/array#push _ble_local_options '--bash-debug-version=ignore'
+
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_leave"
+  source "$_ble_base/ble.sh" "${_ble_local_options[@]}"
 }
 
-#%$ pwd=$(pwd) q=\' Q="'\''" bash -c 'echo "_ble_base_repository=$q${pwd//$q/$Q}$q"'
-#%$ echo "_ble_base_branch=$(git rev-parse --abbrev-ref HEAD)"
+#%[quoted_repository   = "'" + getenv("PWD"               ).replace("'", "'\\''") + "'"]
+#%[quoted_branch       = "'" + getenv("BLE_GIT_BRANCH"    ).replace("'", "'\\''") + "'"]
+#%[quoted_git_version  = "'" + getenv("BUILD_GIT_VERSION" ).replace("'", "'\\''") + "'"]
+#%[quoted_make_version = "'" + getenv("BUILD_MAKE_VERSION").replace("'", "'\\''") + "'"]
+#%[quoted_gawk_version = "'" + getenv("BUILD_GAWK_VERSION").replace("'", "'\\''") + "'"]
+#%expand
+_ble_base_repository=$"quoted_repository"
+_ble_base_branch=$"quoted_branch"
 _ble_base_repository_url=https://github.com/akinomyoga/ble.sh
-#%$ echo "_ble_base_build_git_version=\"$BUILD_GIT_VERSION\""
-#%$ echo "_ble_base_build_make_version=\"$BUILD_MAKE_VERSION\""
-#%$ echo "_ble_base_build_gawk_version=\"$BUILD_GAWK_VERSION\""
+_ble_base_build_git_version=$"quoted_git_version"
+_ble_base_build_make_version=$"quoted_make_version"
+_ble_base_build_gawk_version=$"quoted_gawk_version"
+#%end.i
 function ble-update/.check-install-directory-ownership {
   if [[ ! -O $_ble_base ]]; then
     ble/util/print 'ble-update: install directory is owned by another user:' >&2
@@ -1870,9 +2186,13 @@ function ble-update/.reload {
       ble/util/print "ble-update: new ble.sh '$_ble_base/ble.sh' is empty." >&2
       return 1
     elif [[ $- == *i* && $_ble_attached ]] && ! ble/util/is-running-in-subshell; then
+      builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_leave"
       ble-reload
+      ext=$?
+      builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_enter"
+      return "$ext"
     fi
-    return "$?"
+    return 0
   fi
   ((ext==6)) && ext=0
   return "$ext"
@@ -2004,7 +2324,7 @@ function ble-update/.check-repository {
   fi
   return 1
 }
-function ble-update {
+function ble-update/.impl {
   if (($#)); then
     ble/base/print-usage-for-no-argument-command 'Update and reload ble.sh.' "$@"
     return "$?"
@@ -2054,7 +2374,7 @@ function ble-update {
     ble-update/.reload "$?"
     return "$?"
   fi
-  
+
   if ((EUID!=0)) && ! ble-update/.check-install-directory-ownership; then
     # _ble_base が自分の物でない時は sudo でやり直す
     sudo "$BASH" "$_ble_base/ble.sh" --update &&
@@ -2071,6 +2391,11 @@ function ble-update {
     return "$?"
   fi
   return 1
+}
+function ble-update {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+  ble-update/.impl "$@"
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
 }
 #%if measure_load_time
 ble/debug/measure-set-timeformat ble.pp/prologue
@@ -2091,6 +2416,7 @@ bleopt/declare -v debug_xtrace_ps4 '+ '
 ble/bin#freeze-utility-path "${_ble_init_posix_command_list[@]}" # <- this uses ble/util/assign.
 ble/bin#freeze-utility-path man
 ble/bin#freeze-utility-path groff nroff mandoc gzip bzcat lzcat xzcat # used by core-complete.sh
+ble/bin/sed/.instantiate
 
 ble/function#trace trap ble/builtin/trap ble/builtin/trap/finalize
 ble/function#trace ble/builtin/trap/.handler ble/builtin/trap/invoke ble/builtin/trap/invoke.sandbox
@@ -2102,16 +2428,74 @@ ble/builtin/trap/install-hook RETURN inactive
 # @var _ble_base_session
 # @var BLE_SESSION_ID
 function ble/base/initialize-session {
-  [[ $_ble_base_session == */"$$" ]] && return 0
-
   local ret
+  ble/string#split ret / "${_ble_base_session-}"
+  [[ ${ret[1]} == "$$" ]] && return 0
+
   ble/util/timeval; local start_time=$ret
   ((start_time-=SECONDS*1000000))
 
   _ble_base_session=${start_time::${#start_time}-6}.${start_time:${#start_time}-6}/$$
-  BLE_SESSION_ID=$_ble_base_session
+  export BLE_SESSION_ID=$_ble_base_session
 }
 ble/base/initialize-session
+
+# DEBUG version の Bash では遅いという通知
+function ble/base/check-bash-debug-version {
+  case ${BASH_VERSINFO[4]} in
+  (alp*|bet*|dev*|rc*|releng*|maint*) ;;
+  (*) return 0 ;;
+  esac
+
+  local type=check ret
+  ble/opts#extract-last-optarg "$_ble_base_arguments_opts" bash-debug-version check && type=$ret
+  [[ $type == ignore ]] && return 0
+
+  local file=$_ble_base_cache/base.bash-debug-version-checked.txt
+  local -a checked=()
+  [[ ! -d $file && -r $file && -s $file ]] && ble/util/mapfile checked < "$file"
+  if ble/array#index checked "$BASH_VERSION"; then
+    [[ $type == once ]] && return 0
+  else
+    ble/util/print "$BASH_VERSION" >> "$file"
+  fi
+
+  local sgr0=$_ble_term_sgr0
+  local sgr1=${_ble_term_setaf[4]}
+  local sgr2=${_ble_term_setaf[6]}
+  local sgr3=${_ble_term_setaf[2]}
+  local sgrC=${_ble_term_setaf[8]}
+  local bold=$_ble_term_bold
+  if [[ $type == short || $_ble_init_command ]]; then
+    ble/util/print-lines \
+      "Note: ble.sh can be very slow in a debug version of Bash: $sgr3$BASH_VERSION$sgr0"
+  else
+    ble/util/print-lines \
+      "$bold# ble.sh with debug version of Bash$sgr0" \
+      '' \
+      'ble.sh may become very slow because this is a debug version of Bash (version' \
+      "\`$sgr3$BASH_VERSION$sgr0', release status: \`$sgr3${BASH_VERSINFO[4]}$sgr0').  We recommend using" \
+      'ble.sh with a release version of Bash.  If you want to use ble.sh with a' \
+      'non-release version of Bash, it is highly recommended to build Bash with the' \
+      "configure option \`$sgr2--with-bash-malloc=no$sgr0' for practical performance:" \
+      '' \
+      "  $sgr1./configure $bold--with-bash-malloc=no$sgr0" \
+      '' \
+      'To suppress this startup warning message, please specify the option' \
+      "\`$sgr2--bash-debug-version=short$sgr0' or \`${sgr2}once$sgr0' or \`${sgr2}ignore$sgr0' to \`ble.sh':" \
+      '' \
+      "  ${sgrC}# Show a short version of the message$sgr0" \
+      "  ${sgr1}source /path/to/ble.sh $bold--bash-debug-version=short$sgr0" \
+      '' \
+      "  ${sgrC}# Do not print the warning message more than once$sgr0" \
+      "  ${sgr1}source /path/to/ble.sh $bold--bash-debug-version=once$sgr0" \
+      '' \
+      "  ${sgrC}# Show the warning message only once for each debug version of Bash$sgr0" \
+      "  ${sgr1}source /path/to/ble.sh $bold--bash-debug-version=ignore$sgr0" \
+      ''
+  fi
+}
+ble/base/check-bash-debug-version
 
 #%x inc.r|@|src/decode|
 #%x inc.r|@|src/color|
@@ -2160,8 +2544,15 @@ function ble/dispatch/.help {
     '  hook    ... alias of blehook' \
     '  sabbrev ... alias of ble-sabbrev' \
     '  palette ... alias of ble-color-show' \
+    '' \
+    '  # Diagnostics' \
+    '  summary ... Summarize the current shell setup' \
     ''
 }
+function ble/dispatch:summary {
+  ble/widget/display-shell-version
+}
+
 function ble/dispatch {
   if (($#==0)); then
     [[ $_ble_attached && ! $_ble_edit_exec_inside_userspace ]]
@@ -2185,17 +2576,47 @@ function ble/dispatch {
   (version|--version) ble/util/print "ble.sh, version $BLE_VERSION (noarch)" ;;
   (check|--test) ble/base/sub:test "$@" ;;
   (*)
-    if ble/string#match "$cmd" '^[-a-zA-Z0-9]+$' && ble/is-function "ble-$cmd"; then
-      "ble-$cmd" "$@"
-    elif ble/is-function ble/bin/ble; then
-      ble/bin/ble "$cmd" "$@"
-    else
-      ble/util/print "ble (ble.sh): unrecognized subcommand '$cmd'." >&2
-      return 2
+    if ble/string#match "$cmd" '^[-a-zA-Z0-9]+$'; then
+      if ble/is-function ble/dispatch:"$cmd"; then
+        ble/dispatch:"$cmd" "$@"
+        return "$?"
+      elif ble/is-function "ble-$cmd"; then
+        "ble-$cmd" "$@"
+        return "$?"
+      fi
     fi
+
+    if ble/is-function ble/bin/ble; then
+      # There seems to be an existing command "ble" for BLE (Bluetooth Low
+      # Energy) which has the following subcommands [1]: abort, begin,
+      # callback, characteristics, close, connect, descriptors, disable,
+      # disconnect, dread, dwrite, enable, equal, execute, expand, getrssi,
+      # info, mtu, pair, read, reconnect, scanner, services, shorten, start,
+      # stop, unpair, userdata, write.  If we receive an unknown subcommand and
+      # an external command "ble" exists, we redirect the call to the external
+      # command "ble".
+      #
+      # [1] https://www.androwish.org/home/wiki?name=ble+command
+      ble/bin/ble "$cmd" "$@"
+      return "$?"
+    fi
+
+    ble/util/print "ble (ble.sh): unrecognized subcommand '$cmd'." >&2
+    return 2
   esac
 }
-function ble { ble/dispatch "$@"; }
+function ble {
+  case ${1-} in
+  (attach|detach|update|reload)
+    # These subcommands can affect the POSIX mode, so we need to call them
+    # without the adjustment of the POSIX mode.
+    "ble-$@" ;;
+  (*)
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+    ble/dispatch "$@"
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return" ;;
+  esac
+}
 
 
 # blerc
@@ -2217,13 +2638,58 @@ function ble/base/load-rcfile {
   fi
 }
 
+# ble-attach needs to be performed at the very end of the Bash startup file.
+# However, in some environment, the terminal or the session manager would start
+# Bash with a custom startup file, and ~/.bashrc is sourced from the custom
+# startup file.  In this case, when the user puts "ble-attach" at the end of
+# ~/.bashrc, other settings would continue to be executed even after the
+# execution of "ble-attach".
+function ble/base/attach/.needs-prompt-attach {
+  local ext=1
+
+  [[ $1 == *:force:* ]] && return 1
+
+  # nix-shell loads the Bash startup file from inside its custom file "rc".
+  if [[ ${IN_NIX_SHELL-} && "${BASH_SOURCE[*]}" == */rc ]]; then
+    # We force prompt-attach when ble-attach is run inside "nix-shell rc".
+    ext=0
+  fi
+
+  if [[ ${VSCODE_INJECTION-} ]]; then
+    # VS Code also tries to source ~/.bashrc from its
+    # "shellIntegration-bash.sh". VS Code shell integration seems to set the
+    # variable "VSCODE_INJECTION" while it sources the user's startup file, and
+    # it unsets the variable after the initialization.
+    ext=0
+  elif [[ ${kitty_bash_inject-} ]]; then
+    # When the startup file is sourced from kitty's shell ingteration
+    # "kitty.bash", the variable "kitty_bash_inject" is set.  The variable is
+    # unset after the initialization.  If we find it, we cancel the manual
+    # attaching and switch to the prompt attach.
+    ext=0
+  elif [[ ${ghostty_bash_inject-} || ${__ghostty_bash_flags-} ]]; then
+    # Ghostty seems to use a shell-integration code derived from kitty's.  By
+    # the way, kitty is licensed under GPL-3.0, while Ghostty is licensed under
+    # the MIT license.  Is it allowed to include a derivative of a part of
+    # kitty in the MIT-licensed Ghostty?  It may be non-trivial whether the
+    # shell integration is an essential part of Ghostty.
+    # Note: Ghostty has updated the variable name on 2025-01-17 from
+    # "ghostty_bash_inject" to "__ghostty_bash_flags".
+    ext=0
+  fi
+
+  return "$ext"
+}
+
 ## @fn ble-attach [opts]
 function ble-attach {
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" A1-begin
 #%end.i
   if (($# >= 2)); then
-    ble/util/print-lines \
+    # Note: We may not use "ble/util/print-lines" because it can be in the
+    # POSIX mode.
+    builtin printf '%s\n' \
       'usage: ble-attach [opts]' \
       'Attach to ble.sh.' >&2
     [[ $1 != --help ]] && return 2
@@ -2242,6 +2708,9 @@ ble/debug/leakvar#check $"leakvar" A2-arg
   fi
 
   [[ ! $_ble_attached ]] || return 0
+#%if measure_load_time
+  ble/init/measure/section 'prompt'
+#%end
   _ble_attached=1
   BLE_ATTACHED=1
 
@@ -2250,40 +2719,32 @@ ble/debug/leakvar#check $"leakvar" A3-guard
 #%end.i
   # 特殊シェル設定を待避
   builtin eval -- "$_ble_bash_FUNCNEST_adjust"
-  ble/base/adjust-builtin-wrappers-1
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_adjust"
+  ble/base/adjust-builtin-wrappers
   ble/base/adjust-bash-options
-  ble/base/adjust-POSIXLY_CORRECT
-  ble/base/adjust-builtin-wrappers-2
   ble/base/adjust-BASH_REMATCH
 
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" A4-adjust
 #%end.i
-  if [[ ${IN_NIX_SHELL-} ]]; then
-    # nix-shell rc の中から実行している時は強制的に prompt-attach にする
-    if [[ "${BASH_SOURCE[*]}" == */rc && $1 != *:force:* ]]; then
-      ble/base/install-prompt-attach
-      _ble_attached=
-      BLE_ATTACHED=
-      ble/base/restore-BASH_REMATCH
-      ble/base/restore-bash-options
-      ble/base/restore-POSIXLY_CORRECT
-      ble/base/restore-builtin-wrappers
+
+  if ble/base/attach/.needs-prompt-attach; then
+    ble/base/install-prompt-attach
+    _ble_attached=
+    BLE_ATTACHED=
+    ble/base/restore-BASH_REMATCH
+    ble/base/restore-bash-options
+    ble/base/restore-builtin-wrappers
+    ble/base/restore-POSIXLY_CORRECT
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" A4b1
 #%end.i
-      builtin eval -- "$_ble_bash_FUNCNEST_restore"
-      return 0
-    fi
-
-    # nix-shell は BASH を誤った値に書き換えるので上書きする。
-    local ret
-    ble/util/readlink "/proc/$$/exe"
-    [[ -x $ret ]] && BASH=$ret
+    builtin eval -- "$_ble_bash_FUNCNEST_restore"
+    return 0
+  fi
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" A4b2
 #%end.i
-  fi
 
   # reconnect standard streams
   ble/fd/save-external-standard-streams
@@ -2291,20 +2752,34 @@ ble/debug/leakvar#check $"leakvar" A4b2
   exec 1>&"$_ble_util_fd_tui_stdout"
   exec 2>&"$_ble_util_fd_tui_stderr"
 
-  # char_width_mode=auto
-  ble/canvas/attach
+  # Terminal initialization and Terminal requests (5.0ms)
+  #   The round-trip communication will take time, so we first adjust the
+  #   terminal state and send requests.  We then calculate the first prompt,
+  #   which takes about 50ms, while waiting for the responses from the
+  #   terminal.
+  ble/util/notify-broken-locale
+  ble/term/initialize     # 0.4ms
+  ble/term/attach noflush # 2.5ms (起動時のずれ防止の為 stty -echo は早期に)
+  ble/canvas/attach       # 1.8ms (requests for char_width_mode=auto)
+  ble/util/buffer.flush   # 0.3ms
+
 #%if leakvar
-ble/debug/leakvar#check $"leakvar" A5-canvas
+ble/debug/leakvar#check $"leakvar" A5-term/init
 #%end.i
 
-  # 取り敢えずプロンプトを表示する
-  ble/term/enter      # 3ms (起動時のずれ防止の為 stty)
-  ble-edit/initialize # 3ms
-  ble-edit/attach     # 0ms (_ble_edit_PS1 他の初期化)
-  ble/canvas/panel/render # 37ms
-  ble/util/buffer.flush >&2
+  # Show the first prompt (44.7ms)
+  ble-edit/initialize       # 0.3ms
+  ble-edit/attach           # 2.1ms (_ble_edit_PS1 他の初期化)
+  ble_attach_first_prompt=1 \
+    ble/canvas/panel/render # 42ms
+  ble/util/buffer.flush     # 0.2ms
+#%if measure_load_time
+  ble/util/print >&2
+  ble/init/measure/section 'bind'
+#%end
+
 #%if leakvar
-ble/debug/leakvar#check $"leakvar" A6-term/edit
+ble/debug/leakvar#check $"leakvar" A6-edit
 #%end.i
 
   # keymap 初期化
@@ -2321,8 +2796,8 @@ ble/debug/leakvar#check $"leakvar" A7-decode
     ble/term/leave
     ble/base/restore-BASH_REMATCH
     ble/base/restore-bash-options
-    ble/base/restore-POSIXLY_CORRECT
     ble/base/restore-builtin-wrappers
+    ble/base/restore-POSIXLY_CORRECT
     builtin eval -- "$_ble_bash_FUNCNEST_restore"
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" A7b1
@@ -2354,6 +2829,9 @@ ble/debug/leakvar#check $"leakvar" A10-redraw
   # Note: ble-decode/{initialize,reset-default-keymap} 内で
   #   info を設定する事があるので表示する。
   ble/edit/info/default
+#%if measure_load_time
+  ble/init/measure/section 'idle'
+#%end
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" A11-info
 #%end.i
@@ -2365,8 +2843,10 @@ ble/debug/leakvar#check $"leakvar" A12-tail
 
 function ble-detach {
   if (($#)); then
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
     ble/base/print-usage-for-no-argument-command 'Detach from ble.sh.' "$@"
-    return "$?"
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_leave"
+    return 2
   fi
 
   [[ $_ble_attached && ! $_ble_edit_detach_flag ]] || return 1
@@ -2385,21 +2865,26 @@ function ble-detach/impl {
   READLINE_LINE='' READLINE_POINT=0
 }
 function ble-detach/message {
-  ble/util/buffer.flush >&2
-  printf '%s\n' "$@" 1>&2
+  ble/util/buffer.print-lines "$@"
+  ble/util/buffer.flush
   ble/edit/info/clear
   ble/textarea#render
-  ble/util/buffer.flush >&2
+  ble/util/buffer.flush
 }
 
 function ble/base/unload-for-reload {
   if [[ $_ble_attached ]]; then
     ble-detach/impl
     local ret
-    ble/edit/marker#instantiate 'reload' && ble/util/print "$ret" 1>&2
+    ble/edit/marker#instantiate 'reload' &&
+      ble/util/print "$ret" >&"$_ble_util_fd_tui_stderr"
     [[ $_ble_edit_detach_flag ]] ||
       _ble_edit_detach_flag=reload
   fi
+
+  # We here localize "_ble_bash" to avoid overwriting _ble_bash, which is
+  # already initialized by the new instance of ble.sh.
+  local _ble_bash=$_ble_bash
   ble/base/unload reload
   return 0
 }
@@ -2409,22 +2894,29 @@ function ble/base/unload {
 
   # Adjust environment
   local IFS=$_ble_term_IFS
-  ble/base/adjust-builtin-wrappers-1
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_adjust"
+  ble/base/adjust-builtin-wrappers
   ble/base/adjust-bash-options
-  ble/base/adjust-POSIXLY_CORRECT
-  ble/base/adjust-builtin-wrappers-2
   ble/base/adjust-BASH_REMATCH
 
+  # src/edit.sh
+  ble-edit/bind/clear-keymap-definition-loader
+  ble/widget/.bell/.clear-DECSCNM
+
+  # decode.sh
+  ble/decode/keymap#unload
+
+  # src/util.sh
   ble/term/stty/TRAPEXIT "$1"
   ble/term/leave
-  ble/util/buffer.flush >&2
+  ble/util/buffer.flush
   blehook/invoke unload
-  ble/decode/keymap#unload
-  ble-edit/bind/clear-keymap-definition-loader
   ble/builtin/trap/finalize "$1"
   ble/util/import/finalize
+
+  # main
   ble/base/clean-up-runtime-directory finalize
-  ble/fd#finalize
+  ble/fd#finalize # this is used by the above function
   ble/base/clear-version-variables
   return 0
 } 0<&"$_ble_util_fd_tui_stdin" 1>&"$_ble_util_fd_tui_stdout" 2>&"$_ble_util_fd_tui_stderr"
@@ -2448,7 +2940,15 @@ function ble/base/install-prompt-attach {
   _ble_base_attach_from_prompt=1
   if ((_ble_bash>=50100)); then
     ((${#PROMPT_COMMAND[@]})) || PROMPT_COMMAND[0]=
-    ble/array#push PROMPT_COMMAND ble/base/attach-from-PROMPT_COMMAND
+
+    local prompt_command=ble/base/attach-from-PROMPT_COMMAND
+    if ((_ble_bash>=50300)); then
+      local prompt_command_new=ble::base::attach-from-PROMPT_COMMAND
+      ble/function#copy "$prompt_command" "$prompt_command_new" &&
+        prompt_command=$prompt_command_new
+    fi
+    ble/array#push PROMPT_COMMAND "$prompt_command"
+
     if [[ $_ble_edit_detach_flag == reload ]]; then
       _ble_edit_detach_flag=prompt-attach
       blehook internal_PRECMD!=ble/base/attach-from-PROMPT_COMMAND
@@ -2456,8 +2956,16 @@ function ble/base/install-prompt-attach {
   else
     local save_index=${#_ble_base_attach_PROMPT_COMMAND[@]}
     _ble_base_attach_PROMPT_COMMAND[save_index]=${PROMPT_COMMAND-}
-    ble/function#lambda PROMPT_COMMAND \
-                        "ble/base/attach-from-PROMPT_COMMAND $save_index \"\$FUNCNAME\""
+    # Note: We adjust FUNCNEST and POSIXLY_CORRECT but do not need to be
+    # restore them here because "ble/base/attach-from-PROMPT_COMMAND" fails
+    # only when "ble-attach" fails, in such a case "ble-attach" already restore
+    # them.
+    ble/function#lambda PROMPT_COMMAND '
+      local _ble_local_lastexit=$? _ble_local_lastarg=$_
+      builtin eval -- "$_ble_bash_FUNCNEST_adjust"
+      builtin eval -- "$_ble_bash_POSIXLY_CORRECT_adjust"
+      ble/util/setexit "$_ble_local_lastexit" "$_ble_local_lastarg"
+      ble/base/attach-from-PROMPT_COMMAND '"$save_index"' "'"$FUNCNAME"'"'
     ble/function#trace "$PROMPT_COMMAND"
     if [[ $_ble_edit_detach_flag == reload ]]; then
       _ble_edit_detach_flag=prompt-attach
@@ -2476,6 +2984,9 @@ function ble/base/attach-from-PROMPT_COMMAND {
     _ble_base_attach_from_prompt_lastexit=$? \
       _ble_base_attach_from_prompt_lastarg=$_ \
       _ble_base_attach_from_prompt_PIPESTATUS=("${PIPESTATUS[@]}")
+
+    builtin eval -- "$_ble_bash_FUNCNEST_adjust"
+
 #%if measure_load_time
     ble/util/print "ble.sh: $EPOCHREALTIME start prompt-attach" >&2
 #%end
@@ -2490,19 +3001,19 @@ function ble/base/attach-from-PROMPT_COMMAND {
 
     local is_last_PROMPT_COMMAND=1
     if (($#==0)); then
-      if local ret; ble/array#index PROMPT_COMMAND ble/base/attach-from-PROMPT_COMMAND; then
+      if local ret; ble/array#index PROMPT_COMMAND "$FUNCNAME"; then
         local keys; keys=("${!PROMPT_COMMAND[@]}")
         ((ret==keys[${#keys[@]}-1])) || is_last_PROMPT_COMMAND=
-        ble/idict#replace PROMPT_COMMAND ble/base/attach-from-PROMPT_COMMAND
+        ble/idict#replace PROMPT_COMMAND "$FUNCNAME"
       fi
-      blehook internal_PRECMD-=ble/base/attach-from-PROMPT_COMMAND || ((1)) # set -e 対策
+      blehook internal_PRECMD-="$FUNCNAME" || ((1)) # set -e 対策
     else
       local save_index=$1 lambda=$2
 
       # 待避していた内容を復元・実行
       local PROMPT_COMMAND=${_ble_base_attach_PROMPT_COMMAND[save_index]}
       local ble_base_attach_from_prompt_command=processing
-      ble/prompt/update/.eval-prompt_command 2>&3
+      ble/prompt/update/.eval-prompt_command 2>&"$_ble_util_fd_tui_stderr"
       ble/util/unlocal ble_base_attach_from_prompt_command
       _ble_base_attach_PROMPT_COMMAND[save_index]=$PROMPT_COMMAND
       ble/util/unlocal PROMPT_COMMAND
@@ -2515,9 +3026,9 @@ function ble/base/attach-from-PROMPT_COMMAND {
         is_last_PROMPT_COMMAND=
       fi
 
-      # #D1354: 入れ子の ble/base/attach-from-PROMPT_COMMAND の時は一番
-      #   外側で ble-attach を実行する様にする。3>&2 2>/dev/null のリダ
-      #   イレクトにより stdout.off の効果が巻き戻されるのを防ぐ為。
+      # #D1354: 入れ子の ble/base/attach-from-PROMPT_COMMAND の時は一番外側で
+      #   ble-attach を実行する様にする。2>/dev/null のリダイレクトにより
+      #   stdout.off の効果が巻き戻されるのを防ぐ為。
       [[ ${ble_base_attach_from_prompt_command-} != processing ]] || return 0
     fi
 
@@ -2539,9 +3050,16 @@ function ble/base/attach-from-PROMPT_COMMAND {
       ble-edit/exec:gexec/invoke-hook-with-setexit PRECMD
       _ble_prompt_hash=$COLUMNS:$_ble_edit_lineno:prompt_attach
     fi
-  } 3>&2 2>/dev/null # set -x 対策 #D0930
+  } 2>/dev/null # set -x 対策 #D0930
 
-  ble-attach force
+  ble-attach force; local ext=$?
+
+  # Note: When POSIXLY_CORRECT is adjusted outside this function, and when
+  # "ble-attach force" fails, the adjusted POSIXLY_CORRECT may be restored.
+  # For such a case, we need to locally adjust POSIXLY_CORRECT to work around
+  # 5.3 function names with a slash.
+  builtin eval -- "$_ble_bash_FUNCNEST_local_adjust"
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
 
   # Note: 何故か分からないが PROMPT_COMMAND から ble-attach すると
   # ble/bin/stty や ble/bin/mkfifo や tty 2>/dev/null などが
@@ -2552,6 +3070,10 @@ function ble/base/attach-from-PROMPT_COMMAND {
 #%if measure_load_time
   ble/util/print "ble.sh: $EPOCHREALTIME end prompt-attach" >&2
 #%end
+
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_leave"
+  builtin eval -- "$_ble_bash_FUNCNEST_local_leave"
+  return "$?"
 }
 
 function ble/base/process-blesh-arguments {
@@ -2591,8 +3113,10 @@ function ble/base/sub:test {
 
   if (($#==0)); then
     set -- bash main util canvas decode edit syntax complete keymap.vi
-    logfile=$_ble_base_cache/test.$(date +'%Y%m%d.%H%M%S').log
-    : >| "$logfile"
+    local timestamp
+    ble/util/strftime -v timestamp '%Y%m%d.%H%M%S'
+    logfile=$_ble_base_cache/test.$timestamp.log
+    >| "$logfile"
     ble/test/log#open "$logfile"
   fi
 
@@ -2681,7 +3205,7 @@ function ble/base/sub:install {
     return 1
   fi
 }
-function ble/base/sub:lib { :; } # do nothing
+function ble/base/sub:lib { return 0; } # do nothing
 
 #%if measure_load_time
 ble/debug/measure-set-timeformat ble.pp/epilogue; }
@@ -2712,9 +3236,9 @@ else
 fi
 
 #%if measure_load_time
-ble/debug/measure-set-timeformat Total nofork; }
+ble/debug/measure-set-timeformat 'Total' nofork; }
 _ble_init_exit=$?
-echo "ble.sh: $EPOCHREALTIME load end" >&2
+[[ ${BLE_ATTACHED-} ]] || ble/init/measure/section 'wait'
 ble/util/setexit "$_ble_init_exit"
 #%end
 

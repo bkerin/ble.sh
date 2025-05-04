@@ -30,12 +30,10 @@ function ble-sabbrev {
   blehook/eval-after-load complete "$ret"
 }
 
-if ! declare -p _ble_complete_sabbrev_wordwise &>/dev/null; then # reload #D0875
-  builtin eval -- "${_ble_util_gdict_declare//NAME/_ble_complete_sabbrev_wordwise}"
+if ! declare -p _ble_complete_sabbrev &>/dev/null; then # reload #D0875
+  _ble_complete_sabbrev_version=0
+  builtin eval -- "${_ble_util_gdict_declare//NAME/_ble_complete_sabbrev}"
 fi
-
-declare -p _ble_complete_sabbrev_literal &>/dev/null ||
-  builtin eval -- "${_ble_util_gdict_declare//NAME/_ble_complete_sabbrev_literal}"
 
 #------------------------------------------------------------------------------
 # 設定変数
@@ -69,7 +67,7 @@ bleopt/declare -v complete_requote_threshold 0
 bleopt/declare -n complete_menu_style align-nowrap
 function bleopt/check:complete_menu_style {
   [[ $value == desc-raw ]] && value=desc
-  if ! ble/is-function "ble/complete/menu-style:$value/construct-page"; then
+  if ! ble/is-function ble/complete/menu-style:"$value"/construct-page; then
     ble/util/print-lines \
       "bleopt: Invalid value complete_menu_style='$value'." \
       "  A function 'ble/complete/menu-style:$value/construct-page' is not defined." >&2
@@ -81,12 +79,19 @@ function bleopt/check:complete_menu_style {
 ble/util/autoload "$_ble_base/lib/core-complete.sh" \
                   ble/complete/menu-style:{align,dense}{,-nowrap}/construct-page \
                   ble/complete/menu-style:linewise/construct-page \
-                  ble/complete/menu-style:desc{,-raw}/construct-page
+                  ble/complete/menu-style:desc{,-text,-raw}/construct-page
 
 bleopt/declare -v complete_menu_complete 1
 bleopt/declare -v complete_menu_complete_opts 'insert-selection'
 bleopt/declare -v complete_menu_filter 1
 bleopt/declare -v complete_menu_maxlines '-1'
+
+function bleopt/check:complete_menu_complete_opts {
+  if [[ :$value: == *:hidden:* && :$value: != *:insert-selection:* ]]; then
+    value=$value:insert-selection
+  fi
+  return 0
+}
 
 bleopt/declare -v complete_skip_matched     on
 bleopt/declare -v complete_menu_color       on
@@ -117,7 +122,8 @@ ble/util/autoload "$_ble_base/lib/core-complete.sh" \
                   ble-decode/keymap:menu_complete/define \
                   ble-decode/keymap:dabbrev/define \
                   ble/complete/sabbrev/expand \
-                  ble/complete/alias/expand
+                  ble/complete/expand:alias \
+                  ble/complete/expand:autocd
 
 bleopt/declare -v complete_source_sabbrev_opts ''
 bleopt/declare -v complete_source_sabbrev_ignore ''
@@ -141,3 +147,10 @@ ble/color/defface cmdinfo_cd_cdpath fg=26,bg=155
 # ble/color/defface menu_filter_input bg=147,bold
 ble/color/defface menu_filter_fixed bold
 ble/color/defface menu_filter_input fg=16,bg=229
+
+ble/color/defface menu_desc_default none
+ble/color/defface menu_desc_type    ref:syntax_delimiter
+ble/color/defface menu_desc_quote   ref:syntax_quoted
+
+ble/color/defface menu_complete_match    bold
+ble/color/defface menu_complete_selected reverse

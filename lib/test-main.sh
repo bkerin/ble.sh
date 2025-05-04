@@ -2,7 +2,30 @@
 
 ble-import lib/core-test
 
-ble/test/start-section 'ble/main' 19
+ble/test/start-section 'ble/main' 29
+
+(
+  function f1 {
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+    ble/util/setexit 123
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
+  }
+  function f2 {
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+    [[ ! -o posix ]]
+    builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
+  }
+  set +o posix
+  ble/test 'f1' exit=123
+  ble/test 'f2'
+  ble/test 'f1; [[ ! -o posix ]]'
+  ble/test 'f2; [[ ! -o posix ]]'
+
+  ble/test 'set -o posix; f1;                 ret=$?; set +o posix' ret=123
+  ble/test 'set -o posix; f2;                 ret=$?; set +o posix' ret=0
+  ble/test 'set -o posix; f1; [[ -o posix ]]; ret=$?; set +o posix' ret=0
+  ble/test 'set -o posix; f2; [[ -o posix ]]; ret=$?; set +o posix' ret=0
+)
 
 # ble/util/{put,print}
 (
@@ -26,6 +49,14 @@ ble/test/start-section 'ble/main' 19
   ble/test ble/bin#has ble/test/dummy-{1..3}
   ble/test ble/bin#has ble/test/dummy-0 exit=1
   ble/test ble/bin#has ble/test/dummy-{0..2} exit=1
+
+  # Note (#D1715): ble/bin#has should reflect "shopt -s expand_aliases" for the
+  # aliases.
+  alias ble_test_dummy_4=echo
+  shopt -u expand_aliases
+  ble/test '! ble/bin#has ble_test_dummy_4'
+  shopt -s expand_aliases
+  ble/test 'ble/bin#has ble_test_dummy_4'
 )
 
 # ble/util/readlink
@@ -46,7 +77,7 @@ ble/test/start-section 'ble/main' 19
     ble/function#pop ble/bin/readlink
   }
 
-  ble/test/chdir
+  ble/test/chdir || exit
   cd -P .
 
   command mkdir -p ab/cd/ef

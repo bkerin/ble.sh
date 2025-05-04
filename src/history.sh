@@ -49,7 +49,7 @@ function ble/builtin/history/is-empty {
 ##   する。実際に SIGSEGV で終了した時に履歴ファイルを確認して問題の行番号を出
 ##   力する。
 if ((_ble_bash>=50000)); then
-  function ble/builtin/history/.check-timestamp-sigsegv { :; }
+  function ble/builtin/history/.check-timestamp-sigsegv { return 0; }
 else
   function ble/builtin/history/.check-timestamp-sigsegv {
     local stat=$1
@@ -127,7 +127,7 @@ if ((_ble_bash>=50200)); then
       # following command produces SIGPIPE because "head -1" or "sed 1q"
       # terminates prematurely.  To prevent Bash from changing the TTY state on
       # exit, we intentionally run the following command in a subshell.
-      ble/string#split-words min "$(builtin history | ble/bin/sed -n '1{p;q;}')"
+      ble/string#split-words min "$(builtin history | ble/bin/sed -n '1{p;q;}')" # subshell
     else
       ble/util/assign-words min 'builtin history | ble/bin/sed -n "1{p;q;}"'
     fi
@@ -250,12 +250,12 @@ if ((_ble_bash>=40000)); then
 
         if (opt_null) {
           if (t ~ /^eval -- \$'"$apos"'([^'"$apos"'\\]|\\.)*'"$apos"'$/)
-            t = es_unescape(substr(t, 11, length(t) - 11));
+            t = es_unescape(substr(t, 11, length(t) - 11)); # disable=#D1440 (\c? is unsed)
           printf("%s%c", t, 0);
 
         } else if (opt_source) {
           if (t ~ /^eval -- \$'"$apos"'([^'"$apos"'\\]|\\.)*'"$apos"'$/)
-            t = es_unescape(substr(t, 11, length(t) - 11));
+            t = es_unescape(substr(t, 11, length(t) - 11)); # disable=#D1440 (\c? is unsed)
           gsub(/'"$apos"'/, "'"$apos"'\\'"$apos$apos"'", t);
           print "_ble_history[" hindex "]=" apos t apos;
 
@@ -342,7 +342,7 @@ if ((_ble_bash>=40000)); then
             _ble_history_load_bgpid=
           fi
 
-          : >| "$history_tmpfile"
+          >| "$history_tmpfile"
           if [[ $opt_async ]]; then
             _ble_history_load_bgpid=$(ble/util/nohup 'ble/history:bash/load/.background-initialize' print-bgpid)
 
@@ -399,7 +399,7 @@ if ((_ble_bash>=40000)); then
           else
             builtin mapfile -O "$arg_offset" -t -d '' _ble_history_edit < "$history_tmpfile"
           fi
-          : >| "$history_tmpfile"
+          >| "$history_tmpfile"
 
           if [[ $load_strategy != nlfix ]]; then
             ((_ble_history_load_resume+=3))
@@ -504,7 +504,7 @@ else
     # * プロセス置換にしてもファイルに書き出しても大した違いはない。
     #   270ms for 16437 entries (generate-source の時間は除く)
     # * プロセス置換×source は bash-3 で動かない。eval に変更する。
-    local result=$(ble/history:bash/load/.generate-source)
+    local result=$(ble/history:bash/load/.generate-source) # subshell
     local IFS=$_ble_term_IFS
     if [[ $opt_append ]]; then
       if ((_ble_bash>=30100)); then
@@ -729,7 +729,7 @@ if ((_ble_bash>=30100)); then
   ##   @var[in] tmpfile_base
   function ble/history:bash/resolve-multiline/.cleanup {
     local file
-    for file in "$tmpfile_base".*; do : >| "$file"; done
+    for file in "$tmpfile_base".*; do >| "$file"; done
   }
   function ble/history:bash/resolve-multiline/.worker {
     local HISTTIMEFORMAT=__ble_time_%s__
@@ -780,7 +780,7 @@ if ((_ble_bash>=30100)); then
           _ble_history_mlfix_bgpid=
         fi
 
-        : >| "$history_tmpfile"
+        >| "$history_tmpfile"
         if [[ $opt_async ]]; then
           _ble_history_mlfix_bgpid=$(ble/util/nohup 'ble/history:bash/resolve-multiline/.worker' print-bgpid)
 
@@ -851,7 +851,7 @@ if ((_ble_bash>=30100)); then
   }
 else
   function ble/history:bash/resolve-multiline/readfile { builtin history -r "$filename"; }
-  function ble/history:bash/resolve-multiline { ((1)); }
+  function ble/history:bash/resolve-multiline { return 0; }
 fi
 
 # Note: 複数行コマンドは eval -- $'' の形に変換して
@@ -890,7 +890,7 @@ function ble/history:bash/reset {
 
 function ble/builtin/history/.touch-histfile {
   local touch=$_ble_base_run/$$.history.touch
-  : >| "$touch"
+  >| "$touch"
 }
 
 # in def.sh
@@ -951,7 +951,7 @@ function ble/builtin/history/.initialize {
   _ble_builtin_history_initialized=1
 
   local histnew=$_ble_base_run/$$.history.new
-  : >| "$histnew"
+  >| "$histnew"
 
   if [[ $line ]]; then
     # Note: #D1126 ble.sh ロード前に追加された履歴項目があれば保存する。
@@ -960,7 +960,7 @@ function ble/builtin/history/.initialize {
     HISTTIMEFORMAT=1 builtin history -a "$histini"
     if [[ -s $histini ]]; then
       ble/bin/sed '/^#\([0-9].*\)/{s//    0  __ble_time_\1__/;N;s/\n//;}' "$histini" >> "$histapp"
-      : >| "$histini"
+      >| "$histini"
     fi
   else
     # 履歴が読み込まれていなければ強制的に読み込む
@@ -968,7 +968,7 @@ function ble/builtin/history/.initialize {
   fi
 
   local histfile=${HISTFILE-} rskip=0
-  [[ -e $histfile ]] && rskip=$(ble/bin/wc -l "$histfile" 2>/dev/null)
+  [[ -e $histfile ]] && ble/util/assign rskip 'ble/bin/wc -l "$histfile" 2>/dev/null'
   ble/string#split-words rskip "$rskip"
   local min; ble/builtin/history/.get-min
   local max; ble/builtin/history/.get-max
@@ -1044,23 +1044,22 @@ function ble/builtin/history/.read {
   local file=$1 skip=${2:-0} fetch=$3
   local -x histnew=$_ble_base_run/$$.history.new
   if [[ -s $file ]]; then
-    local script=$(ble/bin/awk -v skip="$skip" '
+    local awk_script='
       BEGIN { histnew = ENVIRON["histnew"]; count = 0; }
       NR <= skip { next; }
       { print $0 >> histnew; count++; }
       END {
         print "ble/builtin/history/.set-rskip \"$file\" " NR;
         print "((_ble_builtin_history_histnew_count+=" count "))";
-      }
-    ' "$file")
-    builtin eval -- "$script"
+      }'
+    ble/util/eval-stdout 'ble/bin/awk -v skip="$skip" "$awk_script" "$file"'
   else
     ble/builtin/history/.set-rskip "$file" 0
   fi
   if [[ ! $fetch && -s $histnew ]]; then
     local nline=$_ble_builtin_history_histnew_count
     ble/history:bash/resolve-multiline/readfile "$histnew"
-    : >| "$histnew"
+    >| "$histnew"
     _ble_builtin_history_histnew_count=0
     ble/builtin/history/.load-recent-entries "$nline"
     local max; ble/builtin/history/.get-max
@@ -1091,9 +1090,9 @@ function ble/builtin/history/.write {
   fi
 
   if [[ ! -e $file ]]; then
-    (umask 077; : >| "$file")
+    (umask 077; >| "$file")
   elif [[ :$opts: != *:append:* ]]; then
-    : >| "$file"
+    >| "$file"
   fi
 
   if [[ :$opts: != *:fetch:* && -s $histapp ]]; then
@@ -1144,7 +1143,7 @@ function ble/builtin/history/.write {
       END { flush_line(); }
     '
     ble/builtin/history/.add-rskip "$file" "$_ble_builtin_history_histapp_count"
-    : >| "$histapp"
+    >| "$histapp"
     _ble_builtin_history_histapp_count=0
   fi
   _ble_builtin_history_wskip=$max
@@ -1310,7 +1309,7 @@ function ble/builtin/history/option:n {
   if [[ $histfile == ${HISTFILE-} ]]; then
     local touch=$_ble_base_run/$$.history.touch
     [[ $touch -nt ${HISTFILE-} ]] && return 0
-    : >| "$touch"
+    >| "$touch"
   fi
 
   ble/builtin/history/.initialize
@@ -1354,7 +1353,7 @@ function ble/builtin/history/option:p {
   builtin history -p -- '' &>/dev/null
   ble/util/assign line2 'HISTTIMEFORMAT= builtin history 1'
   if [[ $line1 != "$line2" ]]; then
-    local rex_head='^[[:space:]]*[0-9]+\*?[[:space:]]*'
+    local rex_head='^[[:blank:]]*[0-9]+\*?[[:blank:]]*'
     [[ $line1 =~ $rex_head ]] &&
       line1=${line1:${#BASH_REMATCH}}
 
@@ -1537,7 +1536,7 @@ function ble/builtin/history/erasedups/.impl-awk {
         for (i = 1; i <= n; i++) {
           elem = hist[indices[i]];
           if (elem ~ /^\$'\''.*'\''/)
-            hist[indices[i]] = es_unescape(substr(elem, 3, length(elem) - 3));
+            hist[indices[i]] = es_unescape(substr(elem, 3, length(elem) - 3)); # disable=#D1440 (\c? is unsed)
         }
         n = hist_index - 1;
         hist_index = 0;
@@ -1548,7 +1547,7 @@ function ble/builtin/history/erasedups/.impl-awk {
         for (i = 1; i <= n; i++) {
           elem = edit[indices[i]];
           if (elem ~ /^\$'\''.*'\''/)
-            edit[indices[i]] = es_unescape(substr(elem, 3, length(elem) - 3));
+            edit[indices[i]] = es_unescape(substr(elem, 3, length(elem) - 3)); # disable=#D1440 (\c? is unsed)
         }
         n = edit_index - 1;
         edit_index = 0;
@@ -1869,7 +1868,11 @@ function ble/builtin/history {
   ble/base/.restore-bash-options set shopt
   return "$ext"
 }
-function history { ble/builtin/history "$@"; }
+function history {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+  ble/builtin/history "$@"
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
+}
 
 #==============================================================================
 # ble/history                                                          @history
@@ -1993,6 +1996,42 @@ function ble/history/set-edited-entry {
   builtin eval -- "${code//PREFIX/${_ble_history_prefix:-_ble}}"
 }
 
+
+## @fn ble/history/revert-edits
+##   This function reverts the temporary editing of the current history.
+function ble/history/revert-edits {
+  if [[ $_ble_history_prefix ]]; then
+    local code='
+      # PREFIX_history_edit を未編集状態に戻す
+      local index
+      for index in "${!PREFIX_history_dirt[@]}"; do
+        PREFIX_history_edit[index]=${PREFIX_history[index]}
+      done
+      PREFIX_history_dirt=()
+
+      local topIndex=${#PREFIX_history[@]}
+      _ble_history_COUNT=$topIndex
+      _ble_history_INDEX=$topIndex'
+    builtin eval -- "${code//PREFIX/$_ble_history_prefix}"
+  else
+    if [[ $_ble_history_load_done ]]; then
+      # 登録・不登録に拘わらず取り敢えず初期化
+      _ble_history_index=${#_ble_history[@]}
+      ble/history/.update-position
+
+      # _ble_history_edit を未編集状態に戻す
+      local index
+      for index in "${!_ble_history_dirt[@]}"; do
+        _ble_history_edit[index]=${_ble_history[index]}
+      done
+      _ble_history_dirt=()
+
+      # 同時に _ble_edit_undo も初期化する。
+      ble-edit/undo/clear-all
+    fi
+  fi
+}
+
 ## @fn ble/history/.add-command-history command
 ## @var[in,out] HISTINDEX_NEXT
 ##   used by ble/widget/accept-and-next to get modified next-entry positions
@@ -2002,22 +2041,6 @@ function ble/history/.add-command-history {
 
   # Note: mc (midnight commander) が初期化スクリプトを送ってくる #D1392
   [[ $MC_SID == $$ && $_ble_edit_LINENO -le 2 && ( $1 == *PROMPT_COMMAND=* || $1 == *PS1=* ) ]] && return 1
-
-  if [[ $_ble_history_load_done ]]; then
-    # 登録・不登録に拘わらず取り敢えず初期化
-    _ble_history_index=${#_ble_history[@]}
-    ble/history/.update-position
-
-    # _ble_history_edit を未編集状態に戻す
-    local index
-    for index in "${!_ble_history_dirt[@]}"; do
-      _ble_history_edit[index]=${_ble_history[index]}
-    done
-    _ble_history_dirt=()
-
-    # 同時に _ble_edit_undo も初期化する。
-    ble-edit/undo/clear-all
-  fi
 
   if [[ $bleopt_history_share ]]; then
     ble/builtin/history/option:n
@@ -2033,15 +2056,9 @@ function ble/history/add {
   local command=$1
   ((bleopt_history_limit_length>0&&${#command}>bleopt_history_limit_length)) && return 1
 
+  ble/history/revert-edits
   if [[ $_ble_history_prefix ]]; then
     local code='
-      # PREFIX_history_edit を未編集状態に戻す
-      local index
-      for index in "${!PREFIX_history_dirt[@]}"; do
-        PREFIX_history_edit[index]=${PREFIX_history[index]}
-      done
-      PREFIX_history_dirt=()
-
       local topIndex=${#PREFIX_history[@]}
       PREFIX_history[topIndex]=$command
       PREFIX_history_edit[topIndex]=$command

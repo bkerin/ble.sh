@@ -106,8 +106,15 @@ _ble_decode_Macr=0x20000000
 _ble_decode_Flag3=0x10000000 # unused
 _ble_decode_FlagA=0x00200000 # unused
 
-_ble_decode_IsolatedESC=$((0x07FC))
-_ble_decode_EscapedNUL=$((0x07FB)) # charlog#encode で用いる
+# Note: When receiving the function keys in the form of "ESC O A" in bash <=
+#   4.4, ble/util/is-stdin-ready always fails (probably due to the internal
+#   processing of the cursor keys by Readline).  Thus, we cannot naively judge
+#   whether the received "ESC O" means M-O or a prefix of the function-key
+#   sequences.  We instead use the following codepoint to receive the prefix
+#   "ESC O".
+_ble_decode_IsolatedESC=$((0x07BC))
+_ble_decode_EscapedNUL=$((0x07BB)) # Used by charlog#encode
+_ble_decode_PrefixO=$((0x07BA)) # Used to detect "ESC O A" in bash <= 4.4
 _ble_decode_FunctionKeyBase=0x110000
 
 ## @fn ble/decode/mod2flag mod
@@ -176,7 +183,7 @@ function ble-decode-kbd/.get-keyname {
 ## @fn ble-decode-kbd/generate-keycode keyname
 ##   指定した名前に対応する keycode を取得します。
 ##   指定した名前の key が登録されていない場合は、
-##   新しく kecode を割り当てて返します。
+##   新しく keycode を割り当てて返します。
 ##   @param[in]  keyname keyname
 ##   @var  [out] ret     keycode
 function ble-decode-kbd/generate-keycode {
@@ -272,6 +279,7 @@ function ble-decode-kbd/.initialize {
 
   ble-decode-kbd/.set-keycode @ESC "$_ble_decode_IsolatedESC"
   ble-decode-kbd/.set-keycode @NUL "$_ble_decode_EscapedNUL"
+  ble-decode-kbd/.set-keycode @PrO "$_ble_decode_PrefixO"
 
   local ret
   ble-decode-kbd/generate-keycode __batch_char__
@@ -515,8 +523,8 @@ function ble/decode/keys2chars {
 
 ## @fn[custom] ble-decode/PROLOGUE
 ## @fn[custom] ble-decode/EPILOGUE
-function ble-decode/PROLOGUE { :; }
-function ble-decode/EPILOGUE { :; }
+function ble-decode/PROLOGUE { return 0; }
+function ble-decode/EPILOGUE { return 0; }
 
 _ble_decode_input_buffer=()
 _ble_decode_input_count=0
@@ -724,19 +732,23 @@ function ble-decode/.hook/adjust-volatile-options {
   if [[ $_ble_bash_options_adjusted ]]; then
     set +ev
   fi
-  if [[ $_ble_bash_POSIXLY_CORRECT_adjusted && ${POSIXLY_CORRECT+set} ]]; then
-    set +o posix
-    ble/base/workaround-POSIXLY_CORRECT
-  fi
+  # Note (#D2221): We moved « builtin eval --
+  # "$_ble_bash_POSIXLY_CORRECT_unset" » outside this function because of 5.3
+  # slash in function names.
 }
 
 ## @var _ble_decode_hook_count
-##   これまでに呼び出された ble-decode/.hook の回数を記録する。(同じ
+##   これまでに呼び出された _ble_decode_hook の回数を記録する。(同じ
 ##   bash プロセス内の前の ble.sh session も含めて) 今までに一度も呼び
 ##   出された事がない場合には空文字列を設定する。
 _ble_decode_hook_count=${_ble_decode_hook_count:+0}
 _ble_decode_hook_Processing=
-function ble-decode/.hook {
+## @fn _ble_decode_hook bytes...
+##   Note (#D2221): We have been used the function name "ble-decode/.hook", but
+##   we now need to switch to "_ble_decode_hook" because Bash 5.3 started to
+##   ignore function names with slashes in the POSIX mode.
+function _ble_decode_hook {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_unset"
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" H0-begin
 #%end.i
@@ -755,10 +767,10 @@ ble/debug/leakvar#check $"leakvar" H0-begin
 
       # その場で標準入力を読み切る
       local char=${_ble_decode_input_buffer[buflen-1]}
-      if ((_ble_bash<40000||char==0xC0||char==0xDF)); then
+      if ((_ble_bash<40000||char==0xC0||char==0xDE)); then
         # Note: これらの文字は bind -s マクロの非終端文字 (0xC0 for two-byte
-        # representations of C0 characters in the form \xC0\x??, 0xDF for
-        # Isolated ESC U+07FC represented as \xDF\xBC)。現在マクロの処理中であ
+        # representations of C0 characters in the form \xC0\x??, 0xDE for
+        # Isolated ESC U+07BC represented as \xDE\xBC)。現在マクロの処理中であ
         # る可能性があるので標準入力から読み取るとバイトの順序が変わる可能性が
         # ある。従って読み取りは行わない。
         builtin eval -- "$_ble_decode_show_progress_hook"
@@ -778,7 +790,7 @@ ble/debug/leakvar#check $"leakvar" H0b1-1
 
       local ret
       ble/array#pop _ble_decode_input_buffer
-      ble-decode/.hook "$ret"
+      _ble_decode_hook "$ret"
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" H0b1-2
 #%end.i
@@ -834,7 +846,7 @@ ble/debug/leakvar#check $"leakvar" H2-abort
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" "[H3b1: before decode $chars...]"
 #%end.i
-      "ble/encoding:$bleopt_input_encoding/decode" "${chars[@]:i:B}"
+      ble/encoding:"$bleopt_input_encoding/decode" "${chars[@]:i:B}"
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" "[H3b1: after decode $chars...]"
 #%end.i
@@ -849,7 +861,7 @@ ble/debug/leakvar#check $"leakvar" "[H3b1: after decode $chars...]"
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" "[H3b2: before decode $c]"
 #%end.i
-      "ble/encoding:$bleopt_input_encoding/decode" "$c"
+      ble/encoding:"$bleopt_input_encoding/decode" "$c"
 #%if leakvar
 ble/debug/leakvar#check $"leakvar" "[H3b2: after decode $c]"
 #%end.i
@@ -880,7 +892,7 @@ ble/debug/leakvar#check $"leakvar" H4-EPILOGUE
 ##     この関数はユーザが呼び出す事を想定した関数です。
 function ble-decode-byte {
   while (($#)); do
-    "ble/encoding:$bleopt_input_encoding/decode" "$1"
+    ble/encoding:"$bleopt_input_encoding"/decode "$1"
     shift
   done
 }
@@ -1141,7 +1153,7 @@ function ble-decode-char/csi/consume {
 _ble_decode_char_buffer=()
 function ble/decode/has-input-for-char {
   ((_ble_decode_input_count)) ||
-    ble/util/is-stdin-ready ||
+    { [[ ! $ble_decode_char_sync ]] && ble/util/is-stdin-ready; } ||
     ble/encoding:"$bleopt_input_encoding"/is-intermediate
 }
 
@@ -1160,8 +1172,10 @@ _ble_decode_cmap_=()
 # _ble_decode_char__seq が設定されている時は、
 # 必ず _ble_decode_char2_reach_key も設定されている様にする。
 _ble_decode_char2_seq=
+_ble_decode_char2_keylog=()
 _ble_decode_char2_reach_key=
 _ble_decode_char2_reach_seq=
+_ble_decode_char2_reach_keylog=()
 _ble_decode_char2_modifier=
 _ble_decode_char2_modkcode=
 _ble_decode_char2_modseq=()
@@ -1176,10 +1190,10 @@ function ble-decode-char {
   local iloop=0
   local ble_decode_char_total=$#
   local ble_decode_char_rest=$#
-  local ble_decode_char_char=
+  local ble_decode_char_rchar=
   # Note: ループ中で set -- ... を使っている。
 
-  local chars ichar char ent
+  local chars ichar rchar char ent
   chars=("$@") ichar=0
   while
     if ((iloop++%50==0)); then
@@ -1199,19 +1213,11 @@ function ble-decode-char {
     fi
     ((ble_decode_char_rest))
   do
-    char=${chars[ichar]}
-    ble_decode_char_char=$char # 補正前 char (_ble_decode_Macr 判定の為)
+    rchar=${chars[ichar]} # raw char
+    ble_decode_char_rchar=$rchar # used by ble/widget/.MACRO to test _ble_decode_Macr
+    ((char=rchar&~_ble_decode_Macr))
+    ((char==_ble_decode_PrefixO)) && char=79 # Prefix O -> O
     ((ble_decode_char_rest--,ichar++))
-#%if debug_keylogger
-    ((_ble_debug_keylog_enabled)) && ble/array#push _ble_debug_keylog_chars "$char"
-#%end
-    if [[ $_ble_decode_keylog_chars_enabled ]]; then
-      if ! ((char&_ble_decode_Macr)); then
-        ble/array#push _ble_decode_keylog_chars "$char"
-        ((_ble_decode_keylog_chars_count++))
-      fi
-    fi
-    ((char&=~_ble_decode_Macr))
 
     # decode error character
     if ((char&_ble_decode_Erro)); then
@@ -1221,7 +1227,10 @@ function ble-decode-char {
         ble/term/visible-bell "received a misencoded char $name"
       fi
       [[ $bleopt_decode_error_char_abell ]] && ble/term/audible-bell
-      [[ $bleopt_decode_error_char_discard ]] && continue
+      if [[ $bleopt_decode_error_char_discard ]]; then
+        ble/decode/process-char/.keylog "$rchar"
+        continue
+      fi
       # ((char&_ble_decode_Erro)) : 最適化(過去 sequence は全部吐く)?
     fi
 
@@ -1230,22 +1239,25 @@ function ble-decode-char {
       ((char==_ble_decode_IsolatedESC)) && char=27 # isolated ESC -> ESC
       local hook=$_ble_decode_char__hook
       _ble_decode_char__hook=
+      ble/decode/process-char/.keylog "$rchar"
       ble-decode/widget/.call-async-read "$hook $char" "$char"
       continue
     fi
 
-    ble-decode-char/.getent # -> ent
+    ble/decode/process-char/.getent # -> ent
     if [[ ! $ent ]]; then
       # シーケンスが登録されていない時
       if [[ $_ble_decode_char2_reach_key ]]; then
         local key=$_ble_decode_char2_reach_key
-        local seq=$_ble_decode_char2_reach_seq
-        local rest=${_ble_decode_char2_seq:${#seq}}
-        ble/string#split-words rest "${rest//_/ } $ble_decode_char_char"
+        local seq=$_ble_decode_char2_reach_seq rest
+        rest=("${_ble_decode_char2_keylog[@]:${#_ble_decode_char2_reach_keylog[@]}}" "$rchar")
+        ble/decode/process-char/.keylog "${_ble_decode_char2_reach_keylog[@]}"
 
         _ble_decode_char2_seq=
+        _ble_decode_char2_keylog=()
         _ble_decode_char2_reach_key=
         _ble_decode_char2_reach_seq=
+        _ble_decode_char2_reach_keylog=()
         ble-decode-char/csi/clear
 
         ble/decode/send-unmodified-key "$key" "$seq"
@@ -1253,25 +1265,36 @@ function ble-decode-char {
         ((ble_decode_char_rest+=${#rest[@]}))
         chars=("${rest[@]}" "${chars[@]:ichar}") ichar=0
       else
-        ble/decode/send-unmodified-key "$char" "_$char"
+        ble/decode/process-char/.keylog "$rchar"
+        local ret
+        ble/decode/process-char/.convert-c0 "$char"
+        ble/decode/send-unmodified-key "$ret" "_$char"
       fi
     elif [[ $ent == *_ ]]; then
       # /\d*_/ (_ は続き (1つ以上の有効なシーケンス) がある事を示す)
       _ble_decode_char2_seq=${_ble_decode_char2_seq}_$char
+      ble/array#push _ble_decode_char2_keylog "$rchar"
       if [[ ${ent%_} ]]; then
         _ble_decode_char2_reach_key=${ent%_}
         _ble_decode_char2_reach_seq=$_ble_decode_char2_seq
+        _ble_decode_char2_reach_keylog=("${_ble_decode_char2_keylog[@]}")
       elif [[ ! $_ble_decode_char2_reach_key ]]; then
         # 1文字目
-        _ble_decode_char2_reach_key=$char
+        local ret
+        ble/decode/process-char/.convert-c0 "$char"
+        _ble_decode_char2_reach_key=$ret
         _ble_decode_char2_reach_seq=$_ble_decode_char2_seq
+        _ble_decode_char2_reach_keylog=("${_ble_decode_char2_keylog[@]}")
       fi
     else
       # /\d+/  (続きのシーケンスはなく ent で確定である事を示す)
       local seq=${_ble_decode_char2_seq}_$char
+      ble/decode/process-char/.keylog "${_ble_decode_char2_keylog[@]}" "$rchar"
       _ble_decode_char2_seq=
+      _ble_decode_char2_keylog=()
       _ble_decode_char2_reach_key=
       _ble_decode_char2_reach_seq=
+      _ble_decode_char2_reach_keylog=()
       ble-decode-char/csi/clear
       ble/decode/send-unmodified-key "$ent" "$seq"
     fi
@@ -1302,14 +1325,37 @@ function ble/decode/char-hook/next-char {
   return 0
 }
 
-## @fn ble-decode-char/.getent
+function ble/decode/process-char/.keylog {
+  local char
+  for char; do
+#%if debug_keylogger
+    ((_ble_debug_keylog_enabled)) && ble/array#push _ble_debug_keylog_chars "$char"
+#%end
+    if [[ $_ble_decode_keylog_chars_enabled ]]; then
+      if ! ((char&_ble_decode_Macr)); then
+        ble/array#push _ble_decode_keylog_chars "$char"
+        ((_ble_decode_keylog_chars_count++))
+      fi
+    fi
+  done
+}
+
+## @fn ble/decode/process-char/.getent
 ##   @var[in] _ble_decode_char2_seq
 ##   @var[in] char
 ##   @var[out] ent
-function ble-decode-char/.getent {
+function ble/decode/process-char/.getent {
   builtin eval "ent=\${_ble_decode_cmap_$_ble_decode_char2_seq[char]-}"
   if [[ $ent == ?*_ || $ent == _ && $_ble_decode_char2_seq == _27 ]]; then
-    ble/decode/wait-input 5 char || ent=${ent%_}
+    # Note (_ble_decode_PrefixO): If the original character is @PrO (which is
+    #   enabled in bash <= 4.4), we do not exclude the possibility of a
+    #   matching key of the form "ESC O ?"  even if the pending input is not
+    #   detected.  In bash <= 4.4, ble/util/is-stdin-ready cannot be used to
+    #   test whether the present "ESC O" is immediately followed by a
+    #   character.
+    ((rchar==_ble_decode_PrefixO)) ||
+      ble/decode/wait-input 5 char ||
+      ent=${ent%_}
   fi
 
   # CSI sequence
@@ -1322,7 +1368,9 @@ function ble-decode-char/.getent {
   if [[ $csistat && ! ${ent%_} ]]; then
     if ((csistat==_ble_decode_KCODE_ERROR)); then
       if [[ $bleopt_decode_error_cseq_vbell ]]; then
-        local ret; ble-decode-unkbd ${_ble_decode_char2_seq//_/ } $char
+        local ret
+        ble/string#split ret "${_ble_decode_char2_seq//_/ } $char"
+        ble-decode-unkbd "${ret[@]}"
         ble/term/visible-bell "unrecognized CSI sequence: $ret"
       fi
       [[ $bleopt_decode_error_cseq_abell ]] && ble/term/audible-bell
@@ -1340,6 +1388,20 @@ function ble-decode-char/.getent {
   fi
 
   # ble/util/assert '[[ $ent =~ ^[0-9]*_?$ ]]'
+}
+
+## @fn ble/decode/process-char/.convert-c0 char
+##   C0制御文字および [DEL] を [C-文字] に変換します。char = 0..31,127 はそれぞ
+##   れ C-@ C-a ... C-z C-[ C-\ C-] C-^ C-_ C-? に変換されます。
+##   @param[in] char
+##   @var[out] ret
+function ble/decode/process-char/.convert-c0 {
+  ret=$1
+  if ((0<=ret&&ret<32)); then
+    ((ret|=(ret==0||ret>26?64:96)|_ble_decode_Ctrl))
+  elif ((ret==127)); then # C-?
+    ((ret=63|_ble_decode_Ctrl))
+  fi
 }
 
 ## @fn ble/decode/send-unmodified-key/.add-modifier mod
@@ -1368,7 +1430,6 @@ function ble/decode/send-unmodified-key/.add-modifier {
 
 ## @fn ble/decode/send-unmodified-key key seq
 ##   指定されたキーを修飾して ble-decode-key に渡します。
-##   key = 0..31,127 は C-@ C-a ... C-z C-[ C-\ C-] C-^ C-_ C-? に変換されます。
 ##   ESC は次に来る文字を meta 修飾します。
 ##   _ble_decode_IsolatedESC は meta にならずに ESC として渡されます。
 ##   @param[in] key
@@ -1380,25 +1441,45 @@ function ble/decode/send-unmodified-key {
   local key=$1
   ((key==_ble_decode_KCODE_IGNORE)) && return 0
 
-  # Note: @ESC は現在の実装では seq の先頭にしか来ない筈。
   local seq
   ble/string#split-words seq "${2//_/ }"
+  # Note: @ESC は現在の実装では seq の先頭にしか来ない筈。
   ((seq[0]==_ble_decode_IsolatedESC)) && seq[0]=27
 
-  if ((0<=key&&key<32)); then
-    ((key|=(key==0||key>26?64:96)|_ble_decode_Ctrl))
-  elif ((key==127)); then # C-?
-    ((key=63|_ble_decode_Ctrl))
+  # Processing of prefix ESC characters.
+  if [[ $2 == _27 ]]; then
+    # We configure readline so that char 27 means a prefix ESC character (which
+    # is sent immediately before the subsequent characters).  We attempt to
+    # interpret it as the meta modifier regardless of custom conversions to
+    # key.  The key is used as is when the meta modifier is already set.
+    ble/decode/send-unmodified-key/.add-modifier "$_ble_decode_Meta" && return 0
   fi
 
-  if (($1==27)); then
-    ble/decode/send-unmodified-key/.add-modifier "$_ble_decode_Meta" && return 0
-  elif (($1==_ble_decode_IsolatedESC)); then
-    ((key=(_ble_decode_Ctrl|91)))
+  # Processing of independent ESC keys.  We first convert @ESC to C-[ or ESC.
+  # Then, we attempt independent ESC keys as the meta modifier.
+  if
+    if ((key==_ble_decode_IsolatedESC)); then
+      if [[ $2 == "_$_ble_decode_IsolatedESC" ]]; then
+        # When it is generated by a single character @ESC, it means the timeout
+        # ESC received by readline.  In this case, we translate it to key C-[.
+        key=$((_ble_decode_Ctrl|91))
+      else
+        # Otherwise, it is generated by a CSI sequence or a custom conversion by
+        # "ble-bind -k".  In this case, we trnslate it to 27.
+        key=27
+      fi
+    else
+      # A key ESC explicitly specified by the user can also operate as the meta
+      # modifier when "bleopt decode_isolated_esc" is enabled.
+      ((key==27))
+    fi
+  then
     if ! ble/decode/uses-isolated-esc; then
       ble/decode/send-unmodified-key/.add-modifier "$_ble_decode_Meta" && return 0
     fi
-  elif ((_ble_decode_KCODE_SHIFT<=$1&&$1<=_ble_decode_KCODE_HYPER)); then
+  fi
+
+  if ((_ble_decode_KCODE_SHIFT<=key&&key<=_ble_decode_KCODE_HYPER)); then
     case $1 in
     ($_ble_decode_KCODE_SHIFT)
       ble/decode/send-unmodified-key/.add-modifier "$_ble_decode_Shft" && return 0 ;;
@@ -1609,7 +1690,7 @@ function ble/decode/keymap#.onload {
   local delay=$_ble_base_run/$$.bind.delay.$kmap
   if [[ -s $delay ]]; then
     source "$delay"
-    : >| "$delay"
+    >| "$delay"
   fi
 }
 function ble/decode/keymap#load {
@@ -1733,9 +1814,9 @@ function ble-decode-key/bind {
   # Check existence of widget
   if local widget=${cmd%%[$_ble_term_IFS]*}; ! ble/is-function "$widget"; then
     local message="ble-bind: Unknown widget \`${widget#'ble/widget/'}'."
-    [[ $command == ble/widget/ble/widget/* ]] &&
+    [[ $cmd == ble/widget/ble/widget/* ]] &&
       message="$message Note: The prefix 'ble/widget/' is redundant."
-    ble/util/print "$message" 1>&2
+    ble/util/print "$message" >&2
     return 1
   fi
 
@@ -1984,6 +2065,18 @@ function ble/decode/keymap/get-parent {
   else
     ret=
   fi
+}
+## @fn ble/decode/keymap/get-major-keymap
+##   @var[out] keymap
+function ble/decode/keymap/get-major-keymap {
+  keymap=$_ble_decode_keymap
+  local index=${#_ble_decode_keymap_stack[@]}
+  while :; do
+    case $keymap in (vi_?map|emacs) return 0 ;; esac
+    ((--index<0)) && break
+    keymap=${_ble_decode_keymap_stack[index]}
+  done
+  return 1
 }
 
 ## @arr _ble_decode_key__chars
@@ -2381,7 +2474,7 @@ ble/debug/leakvar#check $"leakvar" "widget $WIDGET"
 }
 ## @fn ble/decode/widget/dispatch widget args...
 function ble/decode/widget/dispatch {
-  local ret; ble/string#quote-words "ble/widget/${1#ble/widget/}" "${@:2}"
+  local ret; ble/string#quote-command ble/widget/"${1#ble/widget/}" "${@:2}"
   local WIDGET=$ret
   _ble_decode_widget_last=$WIDGET
 #%if leakvar
@@ -2453,7 +2546,7 @@ function ble/decode/widget/keymap-dispatch {
 ##
 function ble/decode/has-input {
   ((_ble_decode_input_count||ble_decode_char_rest)) ||
-    ble/util/is-stdin-ready ||
+    { [[ ! $ble_decode_char_sync ]] && ble/util/is-stdin-ready; } ||
     ble/encoding:"$bleopt_input_encoding"/is-intermediate ||
     ble-decode-char/is-intermediate
 
@@ -2470,7 +2563,7 @@ function ble/decode/has-input {
 ##   cseq (char -> key) にとって次の文字が来ているかどうか
 function ble/decode/has-input-char {
   ((_ble_decode_input_count||ble_decode_char_rest)) ||
-    ble/util/is-stdin-ready ||
+    { [[ ! $ble_decode_char_sync ]] && ble/util/is-stdin-ready; } ||
     ble/encoding:"$bleopt_input_encoding"/is-intermediate
 }
 
@@ -2483,12 +2576,14 @@ function ble/decode/wait-input {
     ble/decode/has-input && return 0
   fi
 
-  while ((timeout>0)); do
-    local w=$((timeout<20?timeout:20))
-    ble/util/msleep "$w"
-    ((timeout-=w))
-    ble/util/is-stdin-ready 0 && return 0
-  done
+  if [[ ! $ble_decode_char_sync ]]; then
+    while ((timeout>0)); do
+      local w=$((timeout<20?timeout:20))
+      ble/util/msleep "$w"
+      ((timeout-=w))
+      ble/util/is-stdin-ready '' 0 && return 0
+    done
+  fi
   return 1
 }
 
@@ -2715,10 +2810,10 @@ function ble/decode/keylog#decode-chars {
 _ble_decode_macro_count=0
 function ble/widget/.MACRO {
   # マクロ無限再帰検出
-  if ((ble_decode_char_char&_ble_decode_Macr)); then
+  if ((ble_decode_char_rchar&_ble_decode_Macr)); then
     if ((_ble_decode_macro_count++>=bleopt_decode_macro_limit)); then
       ((_ble_decode_macro_count==bleopt_decode_macro_limit+1)) &&
-        ble/term/visible-bell "Macro invocation is cancelled by decode_macro_limit"
+        ble/term/visible-bell "Macro invocation is canceled by decode_macro_limit"
       return 1
     fi
   else
@@ -2731,12 +2826,6 @@ function ble/widget/.MACRO {
     ble/array#push chars "$((char|_ble_decode_Macr))"
   done
   ble-decode-char "${chars[@]}"
-}
-
-## @fn ble/widget/.CHARS char...
-##   lib/init-bind.sh で特別なバイト列を受信するのに使う関数
-function ble/widget/.CHARS {
-  ble-decode-char "$@"
 }
 
 #------------------------------------------------------------------------------
@@ -2816,7 +2905,7 @@ function ble/decode/cmap/.generate-binder-template {
 
 function ble/decode/cmap/.emit-bindx {
   local q="'" Q="'\''"
-  ble/util/print "builtin bind -x '\"${1//$q/$Q}\":ble-decode/.hook $2; builtin eval -- \"\$_ble_decode_bind_hook\"'"
+  ble/util/print "builtin bind -x '\"${1//$q/$Q}\":_ble_decode_hook $2; builtin eval -- \"\$_ble_decode_bind_hook\"'"
 }
 function ble/decode/cmap/.emit-bindr {
   ble/util/print "builtin bind -r \"$1\""
@@ -2853,11 +2942,11 @@ function ble/decode/cmap/initialize {
     _ble_decode_bind_fbinder=$fbinder
     if ! [[ -s $_ble_decode_bind_fbinder.bind && $_ble_decode_bind_fbinder.bind -nt $init &&
               -s $_ble_decode_bind_fbinder.unbind && $_ble_decode_bind_fbinder.unbind -nt $init ]]; then
-      ble/edit/info/immediate-show text  'ble.sh: initializing multichar sequence binders... '
+      ble/edit/info/immediate-show text  'ble.sh: initializing multi-character sequence binders... '
       ble/decode/cmap/.generate-binder-template >| "$fbinder"
       binder=ble/decode/cmap/.emit-bindx source "$fbinder" >| "$fbinder.bind"
       binder=ble/decode/cmap/.emit-bindr source "$fbinder" >| "$fbinder.unbind"
-      ble/edit/info/immediate-show text  'ble.sh: initializing multichar sequence binders... done'
+      ble/edit/info/immediate-show text  'ble.sh: initializing multi-character sequence binders... done'
     fi
   fi
 }
@@ -2918,43 +3007,47 @@ _ble_decode_bind_hook=
 
 # ref #D0003, #D1092
 _ble_decode_bind__uvwflag=
-function ble/decode/bind/adjust-uvw {
+function ble/decode/readline/adjust-uvw {
   [[ $_ble_decode_bind__uvwflag ]] && return 0
   _ble_decode_bind__uvwflag=1
 
   # 何故か stty 設定直後には bind できない物たち
   # Note: bind 'set bind-tty-special-chars on' の時に以下が必要である (#D1092)
-  builtin bind -x $'"\025":ble-decode/.hook 21; builtin eval -- "$_ble_decode_bind_hook"'  # ^U
-  builtin bind -x $'"\026":ble-decode/.hook 22; builtin eval -- "$_ble_decode_bind_hook"'  # ^V
-  builtin bind -x $'"\027":ble-decode/.hook 23; builtin eval -- "$_ble_decode_bind_hook"'  # ^W
-  builtin bind -x $'"\177":ble-decode/.hook 127; builtin eval -- "$_ble_decode_bind_hook"' # ^?
+  builtin bind -x $'"\025":_ble_decode_hook 21; builtin eval -- "$_ble_decode_bind_hook"'  # ^U
+  builtin bind -x $'"\026":_ble_decode_hook 22; builtin eval -- "$_ble_decode_bind_hook"'  # ^V
+  builtin bind -x $'"\027":_ble_decode_hook 23; builtin eval -- "$_ble_decode_bind_hook"'  # ^W
+  builtin bind -x $'"\177":_ble_decode_hook 127; builtin eval -- "$_ble_decode_bind_hook"' # ^?
   # Note: 更に terminology は erase を DEL ではなく HT に設定しているので、以下
   # も再設定する必要がある。他の端末でも似た物があるかもしれないので、念の為端
   # 末判定はせずに常に上書きを実行する様にする。
-  builtin bind -x $'"\010":ble-decode/.hook 8; builtin eval -- "$_ble_decode_bind_hook"'   # ^H
+  builtin bind -x $'"\010":_ble_decode_hook 8; builtin eval -- "$_ble_decode_bind_hook"'   # ^H
 }
 
 # **** POSIXLY_CORRECT workaround ****
 
 # ble.pp の関数を上書き
 #
-# Note: bash で set -o vi の時、
-#   builtin unset -v POSIXLY_CORRECT や local POSIXLY_CORRECT が設定されると、
-#   C-i の既定の動作の切り替えに伴って C-i の束縛が消滅する。
-#   ユーザが POSIXLY_CORRECT を触った時や自分で触った時に、
-#   改めて束縛し直す必要がある。
+
+# Note: bash で set -o vi の時、builtin unset -v POSIXLY_CORRECT や local
+#   POSIXLY_CORRECT が設定されると、C-i の既定の動作の切り替えに伴って C-i の束
+#   縛が消滅する。ユーザが POSIXLY_CORRECT を触った時や自分で触った時に、改めて
+#   束縛し直す必要がある。以下の patch を提出したところ 5.1 以降で修正された。
 #
-function ble/base/workaround-POSIXLY_CORRECT {
-  [[ $_ble_decode_bind_state == none ]] && return 0
-  builtin bind -x '"\C-i":ble-decode/.hook 9; builtin eval -- "$_ble_decode_bind_hook"'
-}
+#   https://lists.gnu.org/archive/html/bug-bash/2019-02/msg00035.html
+#
+if ((_ble_bash>=50100)); then
+  function ble/base/workaround-POSIXLY_CORRECT {
+    [[ $_ble_decode_bind_state == none ]] && return 0
+    builtin bind -x '"\C-i":_ble_decode_hook 9; builtin eval -- "$_ble_decode_bind_hook"'
+  }
+fi
 
 # **** ble-decode-bind ****                                   @decode.bind.main
 
-## @fn ble/decode/bind/.generate-source-to-unbind-default
+## @fn ble/decode/readline/.generate-source-to-unbind-default
 ##   既存の ESC で始まる binding を削除するコードを生成し標準出力に出力します。
 ##   更に、既存の binding を復元する為のコードを同時に生成し tmp/$$.bind.save に保存します。
-function ble/decode/bind/.generate-source-to-unbind-default {
+function ble/decode/readline/.generate-source-to-unbind-default {
   # 1 ESC で始まる既存の binding を全て削除
   # 2 bind を全て記録 at $$.bind.save
   {
@@ -2964,12 +3057,12 @@ function ble/decode/bind/.generate-source-to-unbind-default {
     fi
     ble/util/print '__BINDP__'
     builtin bind -sp
-  } | ble/decode/bind/.generate-source-to-unbind-default/.process
+  } | ble/decode/readline/.generate-source-to-unbind-default/.process
 
   # Note: 2>/dev/null は、(1) bind -X のエラーメッセージ、及び、
   # (2) LC_ALL 復元時のエラーメッセージ (外側の値が不正な時) を捨てる為に必要。
 } 2>/dev/null
-function ble/decode/bind/.generate-source-to-unbind-default/.process {
+function ble/decode/readline/.generate-source-to-unbind-default/.process {
   # Note: #D1355 LC_ALL 切り替えに伴うエラーメッセージは呼び出し元で /dev/null に繋いでいる。
   local q=\' Q="'\''"
   LC_ALL=C ble/bin/awk -v q="$q" '
@@ -3053,8 +3146,8 @@ function ble/decode/bind/.generate-source-to-unbind-default/.process {
       #   string remains in the output of `bind -X` even after the key-binding
       #   is removed by `bind -r` or overwritten by another key-binding.  To
       #   avoid the re-binding of ble.sh key-bindings, we explicitly reject
-      #   the key-bindings containing ble-decode/.hook.
-      if (line ~ /(^|[^[:alnum:]])ble-decode\/.hook($|[^[:alnum:]])/) next;
+      #   the key-bindings containing _ble_decode_hook.
+      if (line ~ /(^|[^[:alnum:]])(ble-decode\/.hook|_ble_decode_hook)($|[^[:alnum:]])/) next;
 
       # Note (bash < 5.3): The results obtained from `bind -X` cannot be
       #   directly specified to `bind -x`.  While `bind -x` accepts literal
@@ -3092,7 +3185,7 @@ _ble_decode_bind_state=none
 _ble_decode_bind_bindp=
 _ble_decode_bind_encoding=
 
-function ble/decode/bind/bind {
+function ble/decode/readline/bind {
   _ble_decode_bind_encoding=$bleopt_input_encoding
   local file=$_ble_base_cache/decode.bind.$_ble_bash.$_ble_decode_bind_encoding.bind
   [[ -s $file && $file -nt $_ble_base/lib/init-bind.sh ]] || source "$_ble_base/lib/init-bind.sh"
@@ -3103,9 +3196,9 @@ function ble/decode/bind/bind {
   #   128-255 を bind しようとすると 0-127 を bind してしまう。
   #   32 bit 環境で LC_CTYPE=C で起動すると 'set convert-meta on' になる様だ。
   #
-  #   一応、以下の関数は ble/term/initialize で呼び出しているので、
-  #   ble/decode/bind/bind の呼び出しが ble/term/initialize より後なら大丈夫の筈だが、
-  #   念の為にここでも呼び出しておく事にする。
+  #   一応、以下の関数は ble/term/attach で呼び出しているので、
+  #   ble/decode/readline/bind の呼び出しが ble/term/attach より後なら大丈夫の
+  #   筈だが、念の為にここでも呼び出しておく事にする。
   #
   ble/term/rl-convert-meta/enter
 
@@ -3113,20 +3206,20 @@ function ble/decode/bind/bind {
   _ble_decode_bind__uvwflag=
   ble/util/assign _ble_decode_bind_bindp 'builtin bind -p' # TERM 変更検出用
 }
-function ble/decode/bind/unbind {
+function ble/decode/readline/unbind {
   ble/function#try ble/encoding:"$bleopt_input_encoding"/clear
   source "$_ble_base_cache/decode.bind.$_ble_bash.$_ble_decode_bind_encoding.unbind"
 }
-function ble/decode/rebind {
+function ble/decode/readline/rebind {
   [[ $_ble_decode_bind_state == none ]] && return 0
-  ble/decode/bind/unbind
-  ble/decode/bind/bind
+  ble/decode/readline/unbind
+  ble/decode/readline/bind
 }
 
 #------------------------------------------------------------------------------
 # ble-bind                                                      @decode.blebind
 
-function ble-bind/.initialize-kmap {
+function ble/decode/bind/.initialize-kmap {
   [[ $kmap ]] && return 0
   ble-decode/GET_BASEMAP -v kmap
   if ! ble/decode/is-keymap "$kmap"; then
@@ -3137,7 +3230,7 @@ function ble-bind/.initialize-kmap {
   return 0
 }
 
-function ble-bind/option:help {
+function ble/decode/bind/option:help {
   ble/util/cat <<EOF
 ble-bind --help
 ble-bind -k [TYPE:]cspecs [[TYPE:]kspec]
@@ -3166,19 +3259,38 @@ CURSOR_CODE
 EOF
 }
 
-function ble-bind/check-argument {
-  if (($3<$2)); then
+## @fn ble/decode/bind/get-optarg label count [has_optarg optarg | optarg]
+##   @param[in] has_optarg optarg
+##     When the third argument is non-empty, ${4-$3} is used as the first
+##     optional argument.
+##   @arr[out] optarg
+function ble/decode/bind/get-optarg {
+  optarg=()
+  local label=$1 req=$2
+  ((req>=1)) || return 0
+
+  if [[ $3 ]]; then
+    ((req--))
+    ble/array#push optarg "${4-$3}"
+  fi
+  ((req>=1)) || return 0
+
+  if ((${#args[@]}-iarg<req)); then
     flags=E$flags
-    if (($2==1)); then
-      ble/util/print "ble-bind: the option \`$1' requires an argument." >&2
+    if ((req==1)); then
+      ble/util/print "ble-bind: the option \`$label' requires an argument." >&2
     else
-      ble/util/print "ble-bind: the option \`$1' requires $2 arguments." >&2
+      ble/util/print "ble-bind: the option \`$label' requires $req arguments." >&2
     fi
     return 2
   fi
+
+  ble/array#push optarg "${args[@]:iarg:req}"
+  ((iarg+=req))
+  return 0
 }
 
-function ble-bind/option:csi {
+function ble/decode/bind/option:csi {
   local ret key=
   if [[ $2 ]]; then
     ble-decode-kbd "$2"
@@ -3237,10 +3349,10 @@ function ble-bind/option:csi {
   fi
 }
 
-function ble-bind/option:list-widgets {
-  declare -f | ble/bin/sed -n 's/^ble\/widget\/\([a-zA-Z][^.[:space:]();&|]\{1,\}\)[[:space:]]*()[[:space:]]*$/\1/p'
+function ble/decode/bind/option:list-widgets {
+  declare -f | ble/bin/sed -n 's/^ble\/widget\/\([a-zA-Z][^.[:blank:]();&|]\{1,\}\)[[:blank:]]*()[[:blank:]]*$/\1/p'
 }
-function ble-bind/option:dump {
+function ble/decode/bind/option:dump {
   if (($#)); then
     local keymap
     for keymap; do
@@ -3251,9 +3363,12 @@ function ble-bind/option:dump {
     ble/decode/keymap#dump
   fi
 }
-## @fn ble-bind/option:print
+## @fn ble/decode/bind/option:print keymaps...
+##   @param keymaps
+##     Explicitly specified keymap names.  When a specified keymap has not yet
+##     initialized, an attempt of calling this function initializes the keymap.
 ##   @var[in] flags
-function ble-bind/option:print {
+function ble/decode/bind/option:print {
   local ble_bind_print=1
   local sgr0= sgrf= sgrq= sgrc= sgro=
   if [[ $flags == *c* || $flags != *n* && -t 1 ]]; then
@@ -3269,6 +3384,7 @@ function ble-bind/option:print {
   ble-decode/INITIALIZE_DEFMAP -v keymap # 初期化を強制する
   if (($#)); then
     for keymap; do
+      ble/decode/keymap#load "$keymap"
       ble/decode/keymap#print "$keymap"
     done
   else
@@ -3279,6 +3395,11 @@ function ble-bind/option:print {
 }
 
 function ble-bind {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+  ble/decode/bind "$@"
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
+}
+function ble/decode/bind {
   # Note (#D2092): Reasoning for the check [[ $_ble_bash_options_adjusted ]]:
   # We expect ble-bind is normally called from .blerc, but ble-bind can also be
   # interactively called in user commands.  In such a case, we need to adjust
@@ -3305,40 +3426,52 @@ function ble-bind {
   local -a keymaps; keymaps=()
   ble/decode/initialize
 
-  local arg c
-  while (($#)); do
-    local arg=$1; shift
+  local -a args
+  args=("$@")
+  local iarg=0 arg c optarg
+  while ((iarg<$#)); do
+    local arg=${args[iarg++]}
     if [[ $arg == --?* ]]; then
-      case ${arg:2} in
-      (color|color=always)
-        flags=c${flags//[cn]} ;;
-      (color=never)
-        flags=n${flags//[cn]} ;;
-      (color=auto)
-        flags=${flags//[cn]} ;;
+      local name=${arg:2} has_optarg= optarg=
+      if [[ $name == *=* ]]; then
+        has_optarg=set
+        optarg=${name#*=}
+        name=${name%%=*}
+      fi
+
+      case $name in
+      (color)
+        if [[ ! $has_optarg || $optarg == always ]]; then
+          flags=c${flags//[cn]}
+        elif [[ $optarg == never ]]; then
+          flags=n${flags//[cn]}
+        elif [[ $optarg == auto ]]; then
+          flags=${flags//[cn]}
+        else
+          flags=E$flags
+          ble/util/print "ble-bind: unrecognized color '--color=$optarg'." >&2
+        fi ;;
       (help)
-        ble-bind/option:help
+        ble/decode/bind/option:help
         flags=D$flags ;;
       (csi)
         flags=D$flags
-        ble-bind/check-argument --csi 2 "$#" || break
-        ble-bind/option:csi "$1" "$2"
-        shift 2 ;;
+        ble/decode/bind/get-optarg --csi 2 "$has_optarg" "$optarg" || break
+        ble/decode/bind/option:csi "${optarg[0]}" "${optarg[1]}" ;;
       (cursor)
         flags=D$flags
-        ble-bind/check-argument --cursor 1 "$#" || break
-        ble-bind/.initialize-kmap &&
-          ble/decode/keymap#set-cursor "$kmap" "$1"
-        shift 1 ;;
+        ble/decode/bind/get-optarg --cursor 1 "$has_optarg" "$optarg" || break
+        ble/decode/bind/.initialize-kmap &&
+          ble/decode/keymap#set-cursor "$kmap" "${optarg[0]}" ;;
       (list-widgets|list-functions)
         flags=D$flags
-        ble-bind/option:list-widgets ;;
+        ble/decode/bind/option:list-widgets ;;
       (dump)
         flags=D$flags
-        ble-bind/option:dump "${keymaps[@]}" ;;
+        ble/decode/bind/option:dump "${keymaps[@]}" ;;
       (print)
         flags=D$flags
-        ble-bind/option:print "${keymaps[@]}" ;;
+        ble/decode/bind/option:print "${keymaps[@]}" ;;
       (*)
         flags=E$flags
         ble/util/print "ble-bind: unrecognized long option $arg" >&2 ;;
@@ -3350,47 +3483,43 @@ function ble-bind {
         case $c in
         (k)
           flags=D$flags
-          if (($#<2)); then
-            ble/util/print "ble-bind: the option \`-k' requires two arguments." >&2
-            flags=E$flags
-            break
-          fi
+          ble/decode/bind/get-optarg -k 2 "$arg" || break 2
+          arg=
 
-          ble-decode-kbd "$1"; local cseq=$ret
-          if [[ $2 && $2 != - ]]; then
-            ble-decode-kbd "$2"; local kc=$ret
+          ble-decode-kbd "${optarg[0]}"; local cseq=$ret
+          if [[ ${optarg[1]} && ${optarg[1]} != - ]]; then
+            ble-decode-kbd "${optarg[1]}"; local kc=$ret
             ble-decode-char/bind "$cseq" "$kc"
           else
             ble-decode-char/unbind "$cseq"
-          fi
-          shift 2 ;;
+          fi ;;
         (m)
-          ble-bind/check-argument -m 1 "$#" || break
-          if ! ble/decode/is-keymap "$1"; then
-            ble/util/print "ble-bind: the keymap '$1' is unknown." >&2
+          ble/decode/bind/get-optarg -m 1 "$arg" || break 2
+          arg=
+          if ! ble/decode/is-keymap "$optarg"; then
+            ble/util/print "ble-bind: the keymap '$optarg' is unknown." >&2
             flags=E$flags
-            shift
             continue
           fi
-          kmap=$1
-          ble/array#push keymaps "$1"
-          shift ;;
+          kmap=$optarg
+          ble/array#push keymaps "$optarg" ;;
         (D)
           flags=D$flags
-          ble-bind/option:dump "${keymaps[@]}" ;;
+          ble/decode/bind/option:dump "${keymaps[@]}" ;;
         ([Pd])
           flags=D$flags
-          ble-bind/option:print "${keymaps[@]}" ;;
+          ble/decode/bind/option:print "${keymaps[@]}" ;;
         (['fxc@s'])
           flags=D$flags
 
           # 旧形式の指定 -xf や -cf に対応する処理
           [[ $c != f && $arg == f* ]] && arg=${arg:1}
-          ble-bind/check-argument "-$c" 2 "$#" || break
+          ble/decode/bind/get-optarg "-$c" 2 "$arg" || break 2
+          arg=
 
-          ble-decode-kbd "$1"; local kbd=$ret
-          if [[ $2 && $2 != - ]]; then
-            local command=$2
+          ble-decode-kbd "${optarg[0]}"; local kbd=$ret
+          if [[ ${optarg[1]} && ${optarg[1]} != - ]]; then
+            local command=${optarg[1]}
 
             # コマンドの種類
             case $c in
@@ -3400,27 +3529,26 @@ function ble-bind {
             (s) local ret; ble/util/keyseq2chars "$command"; command="ble/widget/.MACRO ${ret[*]}" ;;
             ('@') ;; # 直接実行
             (*)
-              ble/util/print "error: unsupported binding type \`-$c'." 1>&2
+              ble/util/print "error: unsupported binding type \`-$c'." >&2
               continue ;;
             esac
 
-            ble-bind/.initialize-kmap &&
+            ble/decode/bind/.initialize-kmap &&
               ble-decode-key/bind "$kmap" "$kbd" "$command"
           else
-            ble-bind/.initialize-kmap &&
+            ble/decode/bind/.initialize-kmap &&
               ble-decode-key/unbind "$kmap" "$kbd"
-          fi
-          shift 2 ;;
+          fi ;;
         (T)
           flags=D$flags
-          ble-decode-kbd "$1"; local kbd=$ret
-          ble-bind/check-argument -T 2 "$#" || break
-          ble-bind/.initialize-kmap &&
-            ble-decode-key/set-timeout "$kmap" "$kbd" "$2"
-          shift 2 ;;
+          ble/decode/bind/get-optarg -T 2 "$arg" || break 2
+          arg=
+          ble-decode-kbd "${optarg[0]}"; local kbd=$ret
+          ble/decode/bind/.initialize-kmap &&
+            ble-decode-key/set-timeout "$kmap" "$kbd" "${optarg[1]}" ;;
         (L)
           flags=D$flags
-          ble-bind/option:list-widgets ;;
+          ble/decode/bind/option:list-widgets ;;
         (*)
           ble/util/print "ble-bind: unrecognized short option \`-$c'." >&2
           flags=E$flags ;;
@@ -3437,7 +3565,7 @@ function ble-bind {
   (*E*) ext=2 ;;
   (*R*) ext=1 ;;
   (*D*) ;;
-  (*)   ble-bind/option:print "${keymaps[@]}" ;;
+  (*)   ble/decode/bind/option:print "${keymaps[@]}" ;;
   esac
   [[ $_ble_bash_options_adjusted ]] || ble/base/.restore-bash-options set shopt
   return "$ext"
@@ -3449,7 +3577,7 @@ function ble-bind {
 function ble/decode/read-inputrc/test {
   local text=$1
   if [[ ! $text ]]; then
-    ble/util/print "ble.sh (bind):\$if: test condition is not supplied." >&2
+    ble/builtin/bind/.print-error "\$if: test condition is not supplied."
     return 1
   elif local rex=$'[ \t]*([<>]=?|[=!]?=)[ \t]*(.*)$'; [[ $text =~ $rex ]]; then
     local op=${BASH_REMATCH[1]}
@@ -3517,7 +3645,7 @@ function ble/decode/read-inputrc/test {
       builtin test "$ret" "$op" "$rhs"
       return "$?"
     else
-      ble/util/print "ble.sh (bind):\$if: unknown readline variable '${lhs//$q/$Q}'." >&2
+      ble/builtin/bind/.print-error "\$if: unknown readline variable '${lhs//$q/$Q}'."
       return 1
     fi ;;
   esac
@@ -3529,15 +3657,16 @@ function ble/decode/read-inputrc {
     local relative_file=${ref%/*}/$file
     [[ -f $relative_file ]] && file=$relative_file
   fi
-  if [[ ! -f $file ]]; then
-    ble/util/print "ble.sh (bind):\$include: the file '${1//$q/$Q}' not found." >&2
+  local inputrc_file=$file inputrc_iline=0
+  if [[ ! -f $inputrc_file ]]; then
+    ble/builtin/bind/.print-error "\$include: the file '${1//$q/$Q}' not found."
     return 1
   fi
 
   local -a script=()
-  local ret line= iline=0
+  local ret line= inputrc_iline=0
   while ble/bash/read line || [[ $line ]]; do
-    ((++iline))
+    ((++inputrc_iline))
     ble/string#trim "$line"; line=$ret
     [[ ! $line || $line == '#'* ]] && continue
 
@@ -3547,20 +3676,23 @@ function ble/decode/read-inputrc {
       ('$if')
         local args=${line#'$if'}
         ble/string#trim "$args"; args=$ret
+        ble/array#push script "inputrc_iline=$inputrc_iline"
         ble/array#push script "if ble/decode/read-inputrc/test '${args//$q/$Q}'; then :" ;;
       ('$else')  ble/array#push script 'else :' ;;
       ('$endif') ble/array#push script 'fi' ;;
       ('$include')
         local args=${line#'$include'}
         ble/string#trim "$args"; args=$ret
-        ble/array#push script "ble/decode/read-inputrc '${args//$q/$Q}' '${file//$q/$Q}'" ;;
+        ble/array#push script "inputrc_iline=$inputrc_iline"
+        ble/array#push script "ble/decode/read-inputrc '${args//$q/$Q}' '${inputrc_file//$q/$Q}'" ;;
       (*)
-        ble/util/print "ble.sh (bind):$file:$iline: unrecognized directive '$directive'." >&2 ;;
+        ble/builtin/bind/.print-error "unrecognized directive '$directive'." ;;
       esac
     else
+      ble/array#push script "inputrc_iline=$inputrc_iline"
       ble/array#push script "ble/builtin/bind/.process -- '${line//$q/$Q}'"
     fi
-  done < "$file"
+  done < "$inputrc_file"
 
   IFS=$'\n' builtin eval 'script="${script[*]}"'
   builtin eval -- "$script"
@@ -3577,6 +3709,47 @@ function ble/builtin/bind/set-keymap {
   return 0
 }
 
+## @fn ble/builtin/bind/.print-error.find-caller
+##   @var[ref] level f
+function ble/builtin/bind/.print-error.find-caller {
+  for ((;level<${#FUNCNAME[@]}+1;level++)); do
+    f=${FUNCNAME[1+level]-}
+    case $f in
+    (ble/builtin/bind|ble/builtin/bind/*|bind|ble/decode/read-inputrc/test) ;;
+    (*) return 0 ;;
+    esac
+  done
+  f=
+}
+function ble/builtin/bind/.print-error {
+  local title='bind (ble.sh)'
+
+  local level=1 f
+  ble/builtin/bind/.print-error.find-caller
+
+  # If the current invocation of bind is from ble/decode/read-inputrc, we try
+  # to use the filename and line number of the inputrc file.
+  if [[ $f == ble/decode/read-inputrc ]]; then
+    if ((inputrc_iline)); then
+      title="$inputrc_file:$inputrc_iline: bind (ble.sh)"
+      f=
+    else
+      ((++level))
+      ble/builtin/bind/.print-error.find-caller
+      # Note: we currently do not recursively process ble/decode/read-inputrc.
+      # If one supports it, one needs to extract the previous-scope values of
+      # $inputrc_file and $inputrc_iline without affecting the caller.  To do
+      # that, we will need to unlocal those variables in a subshell.
+    fi
+  fi
+
+  if [[ $f && ${BASH_SOURCE[level]} ]]; then
+    title="${BASH_SOURCE[level]}:${BASH_LINENO[level-1]}: bind (ble.sh)"
+  fi
+
+  ble/util/print "$title: $1" >&2
+}
+
 ## @fn ble/builtin/bind/option:m keymap
 ##   @var[in,out] opt_keymap flags
 function ble/builtin/bind/option:m {
@@ -3588,7 +3761,7 @@ function ble/builtin/bind/option:m {
   (*) keymap= ;;
   esac
   if [[ ! $keymap ]]; then
-    ble/util/print "ble.sh (bind): unrecognized keymap name '$name'" >&2
+    ble/builtin/bind/.print-error "unrecognized keymap name '$name'"
     flags=e$flags
     return 1
   else
@@ -3602,12 +3775,19 @@ function ble/builtin/bind/option:m {
 ##   @var[out] ret
 function ble/builtin/bind/.unquote-macro-string {
   local value=$1 q=\' Q="'\''"
-  if ! ble/string#match "$value" '^"(([^\"]|\\.)*)"['"$_ble_term_IFS"']*'; then
-    ble/util/print "ble.sh (bind): no closing '\"' in spec: '${spec//$q/$Q}'" >&2
+
+  local delim=${1::1}
+  if [[ $delim != [\"\'] ]]; then
+    ret=$value
+  fi
+
+  local rex='^'$delim'(([^\'$delim']|\\.)*)'$delim'['$_ble_term_IFS']*'
+  if ! [[ $value =~ $rex ]]; then
+    ble/builtin/bind/.print-error "no closing '${delim//$q/$Q}' in spec: '${spec//$q/$Q}'"
     return 1
   elif ((${#BASH_REMATCH}<${#value})); then
     local fragment=${value:${#BASH_REMATCH}}
-    ble/util/print "ble.sh (bind): warning: unprocessed fragments (${fragment//$q/$Q}) in spec: '${spec//$q/$Q}'" >&2
+    ble/builtin/bind/.print-error "warning: unprocessed fragments '${fragment//$q/$Q}' in spec: '${spec//$q/$Q}'"
   fi
   ret=${BASH_REMATCH[1]}
 }
@@ -3631,7 +3811,7 @@ function ble/builtin/bind/.decompose-pair.impl {
     # bind -x 'keyseq: "command"'
     # bind -x 'keyseq "command"'
     if ! ble/string#match "$spec" "$rex_keyseq[$ifs]*[:$ifs]"; then
-      ble/util/print "ble.sh (bind): no colon or space after keyseq: '${spec//$q/$Q}'" >&3
+      ble/builtin/bind/.print-error "no colon or space after keyseq: '${spec//$q/$Q}'" 2>&3
       return 1
     fi
 
@@ -3640,7 +3820,7 @@ function ble/builtin/bind/.decompose-pair.impl {
 
     ble/string#ltrim "${spec:${#BASH_REMATCH}}"
     if [[ $rematch == *: ]]; then
-      if [[ $ret == \"* ]]; then
+      if [[ $ret == [\"\']* ]]; then
         ble/builtin/bind/.unquote-macro-string "$ret" 2>&3 || return 1
       fi
     else
@@ -3651,19 +3831,23 @@ function ble/builtin/bind/.decompose-pair.impl {
         ble/util/keyseq2chars "$ret"
         ble/util/chars2s "${ret[@]}"
       else
-        ble/util/print "ble.sh (bind): the user command needs to be surrounded by \"..\": '${spec//$q/$Q}'" >&3
+        ble/builtin/bind/.print-error "the user command needs to be surrounded by \"..\": '${spec//$q/$Q}'" 2>&3
         return 1
       fi
     fi
     value=command:$ret
   else
-    # bind -x 'keyseq: rlfunc'
-    # bind -x 'keyseq: "macro"'
+    # bind 'keyseq: rlfunc'
+    # bind 'keyseq: "macro"'
     ble/string#match "$spec" "$rex_keyseq[$ifs]*(:[$ifs]*)?"
     keyseq=${BASH_REMATCH[1]}
     ble/string#trim "${spec:${#BASH_REMATCH}}"
-    if [[ $ret == \"* ]]; then
+    if [[ $ret == [\"\']* ]]; then
       ble/builtin/bind/.unquote-macro-string "$ret" 2>&3 || return 1
+      # Note: With any unprocessed fragments for string macros, Readline seems
+      # to extend the range to the first whitespace, and thus the ending
+      # delimiter is included as a part of the macro content, which is strange.
+      # This implementation does not extend the range.
       value=macro:$ret
     else
       value=rlfunc:$ret
@@ -3675,16 +3859,16 @@ function ble/builtin/bind/.decompose-pair.impl {
     # Parser directives such as $if, $else, $endif, $include
     return 3
   elif [[ ! $keyseq ]]; then
-    ble/util/print "ble.sh (bind): empty keyseq in spec: '${spec//$q/$Q}'" >&3
+    ble/builtin/bind/.print-error "empty keyseq in spec: '${spec//$q/$Q}'" 2>&3
     return 1
   elif ble/string#match "$keyseq" '^"([^\"]|\\.)*$'; then
-    ble/util/print "ble.sh (bind): no closing '\"' in keyseq: '${keyseq//$q/$Q}'" >&3
+    ble/builtin/bind/.print-error "no closing '\"' in keyseq: '${keyseq//$q/$Q}'" 2>&3
     return 1
   elif ble/string#match "$keyseq" '^"([^\"]|\\.)*"'; then
     local rematch=${BASH_REMATCH[0]}
     if ((${#rematch}<${#keyseq})); then
       local fragment=${keyseq:${#rematch}}
-      ble/util/print "ble.sh (bind): warning: unprocessed fragments in keyseq '${fragment//$q/$Q}'" >&3
+      ble/builtin/bind/.print-error "warning: unprocessed fragments in keyseq '${fragment//$q/$Q}'" 2>&3
     fi
     keyseq=$rematch
     return 0
@@ -3763,10 +3947,10 @@ function ble/builtin/bind/.initialize-keys-and-value {
   if [[ $keyseq == \"*\" ]]; then
     local ret; ble/util/keyseq2chars "${keyseq:1:${#keyseq}-2}"
     chars=("${ret[@]}")
-    ((${#chars[@]})) || ble/util/print "ble.sh (bind): warning: empty keyseq" >&2
+    ((${#chars[@]})) || ble/builtin/bind/.print-error "warning: empty keyseq: $keyseq"
   else
     [[ :$opts: == *:nokeyname:* ]] &&
-      ble/util/print "ble.sh (bind): warning: readline \"bind -x\" does not support \"keyname\" spec" >&2
+      ble/builtin/bind/.print-error "warning: readline \"bind -x\" does not support \"keyname\" spec"
     ble/builtin/bind/.parse-keyname "$keyseq"
   fi
   ble/decode/cmap/decode-chars "${chars[@]}"
@@ -3778,11 +3962,11 @@ function ble/builtin/bind/option:x {
   local q=\' Q="''\'"
   local keys value kmap
   if ! ble/builtin/bind/.initialize-keys-and-value "$1" nokeyname:user-command; then
-    ble/util/print "ble.sh (bind): unrecognized user-command spec '${1//$q/$Q}'." >&2
+    ble/builtin/bind/.print-error "unrecognized user-command spec '${1//$q/$Q}'."
     flags=e$flags
     return 1
   elif ! ble/builtin/bind/.initialize-kmap "$opt_keymap"; then
-    ble/util/print "ble.sh (bind): sorry, failed to initialize keymap:'$opt_keymap'." >&2
+    ble/builtin/bind/.print-error "sorry, failed to initialize keymap:'$opt_keymap'."
     flags=e$flags
     return 1
   fi
@@ -3808,9 +3992,9 @@ function ble/builtin/bind/option:r {
 _ble_decode_rlfunc2widget_emacs=()
 _ble_decode_rlfunc2widget_vi_imap=()
 _ble_decode_rlfunc2widget_vi_nmap=()
-function ble/builtin/bind/rlfunc2widget {
-  local kmap=$1 rlfunc=$2
-  local IFS=$_ble_term_IFS
+function ble/builtin/bind/rlfunc2widget/load-dict {
+  local kmap=${1-}
+  ble/decode/bind/.initialize-kmap
 
   local rlfunc_file= rlfunc_dict=
   case $kmap in
@@ -3822,20 +4006,28 @@ function ble/builtin/bind/rlfunc2widget {
             rlfunc_dict=_ble_decode_rlfunc2widget_vi_nmap ;;
   esac
 
-  if [[ $rlfunc_file ]]; then
-    local dict script='
-      ((${#NAME[@]})) ||
-        ble/util/mapfile NAME < "$rlfunc_file"
-      dict=("${NAME[@]}")
-    '; builtin eval -- "${script//NAME/$rlfunc_dict}"
+  [[ $rlfunc_file ]] || return 1
 
+  local script='
+    if ((!${#NAME[@]})); then
+      ble/util/mapfile NAME < "$rlfunc_file"
+      [[ $OSTYPE == msys* ]] && NAME=("${NAME[@]%$_ble_term_nl}")
+    fi
+    dict=("${NAME[@]}")
+  '; builtin eval -- "${script//NAME/$rlfunc_dict}"
+}
+
+function ble/builtin/bind/rlfunc2widget {
+  local kmap=$1 rlfunc=$2
+  local IFS=$_ble_term_IFS
+
+  if ble/builtin/bind/rlfunc2widget/load-dict "$kmap"; then
     local line
     for line in "${dict[@]}"; do
       [[ $line == "$rlfunc "* ]] || continue
-      [[ $OSTYPE == msys* ]] && line=${line%$'\r'}
       local rl widget; ble/bash/read rl widget <<< "$line"
       if [[ $widget == - ]]; then
-        ble/util/print "ble.sh (bind): unsupported readline function '${rlfunc//$q/$Q}' for keymap '$kmap'." >&2
+        ble/builtin/bind/.print-error "unsupported readline function '${rlfunc//$q/$Q}' for keymap '$kmap'."
         return 1
       elif [[ $widget == '<IGNORE>' ]]; then
         return 2
@@ -3850,7 +4042,30 @@ function ble/builtin/bind/rlfunc2widget {
     return 0
   fi
 
-  ble/util/print "ble.sh (bind): unsupported readline function '${rlfunc//$q/$Q}'." >&2
+  ble/builtin/bind/.print-error "unsupported readline function '${rlfunc//$q/$Q}'."
+  return 1
+}
+
+## @fn ble/builtin/bind/rlfunc2widget/type rlfunc [kmap]
+##   @var[out] ret
+function ble/builtin/bind/rlfunc2widget/type {
+  local rlfunc=$1 dict
+  if ble/builtin/bind/rlfunc2widget/load-dict "$2"; then
+    local line
+    for line in "${dict[@]}"; do
+      if [[ $line == "$rlfunc "* ]]; then
+        ret=rlfunc
+        return 0
+      fi
+    done
+  fi
+
+  if ble/is-function ble/widget/"$rlfunc"; then
+    ret=widget
+    return 0
+  fi
+
+  ret=unknown
   return 1
 }
 
@@ -3861,7 +4076,7 @@ function ble/builtin/bind/option:u {
 
   local kmap
   if ! ble/builtin/bind/.initialize-kmap "$opt_keymap" || ! ble/decode/keymap#load "$kmap"; then
-    ble/util/print "ble.sh (bind): sorry, failed to initialize keymap:'$opt_keymap'." >&2
+    ble/builtin/bind/.print-error "sorry, failed to initialize keymap:'$opt_keymap'."
     flags=e$flags
     return 1
   fi
@@ -3932,11 +4147,11 @@ function ble/builtin/bind/option:- {
   local keys value kmap
   if ! ble/builtin/bind/.initialize-keys-and-value "$arg"; then
     local q=\' Q="''\'"
-    ble/util/print "ble.sh (bind): unrecognized readline command '${arg//$q/$Q}'." >&2
+    ble/builtin/bind/.print-error "unrecognized readline command '${arg//$q/$Q}'."
     flags=e$flags
     return 1
   elif ! ble/builtin/bind/.initialize-kmap "$opt_keymap"; then
-    ble/util/print "ble.sh (bind): sorry, failed to initialize keymap:'$opt_keymap'." >&2
+    ble/builtin/bind/.print-error "sorry, failed to initialize keymap:'$opt_keymap'."
     flags=e$flags
     return 1
   fi
@@ -3964,7 +4179,7 @@ function ble/builtin/bind/option:- {
       return 1
     fi
   else
-    ble/util/print "ble.sh (bind): readline function name is not specified ($arg)." >&2
+    ble/builtin/bind/.print-error "readline function name is not specified ($arg)."
     return 1
   fi
 }
@@ -3981,7 +4196,7 @@ function ble/builtin/bind/.process {
            continue ;;
       (--help)
         if ((_ble_bash<40400)); then
-          ble/util/print "ble.sh (bind): unrecognized option $arg" >&2
+          ble/builtin/bind/.print-error "unrecognized option $arg"
           flags=e$flags
         else
           # Note: Bash-4.4, 5.0 のバグで unwind_frame が壊れているので
@@ -3993,7 +4208,7 @@ function ble/builtin/bind/.process {
         fi
         continue ;;
       (--*)
-        ble/util/print "ble.sh (bind): unrecognized option $arg" >&2
+        ble/builtin/bind/.print-error "unrecognized option $arg"
         flags=e$flags
         continue ;;
       (-*)
@@ -4009,7 +4224,7 @@ function ble/builtin/bind/.process {
             arg=
             if [[ ! $optarg ]]; then
               if (($#==0)); then
-                ble/util/print "ble.sh (bind): missing option argument for -$c" >&2
+                ble/builtin/bind/.print-error "missing option argument for -$c"
                 flags=e$flags
                 break
               fi
@@ -4023,11 +4238,11 @@ function ble/builtin/bind/.process {
             (q) ble/array#push opt_queries "$optarg" ;;
             (f) ble/decode/read-inputrc "$optarg" ;;
             (*)
-              ble/util/print "ble.sh (bind): unsupported option -$c $optarg" >&2
+              ble/builtin/bind/.print-error "unsupported option -$c $optarg"
               flags=e$flags ;;
             esac ;;
           (*)
-            ble/util/print "ble.sh (bind): unrecognized option -$c" >&2
+            ble/builtin/bind/.print-error "unrecognized option -$c"
             flags=e$flags ;;
           esac
         done
@@ -4042,17 +4257,17 @@ function ble/builtin/bind/.process {
   if [[ $_ble_decode_bind_state != none ]]; then
     if [[ $opt_print == *[pPsSX]* ]] || ((${#opt_queries[@]})); then
       # Note: サブシェル内でバインディングを復元してから出力
-      ( ble/decode/bind/unbind
+      ( ble/decode/readline/unbind
         [[ -s "$_ble_base_run/$$.bind.save" ]] &&
           source "$_ble_base_run/$$.bind.save"
         [[ $opt_print ]] &&
-          builtin bind ${opt_keymap:+-m $opt_keymap} -$opt_print
+          builtin bind ${opt_keymap:+-m "$opt_keymap"} -"$opt_print"
         declare rlfunc
         for rlfunc in "${opt_queries[@]}"; do
-          builtin bind ${opt_keymap:+-m $opt_keymap} -q "$rlfunc"
+          builtin bind ${opt_keymap:+-m "$opt_keymap"} -q "$rlfunc"
         done )
     elif [[ $opt_print ]]; then
-      builtin bind ${opt_keymap:+-m $opt_keymap} -$opt_print
+      builtin bind ${opt_keymap:+-m "$opt_keymap"} -"$opt_print"
     fi
   fi
 
@@ -4149,7 +4364,7 @@ function ble/builtin/bind/read-user-settings/.reconstruct {
     /^__PRINT__$/ { keymap_print(); next; }
     sub(/^KEYMAP=/, "") { KEYMAP = $0; }
 
-    /ble-decode\/.hook / { next; }
+    /(ble-decode\/.hook|_ble_decode_hook) / { next; }
 
     function workaround_bashbug(keyseq, _, rex, out, unit) {
       out = "";
@@ -4175,11 +4390,20 @@ function ble/builtin/bind/read-user-settings/.reconstruct {
       return out;
     }
 
-    match($0, /^"(\\.|[^"])+": /) {
-      key = substr($0, 1, RLENGTH - 2);
-      val = substr($0, 1 + RLENGTH);
+    function process_line(line, _, key, val) {
+      # extract key and value
+      if (match(line, /^"(\\.|[^"])+": /)) {
+        key = substr(line, 1, RLENGTH - 2);
+        val = substr(line, 1 + RLENGTH);
+      } else if (mode == 1 && _ble_bash >= 50300 && match(line, /^"(\\.|[^"])+" /)) {
+        key = substr(line, 1, RLENGTH - 1);
+        val = substr(line, 1 + RLENGTH);
+      } else {
+        return 0;
+      }
       if (_ble_bash < 50100)
         key = workaround_bashbug(key);
+
       if (mode) {
         type = mode == 1 ? "x" : mode == 2 ? "s" : "";
         keymap_register(key, val, type);
@@ -4187,6 +4411,8 @@ function ble/builtin/bind/read-user-settings/.reconstruct {
         keymap0[key] = val;
       }
     }
+
+    { process_line($0); }
   ' 2>/dev/null # suppress LC_ALL error messages
 }
 
@@ -4224,7 +4450,7 @@ function ble/builtin/bind/read-user-settings/.cache-save {
     if [[ -s $delay_prefix.$keymap ]]; then
       ble/util/copyfile "$delay_prefix.$keymap" "$cache_prefix.$keymap"
     else
-      : >| "$cache_prefix.$keymap"
+      >| "$cache_prefix.$keymap"
     fi || fail=1
   done
   [[ $fail ]] && return 1
@@ -4290,7 +4516,11 @@ function ble/builtin/bind {
   ble/base/.restore-bash-options set shopt
   return "$ext"
 }
-function bind { ble/builtin/bind "$@"; }
+function bind {
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_adjust"
+  ble/builtin/bind "$@"
+  builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
+}
 
 #------------------------------------------------------------------------------
 # ble/decode/initialize, attach, detach                          @decode.attach
@@ -4300,7 +4530,7 @@ function ble/decode/initialize/.has-broken-suse-inputrc {
   local content=
   [[ -s /etc/inputrc.keys && -r /etc/os-release ]] &&
     ble/util/readfile content /etc/os-release &&
-    [[ $content == *'openSUSE'* ]] || return 1
+    [[ $content == *'SUSE'* ]] || return 1
 
   # Note #1926: Even after the fix
   # https://github.com/openSUSE/aaa_base/pull/84, "inputrc.keys" causes
@@ -4375,29 +4605,17 @@ function ble/decode/attach {
   [[ $_ble_decode_bind_state == none ]] && return 1
 
   # bind/unbind 中に C-c で中断されると大変なので先に stty を設定する必要がある
-  ble/term/initialize # 3ms
+  ble/term/attach # 3ms
 
   # 既定の keymap に戻す
   ble/util/reset-keymap-of-editing-mode
 
   # 元のキー割り当ての保存・unbind
-  builtin eval -- "$(ble/decode/bind/.generate-source-to-unbind-default)" # 21ms
+  ble/util/eval-stdout 'ble/decode/readline/.generate-source-to-unbind-default' # 21ms
 
   # ble.sh bind の設置
-  ble/decode/bind/bind # 20ms
+  ble/decode/readline/bind # 20ms
 
-  case $TERM in
-  (linux)
-    # Note #D1213: linux コンソール (kernel 5.0.0) は "\e[>"
-    #  でエスケープシーケンスを閉じてしまう。5.4.8 は大丈夫。
-    _ble_term_TERM=linux:- ;;
-  (st|st-*)
-    # st の unknown csi sequence メッセージに対して文句を言う人がいた。
-    # st は TERM で判定できるので DA2 はスキップできる。
-    _ble_term_TERM=st:- ;;
-  (*)
-    ble/util/buffer $'\e[>c' # DA2 要求 (ble-decode-char/csi/.decode で受信)
-  esac
   return 0
 }
 
@@ -4408,15 +4626,15 @@ function ble/decode/detach {
   ble/util/save-editing-mode current_editing_mode
   [[ $_ble_decode_bind_state == "$current_editing_mode" ]] || ble/util/restore-editing-mode _ble_decode_bind_state
 
-  ble/term/finalize
+  ble/term/detach
 
   # ble.sh bind の削除
-  ble/decode/bind/unbind
+  ble/decode/readline/unbind
 
   # 元のキー割り当ての復元
   if [[ -s "$_ble_base_run/$$.bind.save" ]]; then
     source "$_ble_base_run/$$.bind.save"
-    : >| "$_ble_base_run/$$.bind.save"
+    >| "$_ble_base_run/$$.bind.save"
   fi
 
   [[ $_ble_decode_bind_state == "$current_editing_mode" ]] || ble/util/restore-editing-mode current_editing_mode
@@ -4427,7 +4645,7 @@ function ble/decode/detach {
 #------------------------------------------------------------------------------
 # **** encoding = UTF-8 ****
 
-function ble/encoding:UTF-8/generate-binder { :; }
+function ble/encoding:UTF-8/generate-binder { return 0; }
 
 # 以下は lib/init-bind.sh の中にある物と等価なので殊更に設定しなくて良い。
 
@@ -4436,7 +4654,7 @@ function ble/encoding:UTF-8/generate-binder { :; }
 # ##   lib/init-bind.sh の中から呼び出される。
 # function ble/encoding:UTF-8/generate-binder {
 #   ble/init:bind/bind-s '"\C-@":"\xC0\x80"'
-#   ble/init:bind/bind-s '"\e":"\xDF\xBC"' # isolated ESC (U+07FC)
+#   ble/init:bind/bind-s '"\e":"\xDE\xBC"' # isolated ESC (U+07BC)
 #   local i ret
 #   for i in {0..255}; do
 #     ble/decode/c2dqs "$i"
@@ -4493,7 +4711,7 @@ function ble/encoding:UTF-8/c2bc {
 ##   lib/init-bind.sh の中から呼び出される。
 function ble/encoding:C/generate-binder {
   ble/init:bind/bind-s '"\C-@":"\x9B\x80"'
-  ble/init:bind/bind-s '"\e":"\x9B\x8B"' # isolated ESC (U+07FC) に後で変換
+  ble/init:bind/bind-s '"\e":"\x9B\x8B"' # isolated ESC (U+07BC) に後で変換
   local i ret
   for i in {0..255}; do
     ble/decode/c2dqs "$i"
@@ -4507,7 +4725,7 @@ function ble/encoding:C/generate-binder {
 ##   但し、bind の都合 (bashbug の回避) により以下の変換を行う。
 ##
 ##   \x9B\x80 (155 128) → C-@
-##   \x9B\x8B (155 139) → isolated ESC U+07FC (2044)
+##   \x9B\x8B (155 139) → isolated ESC U+07BC (1980)
 ##   \x9B\x9B (155 155) → ESC
 ##
 ##   実際にこの組み合わせの入力が来ると誤変換されるが、
@@ -4530,7 +4748,7 @@ function ble/encoding:C/decode {
       case $b in
       (155) A[i++]=27 # ESC
             continue ;;
-      (139) A[i++]=2044 # isolated ESC U+07FC
+      (139) A[i++]=1980 # isolated ESC U+07BC
             continue ;;
       (128) A[i++]=0 # C-@
             continue ;;

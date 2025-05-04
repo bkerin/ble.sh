@@ -3,20 +3,24 @@
 all:
 .PHONY: all
 
+# git version
+GIT_VERSION = $(shell LANG=C git --version)
+
 # check GNU Make
 ifeq ($(.FEATURES),)
   $(error Sorry, please use a newer version (3.81 or later) of gmake (GNU Make).)
 endif
+MAKE_VERSION := $(shell LANG=C $(MAKE) --version | head -1)
 
 # check gawk
-GAWK := $(shell which gawk 2>/dev/null || bash -c 'type -p gawk' 2>/dev/null)
+GAWK := $(shell which gawk 2>/dev/null || bash -c 'builtin type -P gawk' 2>/dev/null)
 ifneq ($(GAWK),)
   GAWK_VERSION := $(shell LANG=C $(GAWK) --version 2>/dev/null | sed -n '1{/[Gg][Nn][Uu] [Aa][Ww][Kk]/p;}')
   ifeq ($(GAWK_VERSION),)
     $(error Sorry, gawk is found but does not seem to work. Please install a proper version of gawk (GNU Awk).)
   endif
 else
-  GAWK := $(shell which awk 2>/dev/null || bash -c 'type -p awk' 2>/dev/null)
+  GAWK := $(shell which awk 2>/dev/null || bash -c 'builtin type -P awk' 2>/dev/null)
   ifeq ($(GAWK),)
     $(error Sorry, gawk/awk could not be found. Please check your PATH environment variable.)
   endif
@@ -26,7 +30,7 @@ else
   endif
 endif
 
-MWGPP:=$(GAWK) -f make/mwg_pp.awk
+MWGPP := $(GAWK) -f make/mwg_pp.awk
 
 # Note (#D2058): we had used "cp -p xxx out/xxx" to copy files to the build
 # directory, but some filesystem (ecryptfs) has a bug that the subsecond
@@ -40,21 +44,33 @@ CP := cp
 
 FULLVER := 0.4.0-devel4
 
+BLE_GIT_COMMIT_ID :=
+BLE_GIT_BRANCH :=
+ifneq ($(wildcard .git),)
+  BLE_GIT_COMMIT_ID := $(shell git show -s --format=%h)
+  BLE_GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
+else ifneq ($(wildcard make/.git-archive-export.mk),)
+  ifeq ($(shell grep '\$$Format:.*\$$' make/.git-archive-export.mk),)
+    include make/.git-archive-export.mk
+  endif
+endif
+ifeq ($(BLE_GIT_COMMIT_ID),)
+  $(error Failed to determine the commit id of the current tree.  The .git directory is required to build ble.sh.)
+endif
+
 OUTDIR:=out
 
 outdirs += $(OUTDIR)
 
-# Note: the following line is a workaround for the missing
-#   DEPENDENCIES_PHONY option for mwg_pp in older Makefile
-ble-form.sh:
-
 outfiles+=$(OUTDIR)/ble.sh
 -include $(OUTDIR)/ble.dep
-$(OUTDIR)/ble.sh: ble.pp GNUmakefile | .git $(OUTDIR)
+$(OUTDIR)/ble.sh: ble.pp GNUmakefile | $(OUTDIR)
 	DEPENDENCIES_PHONY=1 DEPENDENCIES_OUTPUT="$(@:%.sh=%.dep)" DEPENDENCIES_TARGET="$@" \
 	  FULLVER=$(FULLVER) \
-	  BUILD_GIT_VERSION="$(shell LANG=C git --version)" \
-	  BUILD_MAKE_VERSION="$(shell LANG=C $(MAKE) --version | head -1)" \
+	  BLE_GIT_COMMIT_ID="$(BLE_GIT_COMMIT_ID)" \
+	  BLE_GIT_BRANCH="$(BLE_GIT_BRANCH)" \
+	  BUILD_GIT_VERSION="$(GIT_VERSION)" \
+	  BUILD_MAKE_VERSION="$(MAKE_VERSION)" \
 	  BUILD_GAWK_VERSION="$(GAWK_VERSION)" \
 	  $(MWGPP) $< >/dev/null
 .DELETE_ON_ERROR: $(OUTDIR)/ble.sh
@@ -70,6 +86,10 @@ src/canvas.emoji.sh:
 	$(GENTABLE) emoji
 src/canvas.GraphemeClusterBreak.sh:
 	$(GENTABLE) GraphemeClusterBreak
+
+# Note: the following line is a workaround for the missing
+#   DEPENDENCIES_PHONY option for mwg_pp in older Makefile
+ble-form.sh:
 
 #------------------------------------------------------------------------------
 # lib
@@ -149,31 +169,41 @@ removedfiles += \
   lib/keymap.vi_test.sh
 
 #------------------------------------------------------------------------------
-# documents
+# licenses and documents
 
-outdirs += $(OUTDIR)/doc
-outfiles-doc += $(OUTDIR)/doc/README.md
-outfiles-doc += $(OUTDIR)/doc/README-ja_JP.md
-outfiles-doc += $(OUTDIR)/doc/CONTRIBUTING.md
-outfiles-doc += $(OUTDIR)/doc/ChangeLog.md
-outfiles-doc += $(OUTDIR)/doc/Release.md
-outfiles-license += $(OUTDIR)/doc/LICENSE.md
+outdirs += $(OUTDIR)/licenses $(OUTDIR)/doc
+outfiles-license += $(OUTDIR)/licenses/LICENSE.md
+ifneq ($(USE_DOC),no)
+  outfiles-doc += $(OUTDIR)/doc/README.md
+  outfiles-doc += $(OUTDIR)/doc/README-ja_JP.md
+  outfiles-doc += $(OUTDIR)/doc/CONTRIBUTING.md
+  outfiles-doc += $(OUTDIR)/doc/ChangeLog.md
+  outfiles-doc += $(OUTDIR)/doc/Release.md
+endif
 
-# Note #D2065: make-3.81 のバグにより以下の様に記述すると、より長く一致するパター
-# ンを持った規則よりも優先されてしまう。3.82 では問題は発生しない。% の代わりに
-# %.md にしたとしても、%.md が contrib/README.md 等に一致してしまう。仕方がない
-# ので $(OUTDIR)/doc/%: % に対応するファイルに関しては明示的に一つずつ記述する
-# 事にする。
+# Workaround for make-3.81 (#D2065)
 #
-#   $(OUTDIR)/doc/%: % | $(OUTDIR)/doc
+# We want to do something like the following:
+#
+#   $(OUTDIR)/license/%.md: %.md | $(OUTDIR)/license
+#   	$(CP) $< $@
+#   $(OUTDIR)/doc/%.md: %.md | $(OUTDIR)/doc
 #   	$(CP) $< $@
 #
-# Workaround for make-3.81:
-$(OUTDIR)/doc/README.md: README.md | $(OUTDIR)/doc
+# However, because of a bug in make-3.81, this rule overrides all the other
+# more detailed patterns such as $(OUTDIR)/doc/contrib/%.md.  As a result, even
+# when we want to apply preprocessing to specific file patterns under
+# $(OUTDIR)/doc/%, $(CP) is always is used to install the files.  To work
+# around this problem in make-3.81, we need to manually filter the target files
+# whose source files are at the top level in the source tree.
+#
+outfiles-doc-toplevel := \
+  $(filter $(outfiles-doc),$(patsubst %,$(OUTDIR)/doc/%,$(wildcard *.md)))
+$(outfiles-doc-toplevel): $(OUTDIR)/doc/%.md: %.md | $(OUTDIR)/doc
 	$(CP) $< $@
-$(OUTDIR)/doc/README-ja_JP.md: README-ja_JP.md | $(OUTDIR)/doc
-	$(CP) $< $@
-$(OUTDIR)/doc/LICENSE.md: LICENSE.md | $(OUTDIR)/doc
+outfiles-license-toplevel := \
+  $(filter $(outfiles-license),$(patsubst %,$(OUTDIR)/licenses/%,$(wildcard *.md)))
+$(outfiles-license-toplevel): $(OUTDIR)/licenses/%.md: %.md | $(OUTDIR)/licenses
 	$(CP) $< $@
 
 $(OUTDIR)/doc/%: docs/% | $(OUTDIR)/doc
@@ -202,29 +232,27 @@ all: build
 #------------------------------------------------------------------------------
 # target "install"
 
+# Users can specify make variables INSDIR, INSDIR_LICENSE, and INSDIR_DOC to
+# control the install locations.  Instead of INSDIR, users may specify DESTDIR
+# and/or PREFIX to automatically set up these variables.
+
 ifneq ($(INSDIR),)
-  ifeq ($(INSDIR_DOC),)
-    INSDIR_DOC := $(INSDIR)/doc
-  endif
-  ifeq ($(INSDIR_LICENSE),)
-    INSDIR_LICENSE := $(INSDIR)/doc
-  endif
+  INSDIR_LICENSE := $(INSDIR)/licenses
+  INSDIR_DOC     := $(INSDIR)/doc
 else
-  ifneq ($(filter-out %/,$(DESTDIR)),)
-    DESTDIR := $(DESTDIR)/
-  endif
-
-  ifneq ($(DESTDIR)$(PREFIX),)
-    DATA_HOME := $(DESTDIR)$(PREFIX)/share
+  ifneq ($(DESTDIR),)
+    DATADIR := $(abspath $(DESTDIR)/$(PREFIX)/share)
+  else ifneq ($(PREFIX),)
+    DATADIR := $(abspath $(PREFIX)/share)
   else ifneq ($(XDG_DATA_HOME),)
-    DATA_HOME := $(XDG_DATA_HOME)
+    DATADIR := $(abspath $(XDG_DATA_HOME))
   else
-    DATA_HOME := $(HOME)/.local/share
+    DATADIR := $(abspath $(HOME)/.local/share)
   endif
 
-  INSDIR = $(DATA_HOME)/blesh
-  INSDIR_DOC = $(DATA_HOME)/doc/blesh
-  INSDIR_LICENSE = $(DATA_HOME)/doc/blesh
+  INSDIR         := $(DATADIR)/blesh
+  INSDIR_LICENSE := $(DATADIR)/blesh/licenses
+  INSDIR_DOC     := $(DATADIR)/doc/blesh
 endif
 
 ifneq ($(strip_comment),)
@@ -233,24 +261,24 @@ else
   opt_strip_comment :=
 endif
 
+insfiles         := $(outfiles:$(OUTDIR)/%=$(INSDIR)/%)
+insfiles-license := $(outfiles-license:$(OUTDIR)/licenses/%=$(INSDIR_LICENSE)/%)
+insfiles-doc     := $(outfiles-doc:$(OUTDIR)/doc/%=$(INSDIR_DOC)/%)
+
 install-files := \
-  $(outfiles:$(OUTDIR)/%=$(INSDIR)/%) \
-  $(outfiles-doc:$(OUTDIR)/doc/%=$(INSDIR_DOC)/%) \
-  $(outfiles-license:$(OUTDIR)/doc/%=$(INSDIR_LICENSE)/%) \
+  $(insfiles) $(insfiles-license) $(insfiles-doc) \
   $(INSDIR)/cache.d $(INSDIR)/run
 install: $(install-files)
 uninstall:
 	bash make_command.sh uninstall $(install-files)
 .PHONY: install uninstall
 
-$(INSDIR)/%: $(OUTDIR)/%
+$(insfiles): $(INSDIR)/%: $(OUTDIR)/%
 	bash make_command.sh install $(opt_strip_comment) "$<" "$@"
-$(INSDIR_DOC)/%: $(OUTDIR)/doc/%
+$(insfiles-license): $(INSDIR_LICENSE)/%: $(OUTDIR)/licenses/%
 	bash make_command.sh install "$<" "$@"
-ifneq ($(INSDIR_DOC),$(INSDIR_LICENSE))
-$(INSDIR_LICENSE)/%: $(OUTDIR)/doc/%
+$(insfiles-doc): $(INSDIR_DOC)/%: $(OUTDIR)/doc/%
 	bash make_command.sh install "$<" "$@"
-endif
 $(INSDIR)/cache.d $(INSDIR)/run:
 	mkdir -p $@ && chmod a+rwxt $@
 

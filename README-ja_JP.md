@@ -8,32 +8,26 @@
 <a href="https://github.com/akinomyoga/ble.sh/wiki/%E9%80%86%E5%BC%95%E3%81%8D%E3%83%AC%E3%82%B7%E3%83%94">逆引き</a> ]
 </p>
 
-`ble.sh` (*Bash Line Editor*) はピュア Bash スクリプトで書かれたコマンドラインエディタで、標準の GNU Readline を置き換える形で動作します。
+`ble.sh`<sup><a href="#discl-pronun">†1</a></sup> (*Bash Line Editor*)
+はピュア Bash<sup><a href="#discl-pure">†2</a></sup>
+スクリプトで書かれたコマンドラインエディタで、標準の GNU Readline を置き換える形で動作します。
 
 現在の開発バージョンは 0.4 です。
 このスクリプトは Bash 3.0 以降で利用できますが、速度・機能などの観点から 4.0 以降のリリース版 Bash でお使い頂くことがお薦めです。
+また POSIX の基本的なコマンドが存在することも想定しています。
 現時点では、文字コードとして `UTF-8` のみの対応です。
 このスクリプトは [**BSD License**](LICENSE.md) (3条項 BSD ライセンス) の下で提供されます。
 
-免責: ラインエディタ本体は **ピュア Bash** で書かれていますが、
-ユーザーコマンド実行時には TTY 設定の為に `stty` (POSIX) を呼び出します。
-他にも処理の高速化の為に、初期化・終了処理、
-巨大なデータの処理 (補完、貼り付けなど) の局面でPOSIX 標準コマンドを利用しています。
-
-呼称: `ble.sh` はお好きな様に読んでいただいて問題ありませんが、一番短いのは標記の /blɛʃ/ になりましょう。
-しかし個人的には脳裡で /biːɛliː/ または /biːɛliː dɑt ɛseɪtʃ/ と読んでいるものですから、標記の読み方は飽くまで参考と受け止めていただければ幸いです。
-
 ## 簡単設定
 
-`ble.sh` をお使いいただくには Bash 3.0 以上 (及び POSIX の基本的なコマンド) が必要です。
 <!-- 但し、macOS では附属の `/usr/bin/awk` (awk-32 以降) でマルチバイト文字セットの問題があるため、`gawk`, `nawk`, または `mawk` を別途インストールする必要があるかもしれません。 -->
-`ble.sh` を取得するには主に2つの方法があります: `git` を用いてソースを取得しビルドする方法と `curl` または `wget` を用いて nightly ビルドをダウンロードする方法です。
-詳細は、試用またはインストールに関しては [節1.1](#get-from-source) と [節1.2](#get-from-tarball) を、
-`~/.bashrc` の設定に関しては [節1.3](#set-up-bashrc) を御覧ください。
+`ble.sh` を取得するには主に2つの方法があります: `git` を用いてソースを取得しビルドする方法と、
+`curl` または `wget` を用いて [nightly ビルド](https://github.com/akinomyoga/ble.sh/releases/tag/nightly)をダウンロードする方法です。
+試用とインストール方法の詳細に関しては [節1.1](#get-from-source) と [節1.2](#get-from-tarball) を、
+`~/.bashrc` の設定の詳細に関しては [節1.3](#set-up-bashrc) を御覧ください。
 
 > [!NOTE]
-> `fzf` を `ble.sh` と組み合わせてお使いの場合は [節2.8](#set-up-bashrc) を必ず
-> 御覧ください。
+> `fzf` を `ble.sh` と組み合わせてお使いの場合は [節2.8](#fzf-integration) を必ず御覧ください。
 
 <details open><summary><b><code>git</code> を用いてソースを取得し <code>ble.sh</code> を生成</b></summary>
 
@@ -125,7 +119,7 @@ bash /path/to/ble.sh --update
 <details><summary><b><code>ble.sh</code> のパッケージ作成</b></summary>
 
 `ble.sh` は単にシェルスクリプトの集合ですので環境に依存せずにお使いいただけます (いわゆる "`noarch`") ので、
-単にリリースページからビルド済みの tar ボールをダウンロードし中身を `/tmp/blesh-package/usr/local` など所定の位置に配置するだけで問題ありません。
+単にリリースページからビルド済みの tarball をダウンロードし中身を `/tmp/blesh-package/usr/local` など所定の位置に配置するだけで問題ありません。
 それでも何らかの理由により自前でビルドする必要がある場合には以下のコマンドをお使いください。
 ビルドの為には git リポジトリ (`.git`) が必要になることにご注意ください。
 
@@ -136,26 +130,21 @@ git clone --recursive --depth 1 --shallow-submodules https://github.com/akinomyo
 make -C ble.sh install DESTDIR=/tmp/blesh-package PREFIX=/usr/local
 ```
 
-パッケージ管理システムを用いたパッケージ更新方法を指定すると `ble-update` でそれが呼び出されます。
-更新方法を指定するにはスクリプトファイルを `${prefix}/share/blesh/lib/_package.bash` に配置します。
-スクリプトは次の様な変数と関数を定義します。但し `XXX` はパッケージ管理システムの名前に置き換えてください。
+スクリプトファイル、ライセンスファイル。ドキュメントファイルのインストール場所を詳細に指定する方法については、
+後ろの節 [インストール](#install) and [パッケージ作成](#package) を御参照ください。
+
+スクリプトファイル `_package.bash` を `${prefix}/share/blesh/lib/_package.bash` に配置することで、
+`ble-update` で用いるパッケージ更新方法を指定することができます。
+詳細については節 [`_package.bash`](#_packagebash) を御参照ください。
 
 ```bash
 # ${prefix}/share/blesh/lib/_package.bash
 
 _ble_base_package_type=XXX
-
 function ble/base/package:XXX/update {
   update-the-package-in-a-proper-way
-  return 0
 }
 ```
-
-シェル関数がステータス 0 で終了した場合、更新が成功した事を表し `ble.sh` のリロードが自動的に行われます。
-シェル関数がステータス 6 で終了した場合、`ble.sh` のタイムスタンプが確認され、`ble.sh` が現セッションの開始時刻よりも新しい時に限りリロードが行われます。
-シェル関数がステータス 125 で終了した場合、`ble.sh` に組み込みの更新処理が試みられます。
-それ以外の場合には更新処理が中断されます。この場合、シェル関数が状況を説明するメッセージを出力するようにして下さい。
-具体例として `AUR` パッケージの [`_package.bash`](https://aur.archlinux.org/cgit/aur.git/tree/blesh-update.sh?h=blesh-git) も参考にしていただければ幸いです。
 </details>
 
 ## 機能概要
@@ -222,13 +211,15 @@ Vimモードの実装は2017年9月に始まり2018年3月に一先ず完成と�
 - 20xx-xx v0.5 (plan) -- TUI設定画面
 - 20xx-xx v0.6 (plan) -- エラー診断?
 
-## 制限
+## 制限および前提
 
 `ble.sh` の実装形態から来る制限があります。
 ユーザー設定や他の Bash の枠組みとの干渉によって問題が起こる可能性があります。
 
-- `ble.sh` は、実行コストの都合、既定では前回のコマンドライン実行後の `PIPESTATUS` を設定しません。代わりに `BLE_PIPESTATUS` を参照することができます。
+- 既定では、実行コストの都合上、`ble.sh` は前回のコマンドライン実行後の `PIPESTATUS` を設定しません。代わりに `BLE_PIPESTATUS` を参照することができます。
   もし本当に `PIPESTATUS` 経由でこれらの値を利用する必要がある場合には設定 `bleopt exec_restore_pipestatus=1` を使用して下さい。
+- 既定では、よりなめらかな描画の為に、`ble.sh` は `PROMPT_COMMAND` および `PRECMD` フックが端末内のカーソル位置およびレイアウトを変更しないことを想定します。
+  `PROMPT_COMMAND` および `PRECMD` で出力を行うまたはカーソル位置を変更する設定をお持ちの場合は、設定 `bleopt prompt_command_changes_layout=1` を使用してください。
 - `ble.sh` は一般的な変数名のシェル変数や環境変数 (`LC_*` など) がグローバルで読み込み専用変数になっていないことを想定します。
   Bash ではグローバル変数の読み込み専用属性は関数のローカルスコープに於いても制限を与えます。
   つまり、同名の異なるローカル変数さえ定義することができません。
@@ -245,9 +236,28 @@ Vimモードの実装は2017年9月に始まり2018年3月に一先ず完成と�
   [wiki](https://github.com/akinomyoga/ble.sh/wiki/Internals#internal-and-external)
   (英語) に情報があります。
 
+## 批判
+
+- <sup><a id="discl-pronun" href="#discl-pronun">†1</a></sup>Q. "ble.sh の読み方が分からない"---
+  A. `ble.sh` はお好きな様に読んでいただいて問題ありませんが、一番短いのは標記の /blɛʃ/ になりましょう。
+  しかし個人的には脳裡で /biːɛliː/ または /biːɛliː dɑt ɛseɪtʃ/ と読んでいるものですから、
+  標記の読み方は飽くまで参考と受け止めていただければ幸いです。
+- <sup><a id="discl-pure" href="#discl-pure">†2</a></sup>Q. "コマンドを実行するのだからピュアBashのはずがない。
+  ピュアBashとは何たることか"---
+  A. ラインエディタ本体がピュア Bashで書かれているという意味です。
+  勿論、ユーザーが外部コマンドを入力・実行した場合にはその外部コマンドが呼び出されます。
+  更に、ユーザーコマンド実行前後には TTY を適切に設定する為に `stty` (POSIX) が呼び出されます。
+  他にも処理の高速化の為に、初期化・終了処理、
+  巨大なデータの処理 (補完、貼り付けなど) の局面でPOSIX 標準コマンドを利用しています。
+  `ble.sh` 実装における本来の目標はピュアBashで実装することではなく、
+  POSIX環境におけるBashの互換性を保った範囲で高速な動作を実現することです。
+  ピュアBashによって大抵の場合は `fork` &amp; `exec` コストを削減することができますが、
+  個々のケースで外部コマンドによる実装の方が効率的な場合には、
+  `ble.sh`はピュアBash実装よりも外部コマンドによる実装を優先します。
+
 # 1 使い方
 
-## 1.1 最新の git repository のソースから生成して試す (バージョン ble-0.4)<sup><a id="get-from-source" href="#get-from-source">†</a></sup>
+## 1.1 ソースからのビルド方法<sup><a id="get-from-source" href="#get-from-source">†</a></sup>
 
 ### ble.sh 生成
 
@@ -269,7 +279,7 @@ $ make
 $ source out/ble.sh
 ```
 
-### インストール
+### インストール<sup><a id="package" href="#install">†</a></sup>
 
 指定したディレクトリにインストールするには `make install` コマンドを使用します。
 
@@ -279,31 +289,84 @@ make install
 
 # 指定したディレクトリにインストール
 make install INSDIR=/path/to/blesh
-
-# パッケージ作成用 (パッケージ管理者用)
-make install DESTDIR=/tmp/blesh-package PREFIX=/usr/local
 ```
 
-Make 変数 `DESTDIR` または `PREFIX` が指定されている時、`ble.sh` は `$DESTDIR/$PREFIX/share/blesh` にコピーされます。
-それ以外で Make 変数 `INSDIR` が指定されている時、直接 `$INSDIR` にインストールされます。
-更にそれ以外で環境変数 `$XDG_DATA_HOME` が指定されている時、`$XDG_DATA_HOME/blesh` にインストールされます。
-以上の変数が何れも指定されていない時の既定のインストール先は `~/.local/share/blesh` です。
+メインファイル `ble.sh` 及び関連スクリプトファイルのインストール先ディレクトリは Make 変数 `INSDIR` を用いて指定できます。
+ライセンス及びドキュメントのインストール先は Make 変数 `INSDIR_LICENSE` と `INSDIR_DOC` を用いて指定できます。
+`INSDIR` が指定されている時、`INSDIR_LICENSE` と `INSDIR_DOC` の既定値はそれぞれ `$INSDIR/licenses` と `$INSDIR/doc` です。
+`INSDIR` および後述の `DESTDIR`/`PREFIX` が指定されていない時、`INSDIR`, `INSDIR_LICENSE`, `INSDIR_DOC` の規定値は
+それぞれ `$data/blesh`, `$data/blesh/licenses`, `$data/doc/blesh` になります。
+但し、`data` は `${XDG_DATA_HOME:-$HOME/.local/share}` を指します。
 
-インストール時にコード中のコメントは自動で削除されますが、コメントを保持したい場合は `strip_comment=no` を `make` の引数に指定して下さい。
+Make 変数 `USE_DOC=no` が指定されている時、ドキュメントファイルの処理が無効化されます。
+
+既定ではコード中のコメント行や空行はインストール時に自動で削除されます。
+コメントや空行を保持したい場合は `strip_comment=no` を `make` の引数に指定して下さい。
 
 `.bashrc` の設定に関しては[節1.3](#set-up-bashrc)を御覧ください。
 
-## 1.2 GitHub Releases から tar をダウンロードして使う<sup><a id="get-from-tarball" href="#get-from-tarball">†</a></sup>
+### パッケージ作成<sup><a id="package" href="#package">†</a></sup>
 
+パッケージ作成者は Make 変数 `DESTDIR` 及び `PREFIX` を用いて `INSDIR`,
+`INSDIR_LICENSE`, `INSDIR_DOC` の既定値を一括で設定することができます。
+
+```
+# パッケージ作成 - 例1
+make install DESTDIR=/tmp/blesh-package PREFIX=/usr/local
+
+# パッケージ作成 - 例2
+make install DESTDIR="$build" PREFIX="$prefix" \
+  INSDIR_LICENSE="$build/$prefix/share/licenses/blesh"
+
+# パッケージ作成 - 例3
+make install DESTDIR="$build" PREFIX="$prefix" \
+  INSDIR_LICENSE="$build/$prefix/share/blesh/doc" \
+  INSDIR_DOC="$build/$prefix/share/blesh/doc"
+
+# パッケージ作成 - 例4
+make install USE_DOC=no DESTDIR="$build" PREFIX="$prefix"
+```
+
+`INSDIR` の代わりに Make 変数 `DESTDIR` または `PREFIX` が指定されている時、 
+`INSDIR` の値は `$DESTDIR/$PREFIX/share/blesh` に設定され、
+ライセンス及びドキュメントファイルの場所 `INSDIR_LICENSE` と `INSDIR_DOC` の既定値は `$DESTDIR/$PREFIX/share/doc/blesh` になります。
+
+#### `_package.bash`
+
+スクリプトファイル `_package.bash` を `${prefix}/share/blesh/lib/_package.bash` に配置することで、
+`ble-update` で用いるパッケージ更新方法を指定することができます。
+スクリプトファイル `_package.bash` では、次で示すような変数と関数を定義します。
+但し `XXX` はパッケージ管理システムの名前に置き換えてください。
+
+```bash
+# ${prefix}/share/blesh/lib/_package.bash
+
+_ble_base_package_type=XXX
+
+function ble/base/package:XXX/update {
+  update-the-package-in-a-proper-way
+  return 0
+}
+```
+
+シェル関数の終了ステータス 0 は更新が成功したことを表し、更新処理完了後に `ble.sh` が自動的にリロードされます。
+シェル関数がステータス 6 で終了した場合、更新処理完了後に `ble.sh` のタイムスタンプが確認され、`ble.sh` が現セッションの開始時刻よりも新しい時に限りリロードが行われます。
+シェル関数がステータス 125 で終了した場合、`ble.sh` に組み込みの更新処理が試みられます。
+それ以外の場合には更新処理が中断されます。この場合、シェル関数が状況を説明するメッセージを出力するようにして下さい。
+具体例として `AUR` パッケージの [`_package.bash`](https://aur.archlinux.org/cgit/aur.git/tree/blesh-update.sh?h=blesh-git) も参考にしていただければ幸いです。
+
+## 1.2 tarball のダウンロード<sup><a id="get-from-tarball" href="#get-from-tarball">†</a></sup>
+
+GitHub Releases から `ble.sh` の tarball をダウンロードすることもできます。
 ダウンロード・試用・インストールの方法については各リリースページの説明を御覧ください。
-現在、安定版は開発版に比べてかなり古いので様々な機能が欠けている事にご注意下さい。
+現在、安定版は開発版に比べてかなり古いので様々な機能が欠けていることにご注意下さい。
 
-- 開発版 [v0.4.0-devel3](https://github.com/akinomyoga/ble.sh/releases/tag/v0.4.0-devel3) (2020-12), [nightly build](https://github.com/akinomyoga/ble.sh/releases/tag/nightly)
+- 開発版 [v0.4.0-devel3](https://github.com/akinomyoga/ble.sh/releases/tag/v0.4.0-devel3) (2023-04), [nightly build](https://github.com/akinomyoga/ble.sh/releases/tag/nightly)
 - 安定版 [v0.3.4](https://github.com/akinomyoga/ble.sh/releases/tag/v0.3.4) (2019-02 fork) 拡張補完
 - 安定版 [v0.2.7](https://github.com/akinomyoga/ble.sh/releases/tag/v0.2.7) (2018-03 fork) Vim モード
 - 安定版 [v0.1.15](https://github.com/akinomyoga/ble.sh/releases/tag/v0.1.15) (2015-12 fork) 構文着色
 
-## 1.3 `.bashrc` に設定する<sup><a id="set-up-bashrc" href="#set-up-bashrc">†</a></sup>
+## 1.3 `.bashrc` の設定<sup><a id="set-up-bashrc" href="#set-up-bashrc">†</a></sup>
 
 対話シェルで常用する場合には `.bashrc` に設定を行います。
 単に `ble.sh` を `source` して頂くだけでも大抵の場合動作しますが、
@@ -317,7 +380,7 @@ Make 変数 `DESTDIR` または `PREFIX` が指定されている時、`ble.sh` 
 # 間に通常の bashrc の内容を既述します。
 
 # .bashrc の末端近くに以下を追加して下さい。
-[[ ${BLE_VERSION-} ]] && ble-attach
+[[ ! ${BLE_VERSION-} ]] || ble-attach
 ```
 
 `source /path/to/ble.sh` 及び `ble-attach` を呼び出す時は、
@@ -325,7 +388,7 @@ Make 変数 `DESTDIR` または `PREFIX` が指定されている時、`ble.sh` 
 `source /path/to/ble.sh` をシェル関数の中から実行するのは避けて下さい。
 この「より確実な設定」が必要になる詳細な条件については [Discussion #254 への回答 (英語)](https://github.com/akinomyoga/ble.sh/discussions/254#discussioncomment-4284757) で説明されています。
 
-## 1.4 初期化スクリプト `~/.blerc` について
+## 1.4 初期化スクリプト `~/.blerc`
 
 ユーザー設定は初期化スクリプト `~/.blerc` (またはもし `~/.blerc` が見つからなければ `${XDG_CONFIG_HOME:-$HOME/.config}/blesh/init.sh`) に記述します。
 テンプレートとしてリポジトリの [`blerc.template`](https://github.com/akinomyoga/ble.sh/blob/master/blerc.template) というファイルを利用できます。
@@ -385,6 +448,13 @@ make INSDIR="$HOME/.local/share/blesh" install
   配置した場所です。
 - キャッシュディレクトリ `~/.cache/blesh` が生成されていればそれを削除します。
 - 一時ディレクトリ `/tmp/blesh` が生成されていればそれを削除します。これは `/tmp` の内容が自動的にクリアされないシステムで必要です。
+
+## 1.7 トラブルシューティング
+
+- [Performance](https://github.com/akinomyoga/ble.sh/wiki/Performance) (英語)
+  では `ble.sh` の動作速度の改善に関する情報について説明しています。
+- [Reporting Issue](https://github.com/akinomyoga/ble.sh/wiki/Reporting-Issue)
+  (英語) では問題報告をする前に確認しておくと良い情報を説明しています。
 
 # 2 基本設定
 
@@ -483,21 +553,21 @@ bleopt input_encoding='C'
 
 ## 2.5 ベル
 
-設定 `edit_abell` と設定 `edit_vbell` は、編集関数 `bell` の振る舞いを制御します。
-`edit_abell` が非空白の文字列の場合、音による通知が有効になります (つまり、制御文字の `BEL` (0x07) が `stderr` に出力されます)。
-`edit_vbell` が非空白の文字列の場合、画面での通知が有効になります。既定では音による通知が有効で、画面での通知が無効になっています。
+設定 `edit_bell` は編集関数 `bell` の振る舞いを制御するコロン区切りのリストです。
+値 `abell`, `vbell`, `visual` はそれぞれ対応するベルの提示方法を有効化します。
+値 `abell` は音による通知に対応し、制御文字の <kbd>BEL</kbd> (0x07) を `stderr` に出力します。
+値 `vbell` は画面での通知に対応し、端末画面上にメッセージを表示します。
+値 `visual` は画面の反転に対応し、<kbd>DECSCNM</kbd> を用いて端末画面を瞬間的に反転します。
+既定では音による通知のみが有効になっています。
 
 設定 `vbell_default_message` は画面での通知で使用するメッセージ文字列を指定します。既定値は `' Wuff, -- Wuff!! '` です。
 設定 `vbell_duration` は画面での通知を表示する時間の長さを指定します。単位はミリ秒です。既定値は `2000` です。
+設定 `vbell_align` は画面での通知の表示位置を指定します。`left`, `center`, `right` が指定できます。
 
-例えば、画面での通知は以下のように設定・有効化できます:
-```bash
-bleopt edit_vbell=1 vbell_default_message=' BEL ' vbell_duration=3000
-```
+例えば、以下の設定によって、音による通知を無効化して画面での通知を設定・有効化できます。
 
-もう一つの例として、音による通知は以下の様にして無効化できます。
 ```bash
-bleopt edit_abell=
+bleopt edit_bell=vbell vbell_{default_message=' BEL ',duration=3000,align=right}
 ```
 
 ## 2.6 着色の設定
@@ -506,15 +576,12 @@ bleopt edit_abell=
 既定の設定は以下のコードに対応します:
 ```bash
 # 編集に関連する着色の設定
-ble-face -s region                    bg=60,fg=white
+ble-face -s region                    bg=60,fg=231
 ble-face -s region_target             bg=153,fg=black
-ble-face -s region_match              bg=55,fg=white
-ble-face -s region_insert             fg=12,bg=252
+ble-face -s region_match              bg=55,fg=231
+ble-face -s region_insert             fg=27,bg=254
 ble-face -s disabled                  fg=242
 ble-face -s overwrite_mode            fg=black,bg=51
-ble-face -s auto_complete             fg=238,bg=254
-ble-face -s menu_filter_fixed         bold
-ble-face -s menu_filter_input         fg=16,bg=229
 ble-face -s vbell                     reverse
 ble-face -s vbell_erase               bg=252
 ble-face -s vbell_flash               fg=green,reverse
@@ -526,38 +593,40 @@ ble-face -s syntax_command            fg=brown
 ble-face -s syntax_quoted             fg=green
 ble-face -s syntax_quotation          fg=green,bold
 ble-face -s syntax_escape             fg=magenta
-ble-face -s syntax_expr               fg=26
+ble-face -s syntax_expr               fg=33
 ble-face -s syntax_error              bg=203,fg=231
 ble-face -s syntax_varname            fg=202
 ble-face -s syntax_delimiter          bold
-ble-face -s syntax_param_expansion    fg=purple
+ble-face -s syntax_param_expansion    fg=133
 ble-face -s syntax_history_expansion  bg=94,fg=231
-ble-face -s syntax_function_name      fg=92,bold
+ble-face -s syntax_function_name      fg=99,bold
 ble-face -s syntax_comment            fg=242
 ble-face -s syntax_glob               fg=198,bold
 ble-face -s syntax_brace              fg=37,bold
-ble-face -s syntax_tilde              fg=navy,bold
-ble-face -s syntax_document           fg=94
-ble-face -s syntax_document_begin     fg=94,bold
+ble-face -s syntax_tilde              fg=63,bold
+ble-face -s syntax_document           fg=100
+ble-face -s syntax_document_begin     fg=100,bold
 ble-face -s command_builtin_dot       fg=red,bold
 ble-face -s command_builtin           fg=red
 ble-face -s command_alias             fg=teal
-ble-face -s command_function          fg=92
+ble-face -s command_function          fg=99
 ble-face -s command_file              fg=green
 ble-face -s command_keyword           fg=blue
 ble-face -s command_jobs              fg=red
-ble-face -s command_directory         fg=26,underline
-ble-face -s filename_directory        underline,fg=26
-ble-face -s filename_directory_sticky underline,fg=white,bg=26
+ble-face -s command_directory         fg=33,underline
+ble-face -s command_suffix            fg=231,bg=28
+ble-face -s command_suffix_new        fg=231,bg=124
+ble-face -s filename_directory        underline,fg=33
+ble-face -s filename_directory_sticky underline,fg=231,bg=26
 ble-face -s filename_link             underline,fg=teal
-ble-face -s filename_orphan           underline,fg=teal,bg=224
+ble-face -s filename_orphan           underline,fg=16,bg=224
 ble-face -s filename_executable       underline,fg=green
 ble-face -s filename_setuid           underline,fg=black,bg=220
 ble-face -s filename_setgid           underline,fg=black,bg=191
 ble-face -s filename_other            underline
 ble-face -s filename_socket           underline,fg=cyan,bg=black
 ble-face -s filename_pipe             underline,fg=lime,bg=black
-ble-face -s filename_character        underline,fg=white,bg=black
+ble-face -s filename_character        underline,fg=231,bg=black
 ble-face -s filename_block            underline,fg=yellow,bg=black
 ble-face -s filename_warning          underline,fg=red
 ble-face -s filename_url              underline,fg=blue
@@ -565,14 +634,25 @@ ble-face -s filename_ls_colors        underline
 ble-face -s varname_array             fg=orange,bold
 ble-face -s varname_empty             fg=31
 ble-face -s varname_export            fg=200,bold
-ble-face -s varname_expr              fg=92,bold
+ble-face -s varname_expr              fg=99,bold
 ble-face -s varname_hash              fg=70,bold
+ble-face -s varname_new               fg=34
 ble-face -s varname_number            fg=64
 ble-face -s varname_readonly          fg=200
 ble-face -s varname_transform         fg=29,bold
-ble-face -s varname_unset             fg=124
+ble-face -s varname_unset             fg=245
 ble-face -s argument_option           fg=teal
 ble-face -s argument_error            fg=black,bg=225
+
+# 補完の着色
+ble-face -s auto_complete             fg=238,bg=254
+ble-face -s menu_complete_match       bold
+ble-face -s menu_complete_selected    reverse
+ble-face -s menu_desc_default         none
+ble-face -s menu_desc_type            ref:syntax_delimiter
+ble-face -s menu_desc_quote           ref:syntax_quoted
+ble-face -s menu_filter_fixed         bold
+ble-face -s menu_filter_input         fg=16,bg=229
 ```
 
 現在の描画設定の一覧は以下のコマンドでも確認できます (`ble-face` を無引数で呼び出す)。
@@ -628,6 +708,8 @@ $ ble-bind -P
 $ ble-bind -L
 ```
 
+それぞれの編集関数の説明は wiki のマニュアルを参照して下さい。
+
 一つのキーで複数の編集関数を呼び出したい場合は、以下の例の様に、
 `ble/widget/編集関数の名前` という名前のシェル関数を通して新しい編集関数を定義できます。
 既存の標準の編集関数と名前が重複しない様に、
@@ -644,7 +726,7 @@ function ble/widget/my/example1 {
 ble-bind -f C-t my/example1
 ```
 
-## 2.8 fzf との統合<sup><a id="fzf-integration" href="#get-from-source">†</a></sup>
+## 2.8 fzf との統合<sup><a id="fzf-integration" href="#fzf-integration">†</a></sup>
 
 `fzf` を `ble.sh` と一緒にお使いいただく場合には、[`contrib/fzf` 統合機能](https://github.com/akinomyoga/blesh-contrib#pencil-fzf-integration) を用いて `fzf` を設定していただく必要があります。
 詳細についてはリンク先の説明を御覧ください。
@@ -665,18 +747,28 @@ ble-import -d integration/fzf-key-bindings
 を遅延させます。このように設定した場合、指定したファイルはプロンプトが表示され
 た後にバックグランドで読み込まれます。詳細に関しては [`ble-import` - 説明書
 §8](https://github.com/akinomyoga/ble.sh/wiki/Manual-%C2%A78-Miscellaneous#user-content-fn-ble-import)
-を御覧ください。もし fzf の設定を読み込んだ後で更に設定を行うには、四つの方法が
-ございます。最も単純な方法はオプション `-d` を指定しない方法 [1] です。或いは、
-`ble-import -d` [2] または `ble/util/idle.push` [3] を用いて追加設定も同様に遅
-延させることができます。または、fzf 設定ファイルの読み込み完了に対して
-`ble-import -C` [4] を用いてフックを設定することもできます。
+を御覧ください。
+
+### fzf に対する追加設定がある場合
+
+`fzf` の設定を読み込んだ後に追加の設定コードを実行したい場合、上記の fzf 設定の遅延読み込みのために、
+単に設定コードを上記の設定に続けて記述しても動きません。
+この場合、四つの方法がございます。
+最も単純な方法はオプション `-d` を指定せずに遅延読み込みを無効化する方法 [1] です。
 
 ```bash
 # [1] オプション -d を使用しない
 ble-import integration/fzf-completion
 ble-import integration/fzf-key-bindings
 <settings>
+```
 
+しかし上の方法を用いると初期化時間が長くなります。別の方法として、
+`ble-import -d` [2] または `ble/util/idle.push` [3] を用いて追加設定も同様に遅
+延させることができます。または、fzf 設定ファイルの読み込み完了に対して
+`ble-import -C` [4] を用いてフックを設定することもできます。
+
+```bash
 # [2] 追加設定も ble-import -d を使う
 ble-import -d integration/fzf-completion
 ble-import -d integration/fzf-key-bindings

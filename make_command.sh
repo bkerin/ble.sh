@@ -52,11 +52,15 @@ function sub:install {
   while [[ $1 == -* ]]; do
     local arg=$1; shift
     case $arg in
-    (--release) flag_release=1 ;;
+    (--release)
+      flag_release=1 ;;
     (--strip-comment=*)
       opt_strip_comment=${arg#*=} ;;
-    (*) echo "install: unknown option $arg" >&2
-        flag_error=1 ;;
+    (--)
+      break ;;
+    (*)
+      echo "install: unknown option $arg" >&2
+      flag_error=1 ;;
     esac
   done
   [[ $flag_error ]] && return 1
@@ -80,12 +84,17 @@ function sub:install {
       script=$script'\
 #\
 # Source: /ble.pp'
-      local file
-      for file in $(git ls-files src); do
-        [[ $file == *.sh ]] || continue
-        script=$script"\\
+      if [[ -s out/ble.dep ]]; then
+        script=$script'\
+'$(awk 'sub(/^  /, "") { sub(/ \\$/, "\\"); print "# Source: /" $0; }' out/ble.dep)
+      else
+        local file
+        for file in $(git ls-files src); do
+          [[ $file == *.sh ]] || continue
+          script=$script"\\
 # Source: /$file"
-      done
+        done
+      fi
     else
       script=$script'\
 #\
@@ -95,16 +104,16 @@ function sub:install {
     # strip comments
     if [[ $opt_strip_comment != no ]]; then
       script=$script'
-/<<[[:space:]]*EOF/,/^[[:space:]]*EOF/{p;d;}
-/^[[:space:]]*#/d
-/^[[:space:]]*$/d'
+/<<[[:blank:]]*EOF/,/^[[:blank:]]*EOF/{p;d;}
+/^[[:blank:]]*#/d
+/^[[:blank:]]*$/d'
     else
       script=$script'\
 #------------------------------------------------------------------------------'
     fi
 
     [[ $flag_release ]] &&
-      script=$script$nl's/^\([[:space:]]*_ble_base_repository=\)'$q'.*'$q'\([[:space:]]*\)$/\1'${q}release:$dist_git_branch$q'/'
+      script=$script$nl's/^\([[:blank:]]*_ble_base_repository=\)'$q'.*'$q'\([[:blank:]]*\)$/\1'${q}release:$dist_git_branch$q'/'
     sed "$script" "$src" >| "$dst.part" && mv "$dst.part" "$dst"
   else
     cp "$src" "$dst"
@@ -145,7 +154,7 @@ function sub:dist {
 function sub:ignoreeof-messages {
   (
     cd ~/local/build/bash-4.3/po
-    sed -nr '/msgid "Use \\"%s\\" to leave the shell\.\\n"/{n;s/^[[:space:]]*msgstr "(.*)"[^"]*$/\1/p;}' *.po | while builtin read -r line || [[ $line ]]; do
+    sed -nr '/msgid "Use \\"%s\\" to leave the shell\.\\n"/{n;s/^[[:blank:]]*msgstr "(.*)"[^"]*$/\1/p;}' *.po | while builtin read -r line || [[ $line ]]; do
       [[ $line ]] || continue
       echo $(printf "$line" exit) # $() は末端の改行を削除するため
     done
@@ -175,8 +184,13 @@ function sub:check-all {
 
 _make_rex_escseq='(\[[ -?]*[@-~])*'
 
+function sub:scan/.mark {
+  local mark=$1
+  sed -E '/'"$mark"'($|[^0-9])/d;s/^/\x1b[1;95m'"$mark"'\x1b[m /'
+}
+
 function sub:scan/grc-source {
-  local -a options=(--color --exclude=./{test,memo,ext,wiki,contrib,[TD]????.*} --exclude=\*.{md,awk} --exclude=./{GNUmakefile,make_command.sh})
+  local -a options=(--color --exclude=./{test,memo,ext,wiki,[TD]????.*} --exclude=\*.{md,awk} --exclude=./{GNUmakefile,make_command.sh})
   grc "${options[@]}" "$@"
 }
 function sub:scan/list-command {
@@ -209,19 +223,20 @@ function sub:scan/list-command {
   [[ $flag_error ]] && return 1
 
   [[ $flag_exclude_this ]] && ble/array#push options --exclude=./make_command.sh
-  grc "${options[@]}" "(^|[^-./\${}=#])\b$command"'\b([[:space:]|&;<>()`"'\'']|$)'
+  grc "${options[@]}" "(^|[^-./\${}=#])\b$command"'\b([[:blank:]|&;<>()`"'\'']|$)'
 }
 
 function sub:scan/builtin {
   echo "--- $FUNCNAME $1 ---"
   local command=$1 esc=$_make_rex_escseq
+  local b="(\b|$esc)" ; [[ $command == [_a-zA-Z0-9]* ]] || b="($esc)"
   sub:scan/list-command --exclude-this --exclude={generate-release-note.sh,lib/test-*.sh,make,ext} "$command" "${@:2}" |
-    grep -Ev "$rex_grep_head([[:space:]]*|[[:alnum:][:space:]]*[[:space:]])#|(\b|$esc)(builtin|function)$esc([[:space:]]$esc)+$command(\b|$esc)" |
-    grep -Ev "$command(\b|$esc)=" |
+    grep -Ev "$rex_grep_head([[:blank:]]*|[[:alnum:][:blank:]]*[[:blank:]])#|$b(builtin|function)$esc([[:blank:]]$esc)+$command$b" |
+    grep -Ev "$command$b=" |
     grep -Ev "ble\.sh $esc\($esc$command$esc\)$esc" |
     sed -E 'h;s/'"$_make_rex_escseq"'//g
         \Z^\./lib/test-[^:]+\.sh:[0-9]+:.*ble/test Zd
-      s/^[^:]*:[0-9]+:[[:space:]]*//
+      s/^[^:]*:[0-9]+:[[:blank:]]*//
         \Z(\.awk|push|load|==|#(push|pop)) \b'"$command"'\bZd
       g'
 }
@@ -232,13 +247,13 @@ function sub:scan/check-todo-mark {
 }
 function sub:scan/a.txt {
   echo "--- $FUNCNAME ---"
-  grc --color --exclude={test,ext,./lib/test-\*.sh,./make_command.sh,\*.md} --exclude=check-mem.sh '[/[:space:]<>"'\''][a-z]\.txt|/dev/(pts/|pty)[0-9]*|/dev/tty' |
+  grc --color --exclude={test,ext,./lib/test-\*.sh,./make_command.sh,\*.md} --exclude=check-mem.sh '[/[:blank:]<>"'\''][a-z]\.txt|/dev/(pts/|pty)[0-9]*|/dev/tty' |
     sed -E 'h;s/'"$_make_rex_escseq"'//g
       \Z^\./memo/Zd
       \Zgithub302-perlre-server\.bashZd
       \Z^\./contrib/integration/fzf-git.bash:[0-9]+:Zd
-    s/^[^:]*:[0-9]+:[[:space:]]*//
-      \Z^[[:space:]]*#Zd
+    s/^[^:]*:[0-9]+:[[:blank:]]*//
+      \Z^[[:blank:]]*#Zd
       \ZDEBUG_LEAKVARZd
       \Z\[\[ -t 4 && -t 5 ]]Zd
       \Z^if ble/fd#alloc .*Zd
@@ -251,20 +266,20 @@ function sub:scan/bash300bug {
   # bash-3.0 では local arr=(1 2 3) とすると
   # local arr='(1 2 3)' と解釈されてしまう。
   grc '(local|declare|typeset) [_a-zA-Z]+=\(' --exclude=./{test,ext} --exclude=./make_command.sh --exclude=ChangeLog.md --color |
-    grep -v '#D0184'
+    sub:scan/.mark '#D0184'
 
   # bash-3.0 では local -a arr=("$hello") とすると
   # クォートしているにも拘らず $hello の中身が単語分割されてしまう。
   grc '(local|declare|typeset) -a [[:alnum:]_]+=\([^)]*[\"'\''`]' --exclude=./{test,ext} --exclude=./make_command.sh --color |
-    grep -v '#D0525'
+    sub:scan/.mark '#D0525'
 
   # bash-3.0 では "${scalar[@]/xxxx}" は全て空になる
   grc '\$\{[_a-zA-Z0-9]+\[[*@]\]/' --exclude=./{text,ext} --exclude=./make_command.sh --exclude=\*.md --color |
-    grep -v '#D1570'
+    sub:scan/.mark '#D1570'
 
   # bash-3.0 では "..${var-$'hello'}.." は (var が存在しない時) "..'hello'..." になる。
   grc '".*\$\{[^{}]*\$'\''([^\\'\'']|\\.)*'\''\}.*"' --exclude={./make_command.sh,memo,\*.md} --color |
-    grep -v '#D1774'
+    sub:scan/.mark '#D1774'
 
 }
 
@@ -273,7 +288,7 @@ function sub:scan/bash301bug {
   # bash-3.1, 3.2 では 10 以上の fd は既に使われている場合、リダイレクトに失敗
   # する。
   grc ' [0-9]{2}&?[<>]' --exclude=./{test,ext} --exclude=./make_command.sh --exclude=ChangeLog.md --color |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
       /^#/d
       /#D0857/d
       / [0-9]{2}[<>]&-/d
@@ -281,7 +296,7 @@ function sub:scan/bash301bug {
 
   # bash-3.1 では 10 以上の fd は >&- 等で閉じる事ができない。
   grc ' ([0-9]{2}|\$[a-zA-Z_0-9]+)&?[<>]&-' --exclude=./{test,ext} --exclude=./make_command.sh --exclude=ChangeLog.md --color |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
       /^#/d
       /#D2164/d
       g'
@@ -290,8 +305,8 @@ function sub:scan/bash301bug {
   # bash-3.1 で ${#arr[index]} を用いると、
   # 日本語の文字数が変になる。
   grc '\$\{#[[:alnum:]]+\[[^@*]' --exclude={test,ChangeLog.md} --color |
-    grep -Ev '^([^#]*[[:space:]])?#' |
-    grep -v '#D0182'
+    grep -Ev '^([^#]*[[:blank:]])?#' |
+    sub:scan/.mark '#D0182'
 }
 
 function sub:scan/bash400bug {
@@ -299,24 +314,24 @@ function sub:scan/bash400bug {
 
   # bash-3.0..4.0 で $'' 内に \' を入れていると '' の入れ子状態が反転して履歴展
   # 開が '' の内部で起こってしまう。
-  grc '\$'\''([^\'\'']|\\[^'\''])*\\'\''([^\'\'']|\\.|'\''([^\'\'']|\\*)'\'')*![^=[:space:]]' --exclude={test,ChangeLog.md} --color |
+  grc '\$'\''([^\'\'']|\\[^'\''])*\\'\''([^\'\'']|\\.|'\''([^\'\'']|\\*)'\'')*![^=[:blank:]]' --exclude={test,ChangeLog.md} --color |
     grep -v '9f0644470'
 }
 
 function sub:scan/bash401-histexpand-bgpid {
   echo "--- $FUNCNAME ---"
   grc '"\$!"' --exclude={test,ChangeLog.md} --color |
-    grep -Ev '#D2028'
+    sub:scan/.mark '#D2028'
 }
 
 function sub:scan/bash404-no-argument-return {
   echo "--- $FUNCNAME ---"
-  grc --color 'return[[:space:]]*($|[;|&<>])' --exclude={test,wiki,ChangeLog.md,make,docs,make_command.sh} |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+  grc --color 'return[[:blank:]]*($|[;|&<>])' --exclude={test,wiki,ChangeLog.md,make,docs,make_command.sh} |
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
 
       \Z@returnZd
       \Z\) return;Zd
-      \Zreturn;[[:space:]]*$Zd
+      \Zreturn;[[:blank:]]*$Zd
       \Zif \(REQ == "[A-Z]+"\)Zd
       \Z\(return\|ret\)Zd
       \Z_ble_trap_done=return$Zd
@@ -336,7 +351,7 @@ function sub:scan/bash502-patsub_replacement {
   # bash-5.2 patsub_replacement で ${var/pat/string} の string 中の & が特別な
   # 意味を持つ様になったので、特に意識する場合を除いては quote が必要になった。
   grc --color '\$\{[[:alnum:]_]+(\[[^][]*\])?//?([^{}]|\{[^{}]*\})+/[^{}"'\'']*([&$]|\\)' --exclude=./test |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
       \Z//?\$q/\$Q\}Zd
       \Z//?\$q/\$qq\}Zd
       \Z//?\$qq/\$q\}Zd
@@ -353,7 +368,7 @@ function sub:scan/bash502-patsub_replacement {
       g'
 
   grc --color '"[^"]*\$\{[[:alnum:]_]+(\[[^][]*\])?//?([^{}]|\{[^{}]*\})+/[^{}"'\'']*"[^"]*([&$]|\\)' --exclude=./test |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
       \Z#D1751Zd
       g'
 }
@@ -375,7 +390,7 @@ function sub:scan/assign {
   echo "--- $FUNCNAME ---"
   local command="$1"
   grc --color --exclude=./test --exclude=./memo '\$\([^()]' |
-    grep -Ev "$rex_grep_head#|[[:space:]]#"
+    grep -Ev "$rex_grep_head#|[[:blank:]]#"
 }
 
 function sub:scan/memo-numbering {
@@ -412,22 +427,22 @@ function sub:scan/memo-numbering {
       }
     }
   '
-  cat note.txt memo/done.txt | sed -n '0,/^[[:space:]]\{1,\}Done/d;/  \* .*\[#D....\]$/d;/^  \* /p'
+  cat note.txt memo/done.txt | sed -n '0,/^[[:blank:]]\{1,\}Done/d;/  \* .*\[#D....\]$/d;/^  \* /p'
 }
 
 # 誤って ((${#arr[@]})) を ((${arr[@]})) などと書いてしまうミス。
 function sub:scan/array-count-in-arithmetic-expression {
   echo "--- $FUNCNAME ---"
-  grc --exclude=./make_command.sh '\(\([^[:space:]]*\$\{[[:alnum:]_]+\[[@*]\]\}'
+  grc --exclude=./make_command.sh '\(\([^[:blank:]]*\$\{[[:alnum:]_]+\[[@*]\]\}'
 }
 
 # unset 変数名 としていると誤って関数が消えることがある。
 function sub:scan/unset-variable {
   echo "--- $FUNCNAME ---"
   sub:scan/list-command unset --exclude-this |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
-      \Zunset[[:space:]]-[vf]Zd
-      \Z^[[:space:]]*#Zd
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
+      \Zunset[[:blank:]]-[vf]Zd
+      \Z^[[:blank:]]*#Zd
       \Zunset _ble_init_(version|arg|exit|command)\bZd
       \Zbuiltins1=\(.* unset .*\)Zd
       \Zfunction unsetZd
@@ -441,7 +456,7 @@ function sub:scan/unset-variable {
 function sub:scan/eval-literal {
   echo "--- $FUNCNAME ---"
   sub:scan/grc-source 'builtin eval "\$' |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
       \Zeval "(\$[[:alnum:]_]+)+(\[[^]["'\''\$`]+\])?\+?=Zd
       g'
 }
@@ -449,23 +464,18 @@ function sub:scan/eval-literal {
 function sub:scan/WA-localvar_inherit {
   echo "--- $FUNCNAME ---"
   grc 'local [^;&|()]*"\$\{[_a-zA-Z0-9]+\[@*\]\}"' |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
       \Ztest_command='\''ble/bin/stty -echo -nl -icrnl -icanon "\$\{_ble_term_stty_flags_enter\[@]}" size'\''Zd
       /#D1566/d
       g'
 }
 
-function sub:scan/mistake-_ble_bash {
-  echo "--- $FUNCNAME ---"
-  grc '\(\(.*\b_ble_base\b.*\)\)'
-}
-
 function sub:scan/command-layout {
   echo "--- $FUNCNAME ---"
-  grc '/(enter-command-layout|\.insert-newline|\.newline)([[:space:]]|$)' --exclude=./{text,ext} --exclude=./make_command.sh --exclude=\*.md --color |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
-      \Z^[[:space:]]*#Zd
-      \Z^[[:space:]]*function [^[:space:]]* \{$Zd
+  grc '(/enter-command-layout|ble/edit/\.relocate-textarea|/\.newline)([[:blank:]]|$)' --exclude=./{text,ext} --exclude=./make_command.sh --exclude=\*.md --color |
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
+      \Z^[[:blank:]]*#Zd
+      \Z^[[:blank:]]*function [^[:blank:]]* \{$Zd
       \Z[: ]keep-infoZd
       \Z#D1800Zd
       g'
@@ -475,9 +485,9 @@ function sub:scan/word-splitting-number {
   echo "--- $FUNCNAME ---"
   # #D1835 一般には IFS に整数が含まれるている場合もあるので ${#...} や
   # $((...)) や >&$fd であってもちゃんと quote する必要がある。
-  grc '[<>]&\$|([[:space:]]|=\()\$(\(\(|\{#|\?)' --exclude={docs,mwg_pp.awk,memo} |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
-      \Z^[^#]*(^|[[:space:]])#Zd
+  grc '[<>]&\$|([[:blank:]]|=\()\$(\(\(|\{#|\?)' --exclude={docs,mwg_pp.awk,memo} |
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
+      \Z^[^#]*(^|[[:blank:]])#Zd
       \Z^([^"]|"[^\#]*")*"[^"]*([& (]\$)Zd
       \Z^[^][]*\[\[[^][]*([& (]\$)Zd
       \Z\(\([_a-zA-Z0-9]+=\(\$Zd
@@ -492,11 +502,13 @@ function sub:scan/word-splitting-number {
 function sub:scan/check-readonly-unsafe {
   echo "--- $FUNCNAME ---"
   local rex_varname='\b(_[_a-zA-Z0-9]+|[_A-Z][_A-Z0-9]+)\b'
-  grc -Wg,-n -Wg,--color=always -o "$rex_varname"'\+?=\b|(/assign|/assign-array|#split) '"$rex_varname"'| -v '"$rex_varname"' ' --exclude={memo,wiki,test,make,\*.md,make_command.sh,GNUmakefile} |
+  grc -Wg,-n -Wg,--color=always -o "$rex_varname"'\+?=\b|(/assign|/assign-array|#split) '"$rex_varname"'| -v '"$rex_varname"' ' \
+      --exclude={memo,wiki,test,make,'*.md',make_command.sh,GNUmakefile,'gh????.*.'{sh,bash}} |
     sed -E 'h;s/'"$_make_rex_escseq"'//g
 
       # Exceptions in each file
       /^\.\/ble.pp:[0-9]*:BLEOPT=$/d
+      /^\.\/ble.pp:[0-9]*:\/assign (USER|HOSTNAME)/d
       /^\.\/lib\/core-complete.sh:[0-9]+:KEY=$/d
       /^\.\/lib\/core-syntax.sh:[0-9]+:VAR=$/d
       /^\.\/lib\/init-(cmap|term).sh:[0-9]+:TERM=$/d
@@ -506,12 +518,13 @@ function sub:scan/check-readonly-unsafe {
       /^\.\/lib\/core-cmdspec.sh:[0-9]+:OLD=$/d
 
       # (extract only variable names)
-      s/^[^:]*:[0-9]+:[[:space:]]*//;
+      s/^[^:]*:[0-9]+:[[:blank:]]*//;
       s/^-v (.*) $/\1/;s/\+?=$//;s/^.+ //;
 
       # other frameworks & integrations
       /^__bp_blesh_invoking_through_blesh$/d
       /^__bp_imported$/d
+      /^__bp_inside_pre(cmd|exec)$/d
       /^BP_PROMPT_COMMAND_.*$/d
 
       # common variables
@@ -542,11 +555,38 @@ function sub:scan/check-readonly-unsafe {
       /^(ARG|FLAG|REG)$/d
       /^(COMP[12SV]|ACTION|CAND|DATA|INSERT|PREFIX_LEN)$/d
       /^(PRETTY_NAME|NAME|VERSION)$/d
+      /^(OPTIND|OPTERR)$/d
 
       # variables in awk/comments/etc
       /^AWKTYPE$/d
       /^FOO$/d
       g'
+}
+
+function sub:scan/check-LC_COLLATE {
+  echo "--- $FUNCNAME ---"
+  sub:scan/grc-source '\[[ @]-\\?[?/~]\]|es_unescape\(' |
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
+      /^[[:space:]]*#/d
+      /#D1440\b/d
+      /function es_unescape\(/d
+      /LC_COLLATE=C\b/d
+      g'
+}
+
+function sub:scan/mistake-_ble_bash {
+  echo "--- $FUNCNAME ---"
+  sub:scan/grc-source '\(\(.*\b_ble_base\b.*\)\)'
+}
+
+function sub:scan/mistake-bleopt-declare {
+  echo "--- $FUNCNAME ---"
+  sub:scan/grc-source 'bleopt/declare (-[nv] )?[_a-zA-Z0-9]+='
+}
+
+function sub:scan/mistake-typo {
+  echo "--- $FUNCNAME ---"
+  grc --color --exclude=./make_command.sh 'copmgen|comgpen|inetgration|\buti/'
 }
 
 function sub:scan {
@@ -562,8 +602,8 @@ function sub:scan {
 
   #sub:scan/builtin 'history'
   sub:scan/builtin 'echo' --exclude=./ble.pp |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
-      \Z\bstty[[:space:]]+echoZd
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
+      \Z\bstty[[:blank:]]+echoZd
       \Zecho \$PPIDZd
       \Zble/keymap:vi_test/check Zd
       \Zmandb-help=%'\''help echo'\''Zd
@@ -571,7 +611,7 @@ function sub:scan {
       g'
   #sub:scan/builtin '(compopt|type|printf)'
   sub:scan/builtin 'bind' |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
       \Zinvalid bind typeZd
       \Zline = "bind"Zd
       \Z'\''  bindZd
@@ -579,35 +619,41 @@ function sub:scan {
       \Z^alias bind cd command compgenZd
       \Zoutputs of the "bind" builtinZd
       \Zif ble/string#match "\$_ble_edit_str" '\''bindZd
+      \Z\(ble/builtin/bind\|ble/builtin/bind/\*\|bind\|ble/decode/read-inputrc/test\)Zd
+      \Ztitle=['\''"]([^"]*: )?bind \(ble\.sh\)['\''"]Zd
+      \Zwarning: readline \\"bind -x\\" does not supportZd
+      \Zble/init/measure/section '\''bind'\''Zd
       g'
   sub:scan/builtin 'read' |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
       \ZDo not read Zd
       \Zfailed to read Zd
       \Zpushd read readonly set shoptZd
       g'
   sub:scan/builtin 'exit' |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
       \Zble.pp.*return 1 2>/dev/null || exit 1Zd
-      \Z^[-[:space:][:alnum:]_./:=$#*]+('\''[^'\'']*|"[^"()`]*|([[:space:]]|^)#.*)\bexit\bZd
+      \Z^[-[:blank:][:alnum:]_./:=$#*]+('\''[^'\'']*|"[^"()`]*|([[:blank:]]|^)#.*)\bexit\bZd
       \Z\(exit\) ;;Zd
       \Zprint NR; exit;Zd;g'
   sub:scan/builtin 'eval' |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
       \Z\('\''eval'\''\)Zd
+      \Z\(eval\)Zd
       \Zbuiltins1=\(.* eval .*\)Zd
       \Z\^eval --Zd
       \Zt = "eval -- \$"Zd
       \Ztext = "eval -- \$'\''Zd
       \Zcmd '\''eval -- %q'\''Zd
       \Z\$\(eval \$\(call .*\)\)Zd
-      \Z^[[:space:]]*local rex_[_a-zA-Z0-9]+='\''[^'\'']*'\''[[:space:]]*$Zd
+      \Z^[[:blank:]]*local rex_[_a-zA-Z0-9]+='\''[^'\'']*'\''[[:blank:]]*$Zd
       \ZLINENO='\''\$lineno'\'' evalZd
+      \Z'\''argument eval'\''Zd
       \Z^ble/cmdspec/opts Zd
       g'
   sub:scan/builtin 'unset' |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
-      \Zunset _ble_init_(version|arg|exit|command)\bZd
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
+      \Zunset (-v )?_ble_init_(version|arg|exit|command)\bZd
       \Zreadonly -f unsetZd
       \Zunset -f builtinZd
       \Z'\''\(unset\)'\''Zd
@@ -616,7 +662,7 @@ function sub:scan {
       \ZThe variable will be unset initiallyZd
       g'
   sub:scan/builtin 'unalias' |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
       \Zbuiltins1=\(.* unalias .*\)Zd
       \Zumask unalias unset wait$Zd
       g'
@@ -630,7 +676,7 @@ function sub:scan {
       \Z^\./contrib/integration/bash-preexec\.bash:[0-9]+:.*\[\[ \$trap_string == "trap -- Zd
       \Z^\./contrib/snake\.sh:[0-9]+:Zd
 
-    s/^[^:]*:[0-9]+:[[:space:]]*//
+    s/^[^:]*:[0-9]+:[[:blank:]]*//
       \Z_ble_trap_handler="trap -- '\''\$\{_ble_trap_handler//\$q/\$Q}'\'' \$nZd
       \Zline = "bind"Zd
       \Ztrap_command=["'\'']trap -- Zd
@@ -646,13 +692,43 @@ function sub:scan {
       g'
 
   sub:scan/builtin 'readonly' |
-    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:space:]]*//
-      \Z^[[:space:]]*#Zd
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
+      \Z^[[:blank:]]*#Zd
       \ZWA readonlyZd
       \Z\('\''declare'\''(\|'\''[a-z]+'\'')+\)Zd
       \Z readonly was blocked\.Zd
       \Z\[\[ \$\{FUNCNAME\[i]} == \*readonly ]]Zd
       \Zread readonly set shopt trapZd
+      g'
+  sub:scan/builtin ':' --exclude=./ble.pp |
+    sed -E 'h;s/'"$_make_rex_escseq"'//g;s/^[^:]*:[0-9]+:[[:blank:]]*//
+      g'
+  sub:scan/builtin 'type' --exclude=./ble.pp |
+    sed -E 'h;s/'"$_make_rex_escseq"'//g
+
+      \Zgh0358\.copilot\.bashZd
+
+    s/^[^:]*:[0-9]+:[[:blank:]]*//
+
+      \Zble/util/type type Zd
+      \Zble/util/print "[^"].* type\bZd
+      \Z\blocal( [_a-zA-Z0-9]+)* typeZd
+      \Z # .*\btype\bZd
+      \Z # .*\btype\bZd
+      \Z\bfor type in Zd
+
+      \Z keys type\bZd
+      \Ztrap type ulimitZd
+      \Zevent typeZd
+      \Z"unrecognized fzf-complete type Zd
+
+      # awk scripts
+      \Zif \(typeZd
+      \Z\btype ==? Zd
+      \Z = type\bZd
+      \Z\b, type\)Zd
+
+      \Zble/fun:type\bZd
       g'
 
   sub:scan/a.txt
@@ -670,16 +746,20 @@ function sub:scan {
   sub:scan/unset-variable
   sub:scan/eval-literal
   sub:scan/WA-localvar_inherit
-  sub:scan/mistake-_ble_bash
   sub:scan/command-layout
   sub:scan/word-splitting-number
   sub:scan/check-readonly-unsafe
+  sub:scan/check-LC_COLLATE
+
+  sub:scan/mistake-_ble_bash
+  sub:scan/mistake-bleopt-declare
+  sub:scan/mistake-typo
 
   sub:scan/memo-numbering
 }
 
 function sub:show-contrib/canonicalize {
-  sed 's/, /\n/g;s/ and /\n/g' | sed 's/[[:space:]]/_/g' | LANG=C sort
+  sed 's/, /\n/g;s/ and /\n/g' | sed 's/[[:blank:]]/_/g' | LANG=C sort
 }
 function sub:show-contrib/count {
   LANG=C sort | uniq -c | LANG=C sort -rnk1 |
@@ -694,7 +774,7 @@ function sub:show-contrib {
       wget 'https://api.github.com/repos/akinomyoga/ble.sh/issues?state=all&per_page=100&pulls=true&page=2' -O -
       wget 'https://api.github.com/repos/akinomyoga/blesh-contrib/issues?state=all&per_page=100&pulls=true' -O -
     } |
-      sed -n 's/^[[:space:]]*"login": "\(.*\)",$/\1/p' |
+      sed -n 's/^[[:blank:]]*"login": "\(.*\)",$/\1/p' |
       sub:show-contrib/canonicalize > "$cache_contrib_github"
   fi
 
@@ -842,7 +922,7 @@ function sub:release-note-sort {
       gsub(/^\[|]$/, "", key);
 
       line = substr($0, RLENGTH + 1);
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line);
+      gsub(/^[[:blank:]]+|[[:blank:]]+$/, "", line);
       if (line == "") next;
       if (line !~ /^- /) line = "- " line;
 
@@ -901,11 +981,11 @@ function sub:list-functions {
   fi
 
   if [[ $opt_public ]]; then
-    local rex_function_name='[^[:space:]()/]*'
+    local rex_function_name='[^[:blank:]()/]*'
   else
-    local rex_function_name='[^[:space:]()]*'
+    local rex_function_name='[^[:blank:]()]*'
   fi
-  sed -n 's/^[[:space:]]*function \('"$rex_function_name"'\)[[:space:]].*/\1/p' "${files[@]}" | sort -u
+  sed -n 's/^[[:blank:]]*function \('"$rex_function_name"'\)[[:blank:]].*/\1/p' "${files[@]}" | sort -u
 }
 
 function sub:first-defined {
@@ -927,17 +1007,17 @@ function sub:first-defined/help {
 #------------------------------------------------------------------------------
 
 function sub:scan-words {
-  # sed -E "s/'[^']*'//g;s/(^| )[[:space:]]*#.*/ /g" $(findsrc --exclude={wiki,test,\*.md}) |
+  # sed -E "s/'[^']*'//g;s/(^| )[[:blank:]]*#.*/ /g" $(findsrc --exclude={wiki,test,\*.md}) |
   #   grep -hoE '\$\{?[_a-zA-Z][_a-zA-Z0-9]*\b|\b[_a-zA-Z][-:._/a-zA-Z0-9]*\b' |
   #   sed -E 's/^\$\{?//g;s.^ble/widget/..;\./.!d;/:/d' |
   #   sort | uniq -c | sort -n
-  sed -E "s/(^| )[[:space:]]*#.*/ /g" $(findsrc --exclude={memo,wiki,test,\*.md}) |
+  sed -E "s/(^| )[[:blank:]]*#.*/ /g" $(findsrc --exclude={memo,wiki,test,\*.md}) |
     grep -hoE '\b[_a-zA-Z][_a-zA-Z0-9]{3,}\b' |
     sed -E 's/^bleopt_//' |
     sort | uniq -c | sort -n | less
 }
 function sub:scan-varnames {
-  sed -E "s/(^| )[[:space:]]*#.*/ /g" $(findsrc --exclude={wiki,test,\*.md}) |
+  sed -E "s/(^| )[[:blank:]]*#.*/ /g" $(findsrc --exclude={wiki,test,\*.md}) |
     grep -hoE '\$\{?[_a-zA-Z][_a-zA-Z0-9]*\b|\b[_a-zA-Z][_a-zA-Z0-9]*=' |
     sed -E 's/^\$\{?(.*)/\1$/g;s/[$=]//' |
     sort | uniq -c | sort -n | less
@@ -961,8 +1041,8 @@ function sub:check-dependency/identify-funcdef {
 
 function sub:check-dependency {
   local file=$1
-  grep -Eo '\bble(hook|opt|-[[:alnum:]]+)?/[^();&|[:space:]'\''"]+' "$file" | sort -u |
-    grep -Fvx "$(grep -Eo '\bfunction [^();&|[:space:]'\''"]+ +\{' "$file" | sed -E 's/^function | +\{$//g' | sort -u)" |
+  grep -Eo '\bble(hook|opt|-[[:alnum:]]+)?/[^();&|[:blank:]'\''"]+' "$file" | sort -u |
+    grep -Fvx "$(grep -Eo '\bfunction [^();&|[:blank:]'\''"]+ +\{' "$file" | sed -E 's/^function | +\{$//g' | sort -u)" |
     while read -r funcname; do
       location=$(sub:check-dependency/identify-funcdef "$funcname")
       echo "${location:-unknown:0}:$funcname"

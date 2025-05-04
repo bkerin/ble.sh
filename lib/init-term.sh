@@ -141,6 +141,12 @@ function ble/init:term/initialize {
 
   # CUP+ED (clear_screen)
   ble/init:term/define-cap _ble_term_clear $'\e[H\e[2J' clear:cl
+  # Note: ncurses-6.1 started to produce both "clear" and "E3" for "tput
+  # clear".  To obtain the entry "clear", one needs to specify the "-x" option
+  # to tput.  However, the option "-x" is non-POSIX and cannot be reliably
+  # used.  We instead manually remove "E3" because the control sequence of "E3"
+  # is unlikely to have variations.
+  _ble_term_clear=${_ble_term_clear//$'\e[3J'}
 
   # IL/DL
   ble/init:term/define-cap _ble_term_il $'\e[%dL' il:AL 123
@@ -194,17 +200,24 @@ function ble/init:term/initialize {
   # without affecting the unknown "cvvis" property.  Therefore, we only use
   # terminfo's civis when it has a known form.
   ble/init:term/register-varname _ble_term_rmcivis
-  if ble/string#match "$_ble_term_civis" $'^(\e\\[[<=>?]?[0-9]+)[hl]$'; then
-    # When terminfo's civis has the form of the ANSI sequence SM/RM, we revert
-    # it to cancel civis.
-    if [[ $_ble_term_civis == *l ]]; then
-      _ble_term_rmcivis=${BASH_REMATCH[1]}h
-    else
-      _ble_term_rmcivis=${BASH_REMATCH[1]}l
-    fi
+  if ble/string#match "$_ble_term_civis" $'^((\e\\[[<=>?]?[0-9;]+)[hl])+$'; then
+    # When terminfo's civis has the form of one or more ANSI sequences SM/RM,
+    # we revert theme to cancel civis.
+    local s=$_ble_term_civis
+    _ble_term_civis=
+    _ble_term_rmcivis=
+    while ble/string#match "$s" $'^(\e\\[[<=>?]?[0-9]+)[hl]'; do
+      s=${s:${#BASH_REMATCH}}
+      _ble_term_civis=$_ble_term_civis$BASH_REMATCH
+      if [[ $BASH_REMATCH == *l ]]; then
+        _ble_term_rmcivis=$_ble_term_rmcivis${BASH_REMATCH[1]}h
+      else
+        _ble_term_rmcivis=$_ble_term_rmcivis${BASH_REMATCH[1]}l
+      fi
+    done
   elif [[ $_ble_term_civis == *$'\e[?25l'* || ! $_ble_term_civis && $TERM != minix ]]; then
     # When terminfo's civis contains DECRST(25) or is an empty string, we use
-    # DECSET(25) to reveal the cursor.  It should bascailly be safe to send
+    # DECSET(25) to reveal the cursor.  It should basically be safe to send
     # SM/RM with modes unsupported by the terminal because typical terminals
     # just ignore them.  We exclude the minix console because it does not
     # ignore unsupported modes.  Some historical terminals use Mode ?25 for a
@@ -212,6 +225,11 @@ function ble/init:term/initialize {
     # Model 16, but I expect recent terminals would not try to produce
     # unnecessary conflicts.
     _ble_term_rmcivis=$'\e[?25h'
+    # Note (#D2197): In Linux console (TERM=linux), civis contains extra
+    # sequence [CSI 1 c], so if the original civis is used, the cursor
+    # visibility cannot be simply recovered.  We instead only use DECRST(25) to
+    # hide the cursor.
+    _ble_term_civis=$'\e[?25l'
   else
     # In the other cases, we give up hiding the cursor because we do not have a
     # way to recover it safely.
