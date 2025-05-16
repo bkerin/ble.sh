@@ -2782,6 +2782,43 @@ function ble/widget/universal-arg {
   ble-edit/content/toggle-arg
 }
 
+# FIXME: make run-time check of original
+## @fn ble/widget/append-arg-accept-symbols-above-number-keys-or [opts]
+##
+##   Like ble/widget/append-arg-or but if it get a key code corresponding
+##   to one of the symbols above the numbers keys it maps it back to the key
+##   code for the number instead.
+##
+function ble/widget/append-arg-accept-symbols-above-number-keys-or {
+  # ble/widget/complete 直後 (menu 表示時) の引数で menu に入る
+  ble/function#try ble/widget/complete/.select-menu-with-arg-accept-symbols-above-number-keys "${2-}" && return 0
+
+  local n=${#KEYS[@]}; ((n&&n--))
+  local code=$((KEYS[n]&_ble_decode_MaskChar))
+  ((code==0)) && return 1
+  local ret; ble/util/c2s "$code"; local ch=$ret
+  if
+    if [[ $_ble_edit_arg == + ]]; then
+      [[ $ch == [-0-9] ]] && _ble_edit_arg=
+    elif [[ $_ble_edit_arg == +* ]]; then
+      false
+    elif [[ $_ble_edit_arg ]]; then
+      [[ $ch == [0-9] ]]
+    else
+      ((KEYS[n]&_ble_decode_MaskFlag))
+    fi
+  then
+    ble/decode/widget/skip-lastwidget
+    _ble_edit_arg=$_ble_edit_arg$ch
+  else
+    ble/widget/"$1"
+  fi
+}
+# FIXME: make run-time check of original
+function ble/widget/append-arg-accept-symbols-above-number-keys {
+  ble/widget/append-arg-accept-symbols-above-number-keys-or self-insert "$@"
+}
+
 ## @fn ble-edit/content/prepend-kill-ring string kill_type
 function ble-edit/content/prepend-kill-ring {
   _ble_edit_kill_index=0

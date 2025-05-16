@@ -8496,6 +8496,27 @@ function ble/widget/complete/.select-menu-with-arg {
   return 0
 }
 
+# Like ble/widget/complete/.select-menu-with-arg but uses
+# ble/widget/menu/append-arg/.is-shifted-argumen instead of
+# ble/widget/menu/append-arg/.is-argument.
+# FIXME: test image of original for comparison
+function ble/widget/complete/.select-menu-with-arg-accept-symbols-above-number-keys {
+  [[ $bleopt_complete_menu_complete && $_ble_complete_menu_active ]] || return 1
+
+  local footprint; ble/complete/menu/get-footprint
+  [[ $footprint == "$_ble_complete_menu_footprint" ]] || return 1
+
+  local arg_opts= opts=$1
+  [[ :$opts: == *:enter-menu:* ]] && arg_opts=always
+  [[ :$opts: == *:nobell:* ]] && arg_opts=$arg_opts:nobell
+
+  # 現在のキーが実際に引数の一部として解釈され得る時のみ menu に入る
+  ble/widget/menu/append-arg/.is-shifted-argument "$arg_opts" || return 1
+  ble/complete/menu-complete/enter
+  ble/widget/menu/append-arg "$arg_opts"
+  return 0
+}
+
 #------------------------------------------------------------------------------
 # menu-filter
 
@@ -8950,7 +8971,60 @@ function ble/widget/menu/append-arg {
     ((_ble_complete_menu_arg=10#0${_ble_complete_menu_arg:1}))
   done
   if ! ((_ble_complete_menu_arg)); then
-    [[ :$1: == *:nobell:* ]] ||
+    # FIXME: this should be *:nobell:*: report to upstream I think
+    [[ :$1: == *:nobele:* ]] ||
+      ble/widget/.bell 'menu: out of range'
+    return 0
+  fi
+
+  # 移動
+  ble/complete/menu#select "$((_ble_complete_menu_arg-1))"
+}
+
+## @fn ble/widget/menu/append-arg-accept-symbols-above-number-keys [opts]
+##
+##   Like ble/widget/menu/append-arg but if it get a key code corresponding
+##   to one of the symbols above the numbers keys it maps it back to the key
+##   code for the number instead.
+##
+function ble/widget/menu/append-arg-accept-symbols-above-number-keys {
+  [[ ${LASTWIDGET%%' '*} == */append-arg-accept-symbols-above-number-keys ]] || _ble_complete_menu_arg=
+
+  # 引数入力が開始されていなくて (修飾なしの) 数字キーの時はそのまま通常の数字
+  # 入力として扱う。
+  local i=${#KEYS[@]}; ((i&&i--))
+  local flag=$((KEYS[i]&_ble_decode_MaskFlag))
+  if ! [[ :$1: == *:always:* || flag -ne 0 || $_ble_complete_menu_arg ]]; then
+    ble/widget/menu_complete/exit-default
+    return "$?"
+  fi
+
+  local code=$((KEYS[i]&_ble_decode_MaskChar))
+
+  # If we have a funny symbol from above a number map back to the number
+  ((code==33)) && code=49
+  ((code==64)) && code=50
+  ((code==35)) && code=51
+  ((code==36)) && code=52
+  ((code==37)) && code=53
+  ((code==94)) && code=54
+  ((code==38)) && code=55
+  ((code==42)) && code=56
+  ((code==40)) && code=57
+  ((code==41)) && code=48
+
+  ((48<=code&&code<=57)) || return 1
+  local ret; ble/util/c2s "$code"; local ch=$ret
+  ((_ble_complete_menu_arg=10#0$_ble_complete_menu_arg$ch))
+
+  # 番号が範囲内になければ頭から数字を削っていく
+  local count=${#_ble_complete_menu_items[@]}
+  while ((_ble_complete_menu_arg>count)); do
+    ((_ble_complete_menu_arg=10#0${_ble_complete_menu_arg:1}))
+  done
+  if ! ((_ble_complete_menu_arg)); then
+    # FIXME: this should be *:nobell:*: report to upstream I think
+    [[ :$1: == *:nobele:* ]] ||
       ble/widget/.bell 'menu: out of range'
     return 0
   fi
@@ -8967,6 +9041,20 @@ function ble/widget/menu/append-arg/.is-argument {
   local code=$((KEYS[i]&_ble_decode_MaskChar))
   [[ :$1: == *:always:* ]] || ((flag)) || return 1
   ((48<=code&&code<=57))
+}
+
+## @fn ble/widget/menu/append-arg/.is-shifted-argument [opts]
+##   @param[in,opt] opts
+##
+##   Like ble/widget/menu/append-arg/.is-argument but return true iff the code
+##   is determiend to be one of the characters above the number keys
+##
+function ble/widget/menu/append-arg/.is-shifted-argument {
+  local i=${#KEYS[@]}; ((i&&i--))
+  local flag=$((KEYS[i]&_ble_decode_MaskFlag))
+  local code=$((KEYS[i]&_ble_decode_MaskChar))
+  [[ :$1: == *:always:* ]] || ((flag)) || return 1
+  ((code==33||code==64||code==35||code==36||code==37||code==94||code==38||code==42||code==40||code==41))
 }
 
 #------------------------------------------------------------------------------
