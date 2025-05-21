@@ -8456,14 +8456,22 @@ function ble/util/message/handler:print {
 
 blehook internal_PRECMD!='ble/util/message.process precmd'
 
+function warn_if_not_defined_in_caller {
+  # ble/util/print a warning and faile if $1 is not defined in ${FUNCNAME[1]}
+
+  # Common Part Of Error Message
+  local cpoem="probably it's supposed to be a defined function for it's use in ${FUNCNAME[1]} to make sense"
+
+  type "$1" >/dev/null \
+    || { ble/util/print "'type $1' failed, $cpoem" && return 1; }
+}
+
 function warn_if_upstream_function_changed {
 
   # Given an Upstream Function Name, Upstream Git Commit, and
   # Cloned-and-Modified Function Name, check for any changes in $ufn relative
   # to the upstream version of it named ${ufn}.upstream_${ugc} and if any are
   # found print a warning advising that $cmfn should probably be changed also
-
-  touch /tmp/da_goobers
 
   local ufn=$1 ugc=$2 cmfn=$3
 
@@ -8476,10 +8484,9 @@ function warn_if_upstream_function_changed {
   # If the function we're supposed to be checking aren't both defined
   # something didn't get updated or a function name changed upstream (or we
   # have some unknown bug :)
-  type $ufn >/dev/null \
-    || { ble/util/print "'type $ufn' failed, $cpoem" && return 1; }
-  type $vnomf >/dev/null \
-    || { ble/util/print "'type $vnomf' failed, $cpoem" && return 1; }
+  warn_if_not_defined_in_caller $ufn   || return 1
+  warn_if_not_defined_in_caller $vnomf || return 1
+  warn_if_not_defined_in_caller $cmfn  || return 1
 
   # +3 to get rid of the first two lines which contain the function names
   # (and so differ), leaving only the function bodies

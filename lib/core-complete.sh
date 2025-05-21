@@ -8496,12 +8496,27 @@ function ble/widget/complete/.select-menu-with-arg {
   return 0
 }
 
+# For noticing changes in upstream version we've clone-and-modified from
+function ble/widget/complete/.select-menu-with-arg.upstream_0379e034ce1f {
+  [[ $bleopt_complete_menu_complete && $_ble_complete_menu_active ]] || return 1
+
+  local footprint; ble/complete/menu/get-footprint
+  [[ $footprint == "$_ble_complete_menu_footprint" ]] || return 1
+
+  local arg_opts= opts=$1
+  [[ :$opts: == *:enter-menu:* ]] && arg_opts=always
+  [[ :$opts: == *:nobell:* ]] && arg_opts=$arg_opts:nobell
+
+  # 現在のキーが実際に引数の一部として解釈され得る時のみ menu に入る
+  ble/widget/menu/append-arg/.is-argument "$arg_opts" || return 1
+  ble/complete/menu-complete/enter
+  ble/widget/menu/append-arg "$arg_opts"
+  return 0
+}
+
 # Like ble/widget/complete/.select-menu-with-arg but uses
 # ble/widget/menu/append-arg/.is-shifted-argument instead of
 # ble/widget/menu/append-arg/.is-argument.
-# FIXME: WORK POINT: fix me below and for other funcs and make sure not miss
-# any, then commit and compress comits in this pranch onto master
-# FIXME: test image of original for comparison
 function ble/widget/complete/.select-menu-with-arg-accept-symbols-above-number-keys {
   [[ $bleopt_complete_menu_complete && $_ble_complete_menu_active ]] || return 1
 
@@ -8518,6 +8533,8 @@ function ble/widget/complete/.select-menu-with-arg-accept-symbols-above-number-k
   ble/widget/menu/append-arg-accept-symbols-above-number-keys "$arg_opts"
   return 0
 }
+
+warn_if_upstream_function_changed ble/widget/complete/.select-menu-with-arg 0379e034ce1f ble/widget/complete/.select-menu-with-arg-accept-symbols-above-number-keys
 
 #------------------------------------------------------------------------------
 # menu-filter
@@ -8973,8 +8990,40 @@ function ble/widget/menu/append-arg {
     ((_ble_complete_menu_arg=10#0${_ble_complete_menu_arg:1}))
   done
   if ! ((_ble_complete_menu_arg)); then
-    # FIXME: this should be *:nobell:*: report to upstream I think
-    [[ :$1: == *:nobele:* ]] ||
+    [[ :$1: == *:nobell:* ]] ||
+      ble/widget/.bell 'menu: out of range'
+    return 0
+  fi
+
+  # 移動
+  ble/complete/menu#select "$((_ble_complete_menu_arg-1))"
+}
+
+# For noticing changes in upstream version we've clone-and-modified from
+function ble/widget/menu/append-arg.upstream_0379e034ce1f {
+  [[ ${LASTWIDGET%%' '*} == */append-arg ]] || _ble_complete_menu_arg=
+
+  # 引数入力が開始されていなくて (修飾なしの) 数字キーの時はそのまま通常の数字
+  # 入力として扱う。
+  local i=${#KEYS[@]}; ((i&&i--))
+  local flag=$((KEYS[i]&_ble_decode_MaskFlag))
+  if ! [[ :$1: == *:always:* || flag -ne 0 || $_ble_complete_menu_arg ]]; then
+    ble/widget/menu_complete/exit-default
+    return "$?"
+  fi
+
+  local code=$((KEYS[i]&_ble_decode_MaskChar))
+  ((48<=code&&code<=57)) || return 1
+  local ret; ble/util/c2s "$code"; local ch=$ret
+  ((_ble_complete_menu_arg=10#0$_ble_complete_menu_arg$ch))
+
+  # 番号が範囲内になければ頭から数字を削っていく
+  local count=${#_ble_complete_menu_items[@]}
+  while ((_ble_complete_menu_arg>count)); do
+    ((_ble_complete_menu_arg=10#0${_ble_complete_menu_arg:1}))
+  done
+  if ! ((_ble_complete_menu_arg)); then
+    [[ :$1: == *:nobell:* ]] ||
       ble/widget/.bell 'menu: out of range'
     return 0
   fi
@@ -9025,8 +9074,7 @@ function ble/widget/menu/append-arg-accept-symbols-above-number-keys {
     ((_ble_complete_menu_arg=10#0${_ble_complete_menu_arg:1}))
   done
   if ! ((_ble_complete_menu_arg)); then
-    # FIXME: this should be *:nobell:*: report to upstream I think
-    [[ :$1: == *:nobele:* ]] ||
+    [[ :$1: == *:nobell:* ]] ||
       ble/widget/.bell 'menu: out of range'
     return 0
   fi
@@ -9035,9 +9083,20 @@ function ble/widget/menu/append-arg-accept-symbols-above-number-keys {
   ble/complete/menu#select "$((_ble_complete_menu_arg-1))"
 }
 
+warn_if_upstream_function_changed ble/widget/menu/append-arg 0379e034ce1f ble/widget/menu/append-arg-accept-symbols-above-number-keys
+
 ## @fn ble/widget/menu/append-arg/.is-argument [opts]
 ##   @param[in,opt] opts
 function ble/widget/menu/append-arg/.is-argument {
+  local i=${#KEYS[@]}; ((i&&i--))
+  local flag=$((KEYS[i]&_ble_decode_MaskFlag))
+  local code=$((KEYS[i]&_ble_decode_MaskChar))
+  [[ :$1: == *:always:* ]] || ((flag)) || return 1
+  ((48<=code&&code<=57))
+}
+
+# For noticing changes in upstream version we've clone-and-modified from
+function ble/widget/menu/append-arg/.is-argument.upstream_0379e034ce1f {
   local i=${#KEYS[@]}; ((i&&i--))
   local flag=$((KEYS[i]&_ble_decode_MaskFlag))
   local code=$((KEYS[i]&_ble_decode_MaskChar))
@@ -9058,6 +9117,8 @@ function ble/widget/menu/append-arg/.is-shifted-argument {
   [[ :$1: == *:always:* ]] || ((flag)) || return 1
   ((code==33||code==64||code==35||code==36||code==37||code==94||code==38||code==42||code==40||code==41))
 }
+
+warn_if_upstream_function_changed ble/widget/menu/append-arg/.is-argument 0379e034ce1f ble/widget/menu/append-arg/.is-shifted-argument
 
 #------------------------------------------------------------------------------
 #

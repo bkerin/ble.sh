@@ -2774,13 +2774,6 @@ function ble/widget/append-arg-or {
     ble/widget/"$1"
   fi
 }
-function ble/widget/append-arg {
-  ble/widget/append-arg-or self-insert "$@"
-}
-function ble/widget/universal-arg {
-  ble/decode/widget/skip-lastwidget
-  ble-edit/content/toggle-arg
-}
 
 # For noticing changes in upstream version we've clone-and-modified from
 function ble/widget/append-arg-or.upstream_0379e034ce1f {
@@ -2808,13 +2801,7 @@ function ble/widget/append-arg-or.upstream_0379e034ce1f {
     ble/widget/"$1"
   fi
 }
-# For noticing changes in upstream version we've clone-and-modified from
-function ble/widget/append-arg.upstream_0379e034ce1f {
-  ble/widget/append-arg-or self-insert "$@"
-}
 
-
-# FIXME: make run-time check of original
 ## @fn ble/widget/append-arg-accept-symbols-above-number-keys-or [opts]
 ##
 ##   Like ble/widget/append-arg-or but if it get a key code corresponding
@@ -2846,35 +2833,29 @@ function ble/widget/append-arg-accept-symbols-above-number-keys-or {
     ble/widget/"$1"
   fi
 }
-# FIXME: make run-time check of original
+
+warn_if_upstream_function_changed ble/widget/append-arg-or 0379e034ce1f ble/widget/append-arg-accept-symbols-above-number-keys-or
+
+function ble/widget/append-arg {
+  ble/widget/append-arg-or self-insert "$@"
+}
+
+# For noticing changes in upstream version we've clone-and-modified from
+function ble/widget/append-arg.upstream_0379e034ce1f {
+  ble/widget/append-arg-or self-insert "$@"
+}
+
 function ble/widget/append-arg-accept-symbols-above-number-keys {
   ble/widget/append-arg-accept-symbols-above-number-keys-or self-insert "$@"
 }
 
-function warn_if_changed {
+warn_if_upstream_function_changed ble/widget/append-arg 0379e034ce1f ble/widget/append-arg-accept-symbols-above-number-keys
 
-  # Given an Upstream Function Name, Upstream Git Commit, and
-  # Cloned-and-Modified Function Name, check for any changes in $ufn relative
-  # to the upstream version of it named ${ufn}.upstream_${ugc} and if any are
-  # found print a warning advising that $cmfn should probably be changed also
-
-  local ufn=$1 ugc=$2 cmfn=$3
-
-  # Versioned Name Of Model Function
-  local vnomf=${ufn}.upstream_${ugc}
-
-  # FIXME: WORK POINT: check if expected functions are even defined first
-  # FIXME: better name for this function
-  # FIXME: put this function in util or something
-
-  # +3 to get rid of the first two lines which contain the function names
-  # (and so differ), leaving only the function bodies
-  [ "$(type $ufn | tail -n +3)" = "$(type $vnomf | tail -n +3)" ] || ble/util/print "$ufn changed upstream, $cmfn should likely change to follow it (and the version saved in $vnomf updated and the Upstream Git Commit referenced in the call to ${FUNCNAME[0]} updated)"
+function ble/widget/universal-arg {
+  ble/decode/widget/skip-lastwidget
+  ble-edit/content/toggle-arg
 }
 
-warn_if_changed ble/widget/append-arg 0379e034ce1f ble/widget/append-arg-accept-symbols-above-number-keys
-
-warn_if_changed ble/widget/append-arg-or 0379e034ce1f ble/widget/append-arg-accept-symbols-above-number-keys-or
 
 ## @fn ble-edit/content/prepend-kill-ring string kill_type
 function ble-edit/content/prepend-kill-ring {
@@ -12167,3 +12148,6 @@ function ble-append-line {
   ble/util/message.post "$$" precmd edit/append-line "$data"
   builtin eval -- "$_ble_bash_POSIXLY_CORRECT_local_return"
 }
+
+
+
