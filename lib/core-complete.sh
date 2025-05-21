@@ -8497,8 +8497,10 @@ function ble/widget/complete/.select-menu-with-arg {
 }
 
 # Like ble/widget/complete/.select-menu-with-arg but uses
-# ble/widget/menu/append-arg/.is-shifted-argumen instead of
+# ble/widget/menu/append-arg/.is-shifted-argument instead of
 # ble/widget/menu/append-arg/.is-argument.
+# FIXME: WORK POINT: fix me below and for other funcs and make sure not miss
+# any, then commit and compress comits in this pranch onto master
 # FIXME: test image of original for comparison
 function ble/widget/complete/.select-menu-with-arg-accept-symbols-above-number-keys {
   [[ $bleopt_complete_menu_complete && $_ble_complete_menu_active ]] || return 1
@@ -8513,7 +8515,7 @@ function ble/widget/complete/.select-menu-with-arg-accept-symbols-above-number-k
   # 現在のキーが実際に引数の一部として解釈され得る時のみ menu に入る
   ble/widget/menu/append-arg/.is-shifted-argument "$arg_opts" || return 1
   ble/complete/menu-complete/enter
-  ble/widget/menu/append-arg "$arg_opts"
+  ble/widget/menu/append-arg-accept-symbols-above-number-keys "$arg_opts"
   return 0
 }
 

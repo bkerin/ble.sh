@@ -2782,6 +2782,38 @@ function ble/widget/universal-arg {
   ble-edit/content/toggle-arg
 }
 
+# For noticing changes in upstream version we've clone-and-modified from
+function ble/widget/append-arg-or.upstream_0379e034ce1f {
+  # ble/widget/complete 直後 (menu 表示時) の引数で menu に入る
+  ble/function#try ble/widget/complete/.select-menu-with-arg "${2-}" && return 0
+
+  local n=${#KEYS[@]}; ((n&&n--))
+  local code=$((KEYS[n]&_ble_decode_MaskChar))
+  ((code==0)) && return 1
+  local ret; ble/util/c2s "$code"; local ch=$ret
+  if
+    if [[ $_ble_edit_arg == + ]]; then
+      [[ $ch == [-0-9] ]] && _ble_edit_arg=
+    elif [[ $_ble_edit_arg == +* ]]; then
+      false
+    elif [[ $_ble_edit_arg ]]; then
+      [[ $ch == [0-9] ]]
+    else
+      ((KEYS[n]&_ble_decode_MaskFlag))
+    fi
+  then
+    ble/decode/widget/skip-lastwidget
+    _ble_edit_arg=$_ble_edit_arg$ch
+  else
+    ble/widget/"$1"
+  fi
+}
+# For noticing changes in upstream version we've clone-and-modified from
+function ble/widget/append-arg.upstream_0379e034ce1f {
+  ble/widget/append-arg-or self-insert "$@"
+}
+
+
 # FIXME: make run-time check of original
 ## @fn ble/widget/append-arg-accept-symbols-above-number-keys-or [opts]
 ##
@@ -2818,6 +2850,31 @@ function ble/widget/append-arg-accept-symbols-above-number-keys-or {
 function ble/widget/append-arg-accept-symbols-above-number-keys {
   ble/widget/append-arg-accept-symbols-above-number-keys-or self-insert "$@"
 }
+
+function warn_if_changed {
+
+  # Given an Upstream Function Name, Upstream Git Commit, and
+  # Cloned-and-Modified Function Name, check for any changes in $ufn relative
+  # to the upstream version of it named ${ufn}.upstream_${ugc} and if any are
+  # found print a warning advising that $cmfn should probably be changed also
+
+  local ufn=$1 ugc=$2 cmfn=$3
+
+  # Versioned Name Of Model Function
+  local vnomf=${ufn}.upstream_${ugc}
+
+  # FIXME: WORK POINT: check if expected functions are even defined first
+  # FIXME: better name for this function
+  # FIXME: put this function in util or something
+
+  # +3 to get rid of the first two lines which contain the function names
+  # (and so differ), leaving only the function bodies
+  [ "$(type $ufn | tail -n +3)" = "$(type $vnomf | tail -n +3)" ] || ble/util/print "$ufn changed upstream, $cmfn should likely change to follow it (and the version saved in $vnomf updated and the Upstream Git Commit referenced in the call to ${FUNCNAME[0]} updated)"
+}
+
+warn_if_changed ble/widget/append-arg 0379e034ce1f ble/widget/append-arg-accept-symbols-above-number-keys
+
+warn_if_changed ble/widget/append-arg-or 0379e034ce1f ble/widget/append-arg-accept-symbols-above-number-keys-or
 
 ## @fn ble-edit/content/prepend-kill-ring string kill_type
 function ble-edit/content/prepend-kill-ring {
